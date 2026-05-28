@@ -4,13 +4,39 @@
 
 1. Go to [vercel.com/new](https://vercel.com/new)
 2. Import **`Derekonpar/OnParWaitlist`**
-3. Configure the project:
-   - **Framework Preset:** Next.js
-   - **Root Directory:** `web` ← important
-   - **Build Command:** `npm run build` (default)
-   - **Install Command:** `npm install` (default)
+3. Configure the project — **pick ONE of these options** (both work):
 
-4. Deploy once (it may work without Redis, but the waitlist will not persist across deploys until step 2).
+### Option A (recommended): Root Directory = `web`
+
+| Setting | Value |
+|---------|--------|
+| **Framework Preset** | Next.js |
+| **Root Directory** | `web` |
+| **Build Command** | `npm run build` (default) |
+| **Install Command** | `npm install` (default) |
+
+### Option B: Root Directory = `.` (repo root)
+
+Use this if you already imported without `web` as root. The repo includes a root `package.json` + `vercel.json` for workspaces.
+
+| Setting | Value |
+|---------|--------|
+| **Framework Preset** | Next.js |
+| **Root Directory** | `.` (leave empty / repository root) |
+| **Build Command** | `npm run build -w web` |
+| **Install Command** | `npm install` |
+
+4. Deploy once.
+
+### Fix: `404: NOT_FOUND` on Vercel
+
+This almost always means Vercel is **not building the Next.js app in `web/`**.
+
+1. Vercel → your project → **Settings** → **General** → **Root Directory**
+2. Set to **`web`** (Option A) **OR** use Option B commands above
+3. **Save** → **Deployments** → **Redeploy** (use “Redeploy with existing Build Cache” **unchecked**)
+
+After a good deploy, visiting `/` should show the dark On Par waitlist UI — not a plain “404 NOT_FOUND” page.
 
 ## 2. Add Upstash Redis (required for production)
 
