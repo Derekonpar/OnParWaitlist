@@ -28,6 +28,15 @@ Use this if you already imported without `web` as root. The repo includes a root
 
 4. Deploy once.
 
+### Fix: Build failed (`npm run build` exited with 1)
+
+Usually caused by **wrong Root Directory** or an old `next.config` monorepo setting.
+
+1. **Root Directory** must be **`web`**
+2. **Build Command:** `npm run build`
+3. **Node.js Version:** 20.x (Project Settings → General)
+4. Redeploy **without** build cache
+
 ### Fix: `404: NOT_FOUND` on Vercel
 
 This almost always means Vercel is **not building the Next.js app in `web/`**.

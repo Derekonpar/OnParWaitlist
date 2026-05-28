@@ -1,7 +1,7 @@
 import { promises as fs } from "fs";
 import path from "path";
 import { Redis } from "@upstash/redis";
-import { v4 as uuidv4 } from "uuid";
+import { randomUUID } from "crypto";
 import { displayName } from "./display";
 import {
   ACTIVITIES,
@@ -183,7 +183,7 @@ export async function joinWaitlist(input: {
     }
 
     const entry: WaitlistEntry = {
-      id: uuidv4(),
+      id: randomUUID(),
       activity: input.activity,
       name: input.name.trim(),
       phone: normalizedPhone,
