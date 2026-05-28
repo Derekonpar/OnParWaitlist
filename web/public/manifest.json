@@ -1,0 +1,10 @@
+{
+  "name": "On Par Waitlist",
+  "short_name": "On Par",
+  "description": "Join the waitlist for bowling, darts, pool, and shuffleboard",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#fafafa",
+  "theme_color": "#fafafa",
+  "orientation": "portrait"
+}
