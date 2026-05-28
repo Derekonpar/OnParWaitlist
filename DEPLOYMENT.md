@@ -1,95 +1,47 @@
-# Deploy On Par Waitlist to Vercel
+# Deploy to Vercel (standard Next.js)
 
-## 1. Connect GitHub to Vercel
+This is a normal **Next.js App Router** project in the `web/` folder.
 
-1. Go to [vercel.com/new](https://vercel.com/new)
-2. Import **`Derekonpar/OnParWaitlist`**
-3. Configure the project — **pick ONE of these options** (both work):
-
-### Option A (recommended): Root Directory = `web`
+## Vercel settings (only thing that matters)
 
 | Setting | Value |
 |---------|--------|
-| **Framework Preset** | Next.js |
 | **Root Directory** | `web` |
-| **Build Command** | `npm run build` (default) |
-| **Install Command** | `npm install` (default) |
+| **Framework Preset** | Next.js (auto) |
+| **Build Command** | *(leave default — `next build`)* |
+| **Install Command** | *(leave default — `npm install`)* |
+| **Output Directory** | *(leave default — do not set manually)* |
 
-### Option B: Root Directory = `.` (repo root)
+Do **not** set a custom Output Directory. Do **not** use npm workspaces from the repo root.
 
-Use this if you already imported without `web` as root. The repo includes a root `package.json` + `vercel.json` for workspaces.
+## Steps
 
-| Setting | Value |
-|---------|--------|
-| **Framework Preset** | Next.js |
-| **Root Directory** | `.` (leave empty / repository root) |
-| **Build Command** | `npm run build -w web` |
-| **Install Command** | `npm install` |
+1. [vercel.com/new](https://vercel.com/new) → Import **Derekonpar/OnParWaitlist**
+2. Set **Root Directory** → **`web`**
+3. Deploy
+4. Add **Upstash Redis** (Storage → Marketplace) so the waitlist persists for all guests
+5. Environment variables (Settings → Environment Variables):
 
-4. Deploy once.
+| Variable | Required |
+|----------|----------|
+| `NEXT_PUBLIC_APP_URL` | Yes — your `https://….vercel.app` URL |
+| `STAFF_SECRET` | Yes |
+| `UPSTASH_REDIS_REST_URL` | Yes (from Upstash integration) |
+| `UPSTASH_REDIS_REST_TOKEN` | Yes |
+| Twilio vars | Optional (for SMS) |
 
-### Fix: Build failed (`npm run build` exited with 1)
+6. **Redeploy** after adding env vars
 
-Usually caused by **wrong Root Directory** or an old `next.config` monorepo setting.
+## iOS app
 
-1. **Root Directory** must be **`web`**
-2. **Build Command:** `npm run build`
-3. **Node.js Version:** 20.x (Project Settings → General)
-4. Redeploy **without** build cache
+After deploy, set `productionWaitlistURL` in `On Par Waitlist/On Par Waitlist/Config.swift` to your Vercel URL.
 
-### Fix: `404: NOT_FOUND` on Vercel
+## Local dev
 
-This almost always means Vercel is **not building the Next.js app in `web/`**.
-
-1. Vercel → your project → **Settings** → **General** → **Root Directory**
-2. Set to **`web`** (Option A) **OR** use Option B commands above
-3. **Save** → **Deployments** → **Redeploy** (use “Redeploy with existing Build Cache” **unchecked**)
-
-After a good deploy, visiting `/` should show the dark On Par waitlist UI — not a plain “404 NOT_FOUND” page.
-
-## 2. Add Upstash Redis (required for production)
-
-Everyone must see the **same** waitlist:
-
-1. Vercel project → **Storage** → **Marketplace** → **Upstash Redis**
-2. Create / connect a database
-3. Vercel auto-adds `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`
-4. **Redeploy**
-
-## 3. Environment variables
-
-In Vercel → **Settings** → **Environment Variables**:
-
-| Variable | Required | Example |
-|----------|----------|---------|
-| `NEXT_PUBLIC_APP_URL` | Yes | `https://your-project.vercel.app` |
-| `STAFF_SECRET` | Yes | long random password |
-| `UPSTASH_REDIS_REST_URL` | Yes (via integration) | auto |
-| `UPSTASH_REDIS_REST_TOKEN` | Yes (via integration) | auto |
-| `TWILIO_ACCOUNT_SID` | For SMS | from Twilio |
-| `TWILIO_AUTH_TOKEN` | For SMS | from Twilio |
-| `TWILIO_PHONE_NUMBER` | For SMS | `+1...` |
-| `VENUE_NAME` | Optional | `On Par Entertainment` |
-
-Copy names from `web/.env.example`.
-
-After changing env vars, **Redeploy**.
-
-## 4. Stable URL for QR + iOS app
-
-Your permanent guest link:
-
-- Home: `https://YOUR-PROJECT.vercel.app`
-- QR page: `https://YOUR-PROJECT.vercel.app/qr`
-
-Update Xcode `On Par Waitlist/On Par Waitlist/Config.swift`:
-
-```swift
-static let productionWaitlistURL = "https://YOUR-PROJECT.vercel.app"
+```bash
+cd web
+npm install
+npm run dev
 ```
 
-Rebuild the iOS app. No more Mac IP addresses.
-
-## 5. Custom domain (optional)
-
-Vercel → **Domains** → add e.g. `waitlist.onparentertainment.com`, then update `NEXT_PUBLIC_APP_URL` and `Config.swift` to match.
+Open http://localhost:3000
