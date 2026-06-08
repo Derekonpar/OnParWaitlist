@@ -18,6 +18,9 @@ export default function StaffPage() {
   >([]);
   const [loading, setLoading] = useState(false);
   const [actionId, setActionId] = useState<string | null>(null);
+  const [testPhone, setTestPhone] = useState("");
+  const [testSmsStatus, setTestSmsStatus] = useState<string | null>(null);
+  const [testSmsLoading, setTestSmsLoading] = useState(false);
 
   const headers = useCallback(
     () => ({
@@ -50,6 +53,26 @@ export default function StaffPage() {
     const interval = setInterval(fetchQueues, 8000);
     return () => clearInterval(interval);
   }, [authenticated, fetchQueues]);
+
+  async function sendTestSms() {
+    setTestSmsLoading(true);
+    setTestSmsStatus(null);
+    try {
+      const res = await fetch("/api/staff/test-sms", {
+        method: "POST",
+        headers: headers(),
+        body: JSON.stringify({ phone: testPhone }),
+      });
+      const data = await res.json();
+      setTestSmsStatus(
+        res.ok ? data.message : (data.error ?? "Test SMS failed"),
+      );
+    } catch {
+      setTestSmsStatus("Network error");
+    } finally {
+      setTestSmsLoading(false);
+    }
+  }
 
   async function staffAction(
     endpoint: string,
@@ -102,8 +125,35 @@ export default function StaffPage() {
     <>
       <Header />
       <main className="mx-auto max-w-2xl px-5 py-8">
+        <section className="mb-8 rounded-2xl border border-violet-500/30 bg-violet-500/10 p-4">
+          <h2 className="text-sm font-semibold text-white">Test Twilio SMS</h2>
+          <p className="mt-1 text-xs text-neutral-400">
+            Send a one-time test text to verify Twilio is connected.
+          </p>
+          <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+            <input
+              type="tel"
+              value={testPhone}
+              onChange={(e) => setTestPhone(e.target.value)}
+              placeholder="Your mobile number"
+              className="flex-1 rounded-xl border border-neutral-600 bg-neutral-900 px-4 py-2.5 text-sm text-white"
+            />
+            <button
+              type="button"
+              onClick={sendTestSms}
+              disabled={testSmsLoading || !testPhone}
+              className="rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-violet-500 disabled:opacity-60"
+            >
+              {testSmsLoading ? "Sending…" : "Send test"}
+            </button>
+          </div>
+          {testSmsStatus && (
+            <p className="mt-2 text-xs text-neutral-300">{testSmsStatus}</p>
+          )}
+        </section>
+
         <div className="mb-6 flex items-center justify-between">
-          <h1 className="text-xl font-semibold">Manage queues</h1>
+          <h1 className="text-xl font-semibold text-white">Manage queues</h1>
           <button
             type="button"
             onClick={fetchQueues}
