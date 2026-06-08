@@ -3,6 +3,7 @@ import { z } from "zod";
 import { joinWaitlist, getPosition } from "@/lib/store";
 import { ACTIVITIES } from "@/lib/types";
 import { ACTIVITY_LABELS } from "@/lib/types";
+import { isSmsOptedOut } from "@/lib/sms-consent";
 import {
   buildJoinConfirmation,
   sendSms,
@@ -36,6 +37,16 @@ export async function POST(request: Request) {
     }
 
     const { activity, name, phone, smsOptIn } = parsed.data;
+
+    if (smsOptIn && (await isSmsOptedOut(phone))) {
+      return NextResponse.json(
+        {
+          error:
+            "This number has opted out of texts. Reply START to resubscribe, or join without SMS.",
+        },
+        { status: 400 },
+      );
+    }
 
     if (smsOptIn && !parsed.data.phone) {
       return NextResponse.json(

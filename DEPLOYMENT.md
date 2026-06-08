@@ -29,6 +29,18 @@ Do **not** set a custom Output Directory. Do **not** use npm workspaces from the
 | `UPSTASH_REDIS_REST_URL` | Yes (from Upstash integration) |
 | `UPSTASH_REDIS_REST_TOKEN` | Yes |
 | Twilio vars | Optional (for SMS) |
+| `VENUE_PHONE` | Optional (shown on `/sms` page for Twilio verification) |
+| `CONTACT_EMAIL` | Optional (shown on `/sms` page) |
+
+### Twilio SMS verification
+
+Use this public URL in your Twilio campaign registration:
+
+**`https://YOUR-PROJECT.vercel.app/sms`**
+
+In Twilio Console → your phone number → **Messaging Configuration** → **A MESSAGE COMES IN**:
+
+`https://YOUR-PROJECT.vercel.app/api/twilio/inbound` (HTTP POST)
 
 6. **Redeploy** after adding env vars
 

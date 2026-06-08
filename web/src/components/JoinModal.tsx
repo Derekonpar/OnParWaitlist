@@ -125,7 +125,10 @@ export function JoinModal({ activity, onClose }: JoinModalProps) {
                 Text me when I&apos;m up
               </span>
               <br />
-              Optional SMS via Twilio. Standard rates may apply.
+              Optional SMS alerts. Standard rates may apply.{" "}
+              <a href="/sms" className="underline hover:text-neutral-200">
+                SMS program details
+              </a>
             </span>
           </label>
 

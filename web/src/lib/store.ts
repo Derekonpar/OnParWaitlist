@@ -219,6 +219,25 @@ export async function updateStatus(
   });
 }
 
+export async function cancelActiveEntriesForPhone(phone: string): Promise<number> {
+  return withStoreLock(async () => {
+    const normalized = normalizePhone(phone);
+    const entries = await readAllUnsafe();
+    let count = 0;
+    for (let i = 0; i < entries.length; i++) {
+      if (
+        entries[i].phone === normalized &&
+        (entries[i].status === "waiting" || entries[i].status === "notified")
+      ) {
+        entries[i] = { ...entries[i], status: "cancelled" };
+        count++;
+      }
+    }
+    if (count > 0) await writeAllUnsafe(entries);
+    return count;
+  });
+}
+
 export function normalizePhone(phone: string): string {
   const digits = phone.replace(/\D/g, "");
   if (digits.length === 10) return `+1${digits}`;

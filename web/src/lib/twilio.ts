@@ -1,4 +1,5 @@
 import twilio from "twilio";
+import { isSmsOptedOut } from "./sms-consent";
 
 function getClient() {
   const sid = process.env.TWILIO_ACCOUNT_SID;
@@ -8,6 +9,11 @@ function getClient() {
 }
 
 export async function sendSms(to: string, body: string): Promise<boolean> {
+  if (await isSmsOptedOut(to)) {
+    console.warn("[twilio] Skipped — number opted out:", to);
+    return false;
+  }
+
   const client = getClient();
   const from = process.env.TWILIO_PHONE_NUMBER;
   if (!client || !from) {

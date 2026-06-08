@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { ActivityCard } from "./ActivityCard";
 import { JoinModal } from "./JoinModal";
+import { Footer } from "./Footer";
 import { Header } from "./Header";
 import type { ActivityBoard } from "@/lib/store";
 import { emptyBoard } from "@/lib/defaults";
@@ -85,12 +86,11 @@ export function WaitlistDashboard({ initialBoard }: WaitlistDashboardProps) {
 
         <p className="mt-8 text-center text-xs text-neutral-500">
           {loading ? "Updating…" : lastUpdated ? "Updated just now" : "Live"}{" "}
-          · refreshes every 5s ·{" "}
-          <a href="/qr" className="text-neutral-300 underline hover:text-white">
-            Lobby QR
-          </a>
+          · refreshes every 5s
         </p>
       </main>
+
+      <Footer />
 
       {joinActivity && (
         <JoinModal
