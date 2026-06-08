@@ -1,8 +1,8 @@
 import { promises as fs } from "fs";
 import path from "path";
-import { Redis } from "@upstash/redis";
 import { randomUUID } from "crypto";
 import { displayName } from "./display";
+import { getRedis, hasRedisConfigured, isVercelProduction } from "./redis";
 import {
   ACTIVITIES,
   type Activity,
@@ -25,13 +25,6 @@ function withStoreLock<T>(fn: () => Promise<T>): Promise<T> {
   return run;
 }
 
-function getRedis(): Redis | null {
-  const url = process.env.UPSTASH_REDIS_REST_URL;
-  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
-  if (!url || !token) return null;
-  return new Redis({ url, token });
-}
-
 async function readAllUnsafe(): Promise<WaitlistEntry[]> {
   const redis = getRedis();
   if (redis) {
@@ -39,8 +32,8 @@ async function readAllUnsafe(): Promise<WaitlistEntry[]> {
       const data = await redis.get<WaitlistEntry[]>(STORE_KEY);
       return Array.isArray(data) ? data : [];
     } catch (err) {
-      console.error("[store] Redis read failed, using empty queue:", err);
-      return [];
+      console.error("[store] Redis read failed:", err);
+      throw new Error("STORE_READ_FAILED");
     }
   }
 
@@ -65,10 +58,19 @@ async function writeAllUnsafe(entries: WaitlistEntry[]): Promise<void> {
     }
   }
 
-  await fs.mkdir(DATA_DIR, { recursive: true });
-  const tempFile = `${DATA_FILE}.${process.pid}.tmp`;
-  await fs.writeFile(tempFile, JSON.stringify(entries, null, 2), "utf-8");
-  await fs.rename(tempFile, DATA_FILE);
+  if (isVercelProduction()) {
+    throw new Error("STORAGE_NOT_CONFIGURED");
+  }
+
+  try {
+    await fs.mkdir(DATA_DIR, { recursive: true });
+    const tempFile = `${DATA_FILE}.${process.pid}.tmp`;
+    await fs.writeFile(tempFile, JSON.stringify(entries, null, 2), "utf-8");
+    await fs.rename(tempFile, DATA_FILE);
+  } catch (err) {
+    console.error("[store] File write failed:", err);
+    throw new Error("STORE_WRITE_FAILED");
+  }
 }
 
 async function readAll(): Promise<WaitlistEntry[]> {
@@ -88,6 +90,34 @@ export interface QueuePreview {
 export interface ActivityBoard {
   stats: ActivityStats;
   queue: QueuePreview[];
+}
+
+export async function getStorageStatus(): Promise<{
+  backend: "redis" | "file" | "none";
+  canWrite: boolean;
+  hint?: string;
+}> {
+  if (hasRedisConfigured()) {
+    const redis = getRedis()!;
+    try {
+      await redis.ping();
+      return { backend: "redis", canWrite: true };
+    } catch {
+      return {
+        backend: "redis",
+        canWrite: false,
+        hint: "Redis env vars are set but connection failed. Check Upstash credentials in Vercel.",
+      };
+    }
+  }
+  if (isVercelProduction()) {
+    return {
+      backend: "none",
+      canWrite: false,
+      hint: "Add Upstash Redis from Vercel Storage → Marketplace, then redeploy.",
+    };
+  }
+  return { backend: "file", canWrite: true };
 }
 
 export async function getStats(): Promise<ActivityStats[]> {

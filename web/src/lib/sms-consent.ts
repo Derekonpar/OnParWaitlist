@@ -1,18 +1,11 @@
 import { promises as fs } from "fs";
 import path from "path";
-import { Redis } from "@upstash/redis";
+import { getRedis, isVercelProduction } from "./redis";
 import { normalizePhone } from "./store";
 
 const OPT_OUT_KEY = "onpar:sms-opt-out";
 const DATA_DIR = path.join(process.cwd(), "data");
 const OPT_OUT_FILE = path.join(DATA_DIR, "sms-opt-out.json");
-
-function getRedis(): Redis | null {
-  const url = process.env.UPSTASH_REDIS_REST_URL;
-  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
-  if (!url || !token) return null;
-  return new Redis({ url, token });
-}
 
 async function readOptOutList(): Promise<string[]> {
   const redis = getRedis();
@@ -35,14 +28,19 @@ async function writeOptOutList(phones: string[]): Promise<void> {
     await redis.set(OPT_OUT_KEY, phones);
     return;
   }
+  if (isVercelProduction()) return;
   await fs.mkdir(DATA_DIR, { recursive: true });
   await fs.writeFile(OPT_OUT_FILE, JSON.stringify(phones, null, 2), "utf-8");
 }
 
 export async function isSmsOptedOut(phone: string): Promise<boolean> {
-  const normalized = normalizePhone(phone);
-  const list = await readOptOutList();
-  return list.includes(normalized);
+  try {
+    const normalized = normalizePhone(phone);
+    const list = await readOptOutList();
+    return list.includes(normalized);
+  } catch {
+    return false;
+  }
 }
 
 export async function addSmsOptOut(phone: string): Promise<void> {

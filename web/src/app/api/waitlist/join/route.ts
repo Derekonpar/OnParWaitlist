@@ -83,15 +83,38 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ entry, position });
   } catch (err) {
-    if (err instanceof Error && err.message === "ALREADY_ON_WAITLIST") {
-      return NextResponse.json(
-        { error: "You are already on this waitlist." },
-        { status: 409 },
-      );
+    if (err instanceof Error) {
+      if (err.message === "ALREADY_ON_WAITLIST") {
+        return NextResponse.json(
+          { error: "You are already on this waitlist." },
+          { status: 409 },
+        );
+      }
+      if (err.message === "STORAGE_NOT_CONFIGURED") {
+        return NextResponse.json(
+          {
+            error:
+              "Waitlist storage is not set up on the server. Add Upstash Redis in Vercel and redeploy.",
+          },
+          { status: 503 },
+        );
+      }
+      if (
+        err.message === "STORE_WRITE_FAILED" ||
+        err.message === "STORE_READ_FAILED"
+      ) {
+        return NextResponse.json(
+          {
+            error:
+              "Could not save your spot. Check Upstash Redis connection in Vercel.",
+          },
+          { status: 503 },
+        );
+      }
     }
     console.error("[join]", err);
     return NextResponse.json(
-      { error: "Could not join waitlist" },
+      { error: "Could not join waitlist. Please try again." },
       { status: 500 },
     );
   }

@@ -21,6 +21,7 @@ export default function StaffPage() {
   const [testPhone, setTestPhone] = useState("");
   const [testSmsStatus, setTestSmsStatus] = useState<string | null>(null);
   const [testSmsLoading, setTestSmsLoading] = useState(false);
+  const [storageHint, setStorageHint] = useState<string | null>(null);
 
   const headers = useCallback(
     () => ({
@@ -42,6 +43,12 @@ export default function StaffPage() {
       const data = await res.json();
       setQueues(data.queues ?? []);
       setAuthenticated(true);
+
+      const storageRes = await fetch("/api/staff/storage", { headers: headers() });
+      if (storageRes.ok) {
+        const storage = await storageRes.json();
+        setStorageHint(storage.canWrite ? null : (storage.hint ?? "Storage not ready"));
+      }
     } finally {
       setLoading(false);
     }
@@ -125,6 +132,16 @@ export default function StaffPage() {
     <>
       <Header />
       <main className="mx-auto max-w-2xl px-5 py-8">
+        {storageHint && (
+          <section className="mb-6 rounded-2xl border border-red-500/40 bg-red-500/10 p-4">
+            <h2 className="text-sm font-semibold text-red-200">Waitlist storage issue</h2>
+            <p className="mt-1 text-xs text-red-100/90">{storageHint}</p>
+            <p className="mt-2 text-xs text-neutral-400">
+              Vercel → Storage → Marketplace → Upstash Redis → connect to this project → Redeploy.
+            </p>
+          </section>
+        )}
+
         <section className="mb-8 rounded-2xl border border-violet-500/30 bg-violet-500/10 p-4">
           <h2 className="text-sm font-semibold text-white">Test Twilio SMS</h2>
           <p className="mt-1 text-xs text-neutral-400">
