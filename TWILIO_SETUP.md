@@ -1,4 +1,4 @@
-# Twilio setup — first test message
+# Twilio setup
 
 Your site: **https://on-par-waitlist.vercel.app**
 
@@ -24,7 +24,7 @@ Add these for **Production** (and Preview if you want):
 | `TWILIO_PHONE_NUMBER` | `+19375551234` | Must include `+1` |
 | `VENUE_NAME` | `On Par Entertainment` | Used in message text |
 | `NEXT_PUBLIC_APP_URL` | `https://on-par-waitlist.vercel.app` | Already set? verify |
-| `STAFF_SECRET` | your password | For staff console + test SMS |
+| `STAFF_SECRET` | your password | For staff console |
 
 Click **Save**, then **Deployments → Redeploy** (uncheck build cache).
 
@@ -42,27 +42,9 @@ Under **Messaging Configuration**:
 
 Save. This handles **STOP**, **START**, and **HELP** replies.
 
-## Step 4: Send your first test message
+## Step 4: Test SMS
 
-### Option A — Staff test endpoint (fastest)
-
-Replace `YOUR_STAFF_SECRET` and `YOUR_PHONE` (your real cell):
-
-```bash
-curl -X POST https://on-par-waitlist.vercel.app/api/staff/test-sms \
-  -H "Content-Type: application/json" \
-  -H "x-staff-secret: YOUR_STAFF_SECRET" \
-  -d '{"phone": "9377056024"}'
-```
-
-You should get:
-```json
-{"success":true,"message":"Test SMS sent. Check your phone in a few seconds."}
-```
-
-And receive: *"Test from On Par Entertainment waitlist — Twilio is connected! Reply STOP to opt out."*
-
-### Option B — Full guest flow
+### Option A — Full guest flow
 
 1. Open https://on-par-waitlist.vercel.app
 2. Tap **Get on waitlist** on any activity
@@ -70,7 +52,7 @@ And receive: *"Test from On Par Entertainment waitlist — Twilio is connected! 
 4. Check **Text me when I'm up**
 5. Join — you should get a confirmation text with your position
 
-### Option C — Staff “Notify” (you’re up message)
+### Option B — Staff “Notify” (you’re up message)
 
 1. Join the waitlist with SMS opt-in (Option B)
 2. Go to https://on-par-waitlist.vercel.app/staff
@@ -95,17 +77,6 @@ Or use https://on-par-waitlist.vercel.app/sms to unsubscribe online.
 | Twilio error 21608 / unverified | Trial accounts can only text **verified** numbers — add your phone in Twilio → Verified Caller IDs |
 | Wrong number format | Use 10 digits or `+1` prefix in requests |
 | Number opted out | Reply **START** to your Twilio number, or remove from opt-out via Redis/data |
-
-## Local testing (optional)
-
-```bash
-cd web
-cp .env.example .env.local
-# Fill in TWILIO_* and STAFF_SECRET in .env.local
-npm run dev
-```
-
-Then run the curl command against `http://localhost:3000/api/staff/test-sms`.
 
 ## Twilio campaign URLs (for your records)
 

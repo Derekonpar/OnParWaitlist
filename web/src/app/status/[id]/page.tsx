@@ -11,6 +11,8 @@ interface StatusData {
     name: string;
     activityLabel: string;
     status: string;
+    laneCount?: number;
+    sessionMinutes?: number;
   };
   position: number;
   estimatedWaitMinutes: number;
@@ -67,7 +69,17 @@ export default function StatusPage() {
             <h1 className="text-2xl font-semibold text-white">
               You&apos;re on the list, {data.entry.name.split(" ")[0]}!
             </h1>
-            <p className="mt-2 text-neutral-400">{data.entry.activityLabel}</p>
+            <p className="mt-2 text-neutral-400">
+              {data.entry.activityLabel}
+              {data.entry.laneCount != null && (
+                <>
+                  {" "}
+                  · {data.entry.laneCount} lane
+                  {data.entry.laneCount === 1 ? "" : "s"} ·{" "}
+                  {data.entry.sessionMinutes === 60 ? "1 hour" : "30 min"}
+                </>
+              )}
+            </p>
             <p className="mt-1 text-xs text-neutral-500">
               Your spot updates live for everyone in line
             </p>

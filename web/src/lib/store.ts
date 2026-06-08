@@ -3,17 +3,23 @@ import path from "path";
 import { randomUUID } from "crypto";
 import { displayName } from "./display";
 import {
+  isValidEntryId,
   normalizeWaitlistRow,
   statusForDb,
   waitlistInsertSnake,
 } from "./db-mapper";
 import { getSupabaseAdmin, hasSupabaseConfigured } from "./supabase";
 import {
+  activityQueueWait,
+  waitMinutesAhead,
+} from "./wait-estimate";
+import {
   ACTIVITIES,
   type Activity,
   type ActivityStats,
   ACTIVITY_LABELS,
-  MINUTES_PER_PARTY,
+  type LaneCount,
+  type SessionDuration,
   type WaitlistEntry,
   type WaitlistStatus,
 } from "./types";
@@ -63,10 +69,39 @@ function rowToEntry(row: Record<string, unknown>): WaitlistEntry {
     name: db.name,
     phone: db.phone,
     smsOptIn: db.sms_opt_in,
+    laneCount: db.lane_count,
+    sessionMinutes: db.session_minutes,
     status: db.status,
     createdAt: db.created_at,
     notifiedAt: db.notified_at ?? undefined,
   };
+}
+
+async function deleteEntryById(id: string): Promise<void> {
+  const supabase = getSupabaseAdmin();
+  if (supabase) {
+    await supabase.from("waitlist_entries").delete().eq("id", id);
+    return;
+  }
+  const entries = await readFileAll();
+  await writeFileAll(entries.filter((e) => e.id !== id));
+}
+
+async function sanitizeStaleEntries(
+  entries: WaitlistEntry[],
+): Promise<WaitlistEntry[]> {
+  const kept: WaitlistEntry[] = [];
+  for (const entry of entries) {
+    const isActive =
+      entry.status === "waiting" || entry.status === "notified";
+    if (isActive && !isValidEntryId(entry.id)) {
+      await deleteEntryById(entry.id);
+      console.warn("[store] removed stale entry", entry.name, entry.id);
+      continue;
+    }
+    kept.push(entry);
+  }
+  return kept;
 }
 
 function sortByCreatedAt(rows: WaitlistEntry[]): WaitlistEntry[] {
@@ -129,13 +164,14 @@ async function readAllUnsafe(): Promise<WaitlistEntry[]> {
       logSupabaseError("read", error);
       throw error;
     }
-    return sortByCreatedAt(
+    const entries = sortByCreatedAt(
       (data ?? []).map((row) => rowToEntry(row as Record<string, unknown>)),
     );
+    return sanitizeStaleEntries(entries);
   }
 
   if (isVercel()) throw new Error("STORAGE_NOT_CONFIGURED");
-  return readFileAll();
+  return sanitizeStaleEntries(await readFileAll());
 }
 
 async function writeAllUnsafe(entries: WaitlistEntry[]): Promise<void> {
@@ -161,7 +197,8 @@ async function supabaseInsertEntry(
       customer_id: customerId,
       activity: entry.activity,
       displayName: displayName(entry.name),
-      partySize: 1,
+      partySize: entry.laneCount,
+      estimated_wait_minutes: entry.sessionMinutes,
       name: entry.name,
       phone: entry.phone,
       status: entry.status,
@@ -246,9 +283,12 @@ async function patchEntryStatus(
 // --- Public API ---
 
 export interface QueuePreview {
+  id: string;
   position: number;
   displayName: string;
   status: WaitlistStatus;
+  laneCount: number;
+  sessionMinutes: number;
 }
 
 export interface ActivityBoard {
@@ -309,12 +349,11 @@ function buildStats(
   const waiting = entries.filter(
     (e) => e.activity === activity && e.status === "waiting",
   );
-  const count = waiting.length;
   return {
     activity,
     label: ACTIVITY_LABELS[activity],
-    waitingCount: count,
-    estimatedWaitMinutes: count * MINUTES_PER_PARTY[activity],
+    waitingCount: waiting.length,
+    estimatedWaitMinutes: activityQueueWait(activity, entries),
   };
 }
 
@@ -335,9 +374,12 @@ export async function getBoard(): Promise<ActivityBoard[]> {
     return {
       stats: buildStats(activity, entries),
       queue: waiting.map((e, i) => ({
+        id: e.id,
         position: i + 1,
         displayName: displayName(e.name),
         status: e.status,
+        laneCount: e.laneCount,
+        sessionMinutes: e.sessionMinutes,
       })),
     };
   });
@@ -353,12 +395,24 @@ export async function getQueue(activity: Activity): Promise<WaitlistEntry[]> {
     );
 }
 
+export async function getEstimatedWaitMinutes(id: string): Promise<number> {
+  const entries = await withStoreLock(readAllUnsafe);
+  const entry = entries.find((e) => e.id === id);
+  if (!entry || entry.status !== "waiting") return 0;
+  return waitMinutesAhead(entries, entry);
+}
+
 export async function getPosition(
   id: string,
 ): Promise<{ entry: WaitlistEntry; position: number } | null> {
   const entries = await withStoreLock(readAllUnsafe);
   const entry = entries.find((e) => e.id === id);
-  if (!entry || entry.status !== "waiting") return null;
+  if (!entry) return null;
+  if (entry.status === "served" || entry.status === "cancelled") return null;
+
+  if (entry.status === "notified") {
+    return { entry, position: 1 };
+  }
 
   const ahead = entries.filter(
     (e) =>
@@ -375,6 +429,8 @@ export async function joinWaitlist(input: {
   phone: string;
   smsOptIn: boolean;
   rewardsOptIn?: boolean;
+  laneCount?: LaneCount;
+  sessionMinutes?: SessionDuration;
 }): Promise<WaitlistEntry> {
   return withStoreLock(async () => {
     const normalizedPhone = normalizePhone(input.phone);
@@ -401,6 +457,8 @@ export async function joinWaitlist(input: {
       name: input.name.trim(),
       phone: normalizedPhone,
       smsOptIn: input.smsOptIn,
+      laneCount: input.laneCount ?? 1,
+      sessionMinutes: input.sessionMinutes ?? 30,
       status: "waiting",
       createdAt: new Date().toISOString(),
     };
@@ -414,6 +472,18 @@ export async function updateStatus(
   status: WaitlistStatus,
 ): Promise<WaitlistEntry | null> {
   return withStoreLock(() => patchEntryStatus(id, status));
+}
+
+/** Remove from queue — works for valid UUIDs (cancel) or legacy invalid ids (delete). */
+export async function removeEntry(id: string): Promise<boolean> {
+  return withStoreLock(async () => {
+    if (isValidEntryId(id)) {
+      const entry = await patchEntryStatus(id, "cancelled");
+      return entry !== null;
+    }
+    await deleteEntryById(id);
+    return true;
+  });
 }
 
 export async function cancelActiveEntriesForPhone(phone: string): Promise<number> {

@@ -85,7 +85,7 @@ export function ActivityCard({ board, onJoin }: ActivityCardProps) {
             <ol className="space-y-2">
               {queue.slice(0, 6).map((person) => (
                 <li
-                  key={`${person.position}-${person.displayName}`}
+                  key={person.id}
                   className="flex items-center justify-between rounded-xl bg-neutral-900 px-3 py-2.5"
                 >
                   <span className="flex items-center gap-2.5">
@@ -95,8 +95,15 @@ export function ActivityCard({ board, onJoin }: ActivityCardProps) {
                     >
                       {person.position}
                     </span>
-                    <span className="font-medium text-neutral-100">
-                      {person.displayName}
+                    <span>
+                      <span className="block font-medium text-neutral-100">
+                        {person.displayName}
+                      </span>
+                      <span className="text-xs text-neutral-500">
+                        {person.laneCount} lane
+                        {person.laneCount === 1 ? "" : "s"} ·{" "}
+                        {person.sessionMinutes === 60 ? "1 hr" : "30 min"}
+                      </span>
                     </span>
                   </span>
                   {person.status === "notified" && (

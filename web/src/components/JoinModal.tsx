@@ -5,8 +5,11 @@ import {
   ACTIVITY_LABELS,
   ACTIVITY_THEME,
   type Activity,
+  type LaneCount,
+  type SessionDuration,
 } from "@/lib/types";
 import { ActivityIcon } from "./ActivityIcon";
+import { BookingOptions } from "./BookingOptions";
 
 interface JoinModalProps {
   activity: Activity;
@@ -19,6 +22,8 @@ export function JoinModal({ activity, onClose }: JoinModalProps) {
   const [phone, setPhone] = useState("");
   const [smsOptIn, setSmsOptIn] = useState(false);
   const [rewardsOptIn, setRewardsOptIn] = useState(false);
+  const [laneCount, setLaneCount] = useState<LaneCount>(1);
+  const [sessionMinutes, setSessionMinutes] = useState<SessionDuration>(30);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -37,6 +42,8 @@ export function JoinModal({ activity, onClose }: JoinModalProps) {
           phone,
           smsOptIn,
           rewardsOptIn,
+          laneCount,
+          sessionMinutes,
         }),
       });
       const data = await res.json();
@@ -119,6 +126,14 @@ export function JoinModal({ activity, onClose }: JoinModalProps) {
               className="w-full rounded-xl border border-neutral-700 bg-neutral-900 px-4 py-3 text-white placeholder:text-neutral-500 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-500/30"
             />
           </div>
+
+          <BookingOptions
+            activity={activity}
+            laneCount={laneCount}
+            sessionMinutes={sessionMinutes}
+            onLaneCountChange={setLaneCount}
+            onSessionMinutesChange={setSessionMinutes}
+          />
 
           <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-neutral-700 bg-neutral-900/80 p-4 has-[:checked]:border-emerald-500/50 has-[:checked]:bg-emerald-500/10">
             <input

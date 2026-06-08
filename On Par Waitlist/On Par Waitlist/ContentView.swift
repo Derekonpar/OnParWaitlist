@@ -7,74 +7,115 @@ import SwiftUI
 import WebKit
 
 struct ContentView: View {
+    @State private var webURL = AppConfig.waitlistURL
     @State private var isLoading = true
     @State private var errorMessage: String? = nil
     @State private var reloadToken = UUID()
 
-    var body: some View {
-        ZStack {
-            WaitlistWebView(
-                url: AppConfig.waitlistURL,
-                reloadToken: reloadToken,
-                isLoading: $isLoading,
-                errorMessage: $errorMessage
-            )
-            .ignoresSafeArea(edges: .bottom)
+    private var onStaffPage: Bool {
+        AppConfig.isStaffPage(webURL)
+    }
 
-            if isLoading {
-                VStack(spacing: 10) {
+    var body: some View {
+        VStack(spacing: 0) {
+            appBar
+
+            ZStack {
+                WaitlistWebView(
+                    url: webURL,
+                    reloadToken: reloadToken,
+                    isLoading: $isLoading,
+                    errorMessage: $errorMessage
+                )
+
+                if isLoading {
                     ProgressView()
                         .progressViewStyle(.circular)
-                    Text("Loading waitlist…")
-                        .font(.callout.weight(.medium))
-                        .foregroundStyle(.white.opacity(0.9))
-                    Text(AppConfig.waitlistURL.absoluteString)
-                        .font(.caption.monospaced())
-                        .foregroundStyle(.white.opacity(0.45))
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 24)
+                        .tint(.white)
                 }
-                .padding(18)
-                .background(.black.opacity(0.55))
-                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-                .padding()
-            }
 
-            if let errorMessage {
-                VStack(spacing: 12) {
-                    Text("Can’t reach the server")
-                        .font(.headline)
-                        .foregroundStyle(.white)
-                    Text(errorMessage)
-                        .font(.subheadline)
-                        .foregroundStyle(.white.opacity(0.75))
-                        .multilineTextAlignment(.center)
-                    Text(AppConfig.waitlistURL.absoluteString)
-                        .font(.caption.monospaced())
-                        .foregroundStyle(.white.opacity(0.5))
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 18)
+                if let errorMessage {
+                    VStack(spacing: 12) {
+                        Text("Can’t reach the server")
+                            .font(.headline)
+                            .foregroundStyle(.white)
+                        Text(errorMessage)
+                            .font(.subheadline)
+                            .foregroundStyle(.white.opacity(0.75))
+                            .multilineTextAlignment(.center)
 
-                    HStack(spacing: 10) {
-                        Button("Open in Safari") {
-                            UIApplication.shared.open(AppConfig.waitlistURL)
+                        HStack(spacing: 10) {
+                            Button("Open in Safari") {
+                                UIApplication.shared.open(webURL)
+                            }
+                            .buttonStyle(.borderedProminent)
+
+                            Button("Retry") {
+                                isLoading = true
+                                self.errorMessage = nil
+                                reloadToken = UUID()
+                            }
+                            .buttonStyle(.bordered)
                         }
-                        .buttonStyle(.borderedProminent)
-
-                        Button("Retry") {
-                            isLoading = true
-                            self.errorMessage = nil
-                            reloadToken = UUID()
-                        }
-                        .buttonStyle(.bordered)
                     }
+                    .padding(18)
+                    .background(.black.opacity(0.7))
+                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    .padding()
                 }
-                .padding(18)
-                .background(.black.opacity(0.7))
-                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-                .padding()
             }
         }
+        .background(Color(red: 10 / 255, green: 10 / 255, blue: 10 / 255))
+        .ignoresSafeArea(edges: .bottom)
+    }
+
+    private var appBar: some View {
+        HStack {
+            if onStaffPage {
+                Button {
+                    goToWaitlist()
+                } label: {
+                    Label("Waitlist", systemImage: "list.bullet")
+                        .font(.subheadline.weight(.medium))
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.white.opacity(0.9))
+            }
+
+            Spacer()
+
+            if !onStaffPage {
+                Button {
+                    goToStaff()
+                } label: {
+                    Text("Staff")
+                        .font(.subheadline.weight(.semibold))
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .background(.white.opacity(0.12))
+                        .clipShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.white)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(Color(red: 10 / 255, green: 10 / 255, blue: 10 / 255))
+    }
+
+    private func goToStaff() {
+        webURL = AppConfig.staffURL
+        isLoading = true
+        errorMessage = nil
+        reloadToken = UUID()
+    }
+
+    private func goToWaitlist() {
+        webURL = AppConfig.waitlistURL
+        isLoading = true
+        errorMessage = nil
+        reloadToken = UUID()
     }
 }
 
@@ -99,12 +140,14 @@ struct WaitlistWebView: UIViewRepresentable {
         webView.scrollView.contentInsetAdjustmentBehavior = .automatic
         webView.load(URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData))
         context.coordinator.webView = webView
+        context.coordinator.lastURL = url
+        context.coordinator.lastReloadToken = reloadToken
         return webView
     }
 
     func updateUIView(_ uiView: WKWebView, context: Context) {
-        // Reload when the token changes (Retry button)
-        if context.coordinator.lastReloadToken != reloadToken {
+        if context.coordinator.lastURL != url || context.coordinator.lastReloadToken != reloadToken {
+            context.coordinator.lastURL = url
             context.coordinator.lastReloadToken = reloadToken
             uiView.load(URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData))
         }
@@ -114,6 +157,7 @@ struct WaitlistWebView: UIViewRepresentable {
         private let parent: WaitlistWebView
         weak var webView: WKWebView?
         var lastReloadToken: UUID?
+        var lastURL: URL?
 
         init(_ parent: WaitlistWebView) {
             self.parent = parent
@@ -142,7 +186,6 @@ struct WaitlistWebView: UIViewRepresentable {
                 decisionHandler(.allow)
                 return
             }
-            // Keep in-app navigation on the same host (waitlist + status pages)
             if navigationAction.navigationType == .linkActivated,
                let host = webView.url?.host,
                requestURL.host != host {

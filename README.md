@@ -7,6 +7,7 @@ Live waitlist for **bowling**, **darts**, **pool**, and **shuffleboard**.
 | **Next.js app** | `web/` — deploy this folder to Vercel |
 | **Xcode app** | `On Par Waitlist/` |
 | **Deploy guide** | [DEPLOYMENT.md](./DEPLOYMENT.md) |
+| **TestFlight (iOS)** | [TESTFLIGHT.md](./TESTFLIGHT.md) |
 
 ## Local development
 

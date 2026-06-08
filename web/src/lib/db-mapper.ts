@@ -1,5 +1,10 @@
 import { displayName } from "./display";
-import type { Activity, WaitlistStatus } from "./types";
+import type {
+  Activity,
+  LaneCount,
+  SessionDuration,
+  WaitlistStatus,
+} from "./types";
 
 /** Normalize Supabase rows from snake_case or legacy camelCase / enum columns. */
 export function normalizeWaitlistRow(
@@ -11,6 +16,8 @@ export function normalizeWaitlistRow(
   name: string;
   phone: string;
   sms_opt_in: boolean;
+  lane_count: LaneCount;
+  session_minutes: SessionDuration;
   status: WaitlistStatus;
   created_at: string;
   notified_at: string | null;
@@ -40,6 +47,20 @@ export function normalizeWaitlistRow(
       "",
   ).trim();
 
+  const partySize = Number(row.partySize ?? row.party_size ?? 1);
+  const laneCount = Math.min(
+    4,
+    Math.max(1, Number.isFinite(partySize) ? partySize : 1),
+  ) as LaneCount;
+
+  const rawSession = Number(
+    row.session_minutes ??
+      row.sessionMinutes ??
+      row.estimated_wait_minutes ??
+      30,
+  );
+  const sessionMinutes = (rawSession >= 60 ? 60 : 30) as SessionDuration;
+
   return {
     id: String(row.id),
     customer_id: (row.customer_id ?? row.customerId ?? null) as string | null,
@@ -47,6 +68,8 @@ export function normalizeWaitlistRow(
     name: name || "Guest",
     phone: String(row.phone ?? row.Phone ?? ""),
     sms_opt_in: Boolean(row.sms_opt_in ?? row.smsOptIn ?? false),
+    lane_count: laneCount,
+    session_minutes: sessionMinutes,
     status,
     created_at: created ? String(created) : new Date().toISOString(),
     notified_at: notified ? String(notified) : null,
@@ -60,6 +83,8 @@ export function waitlistInsertSnake(
     name: string;
     phone: string;
     smsOptIn: boolean;
+    laneCount: number;
+    sessionMinutes: number;
     status: string;
     createdAt: string;
   },
@@ -72,7 +97,8 @@ export function waitlistInsertSnake(
     customer_id: customerId,
     activity: entry.activity,
     displayName: displayName(entry.name),
-    partySize: 1,
+    partySize: entry.laneCount,
+    estimated_wait_minutes: entry.sessionMinutes,
     name: entry.name,
     phone: entry.phone,
     sms_opt_in: entry.smsOptIn,
@@ -105,6 +131,13 @@ export function waitlistInsertCamel(
     status: entry.status,
     createdAt: entry.createdAt,
   };
+}
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+export function isValidEntryId(id: string): boolean {
+  return UUID_RE.test(id);
 }
 
 /** Map app status to legacy enum labels if the DB still uses WaitlistStatus. */

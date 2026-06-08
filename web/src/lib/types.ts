@@ -9,6 +9,12 @@ export type Activity = (typeof ACTIVITIES)[number];
 
 export type WaitlistStatus = "waiting" | "notified" | "served" | "cancelled";
 
+export const LANE_COUNTS = [1, 2, 3, 4] as const;
+export type LaneCount = (typeof LANE_COUNTS)[number];
+
+export const SESSION_DURATIONS = [30, 60] as const;
+export type SessionDuration = (typeof SESSION_DURATIONS)[number];
+
 export interface WaitlistEntry {
   id: string;
   customerId?: string;
@@ -16,10 +22,20 @@ export interface WaitlistEntry {
   name: string;
   phone: string;
   smsOptIn: boolean;
+  laneCount: LaneCount;
+  sessionMinutes: SessionDuration;
   status: WaitlistStatus;
   createdAt: string;
   notifiedAt?: string;
 }
+
+/** Resource label shown in the join form (lanes for all activities per venue setup). */
+export const ACTIVITY_LANE_LABEL: Record<Activity, string> = {
+  bowling: "Number of lanes",
+  darts: "Number of lanes",
+  pool: "Number of lanes",
+  shuffleboard: "Number of lanes",
+};
 
 export interface ActivityStats {
   activity: Activity;

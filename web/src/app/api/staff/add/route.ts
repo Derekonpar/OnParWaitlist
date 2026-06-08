@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { verifyStaffSecret } from "@/lib/auth";
 import { joinWaitlist } from "@/lib/store";
-import { ACTIVITIES } from "@/lib/types";
+import { ACTIVITIES, LANE_COUNTS, SESSION_DURATIONS } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -17,6 +17,20 @@ const schema = z.object({
     .refine((v) => v.replace(/\D/g, "").length >= 10),
   smsOptIn: z.boolean().default(false),
   rewardsOptIn: z.boolean().default(false),
+  laneCount: z
+    .number()
+    .int()
+    .refine((n): n is (typeof LANE_COUNTS)[number] =>
+      (LANE_COUNTS as readonly number[]).includes(n),
+    )
+    .default(1),
+  sessionMinutes: z
+    .number()
+    .int()
+    .refine((n): n is (typeof SESSION_DURATIONS)[number] =>
+      (SESSION_DURATIONS as readonly number[]).includes(n),
+    )
+    .default(30),
 });
 
 export async function POST(request: Request) {

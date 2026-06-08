@@ -2,11 +2,14 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { ActivityIcon } from "@/components/ActivityIcon";
+import { BookingOptions } from "@/components/BookingOptions";
 import {
   ACTIVITIES,
   ACTIVITY_LABELS,
   ACTIVITY_THEME,
   type Activity,
+  type LaneCount,
+  type SessionDuration,
   type WaitlistEntry,
 } from "@/lib/types";
 
@@ -25,6 +28,9 @@ export default function StaffPage() {
   const [addPhone, setAddPhone] = useState("");
   const [addSms, setAddSms] = useState(false);
   const [addRewards, setAddRewards] = useState(false);
+  const [addLaneCount, setAddLaneCount] = useState<LaneCount>(1);
+  const [addSessionMinutes, setAddSessionMinutes] =
+    useState<SessionDuration>(30);
   const [addStatus, setAddStatus] = useState<string | null>(null);
   const [addLoading, setAddLoading] = useState(false);
 
@@ -124,6 +130,8 @@ export default function StaffPage() {
           phone: addPhone,
           smsOptIn: addSms,
           rewardsOptIn: addRewards,
+          laneCount: addLaneCount,
+          sessionMinutes: addSessionMinutes,
         }),
       });
       const data = await res.json();
@@ -136,6 +144,8 @@ export default function StaffPage() {
       setAddPhone("");
       setAddSms(false);
       setAddRewards(false);
+      setAddLaneCount(1);
+      setAddSessionMinutes(30);
       await fetchQueues();
     } catch {
       setAddStatus("Network error");
@@ -219,6 +229,14 @@ export default function StaffPage() {
             onChange={(e) => setAddPhone(e.target.value)}
             className="w-full rounded-xl border border-neutral-700 bg-neutral-900 px-4 py-3 text-sm text-white"
           />
+          <BookingOptions
+            activity={addActivity}
+            laneCount={addLaneCount}
+            sessionMinutes={addSessionMinutes}
+            onLaneCountChange={setAddLaneCount}
+            onSessionMinutesChange={setAddSessionMinutes}
+            compact
+          />
           <label className="flex items-center gap-2 text-sm text-neutral-300">
             <input
               type="checkbox"
@@ -301,7 +319,12 @@ export default function StaffPage() {
                                   {entry.name}
                                 </p>
                                 <p className="text-xs text-neutral-500">
-                                  {entry.phone}
+                                  {entry.laneCount} lane
+                                  {entry.laneCount === 1 ? "" : "s"} ·{" "}
+                                  {entry.sessionMinutes === 60
+                                    ? "1 hr"
+                                    : "30 min"}{" "}
+                                  · {entry.phone}
                                 </p>
                               </div>
                             </div>

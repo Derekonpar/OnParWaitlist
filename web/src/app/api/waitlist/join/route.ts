@@ -1,8 +1,12 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { joinWaitlist, getPosition } from "@/lib/store";
-import { ACTIVITIES } from "@/lib/types";
-import { ACTIVITY_LABELS } from "@/lib/types";
+import {
+  ACTIVITIES,
+  ACTIVITY_LABELS,
+  LANE_COUNTS,
+  SESSION_DURATIONS,
+} from "@/lib/types";
 import { isSmsOptedOut } from "@/lib/sms-consent";
 import {
   buildJoinConfirmation,
@@ -24,6 +28,20 @@ const joinSchema = z.object({
     }),
   smsOptIn: z.boolean(),
   rewardsOptIn: z.boolean().optional(),
+  laneCount: z
+    .number()
+    .int()
+    .refine((n): n is (typeof LANE_COUNTS)[number] =>
+      (LANE_COUNTS as readonly number[]).includes(n),
+    )
+    .default(1),
+  sessionMinutes: z
+    .number()
+    .int()
+    .refine((n): n is (typeof SESSION_DURATIONS)[number] =>
+      (SESSION_DURATIONS as readonly number[]).includes(n),
+    )
+    .default(30),
 });
 
 export async function POST(request: Request) {
@@ -37,7 +55,15 @@ export async function POST(request: Request) {
       );
     }
 
-    const { activity, name, phone, smsOptIn, rewardsOptIn } = parsed.data;
+    const {
+      activity,
+      name,
+      phone,
+      smsOptIn,
+      rewardsOptIn,
+      laneCount,
+      sessionMinutes,
+    } = parsed.data;
 
     if (smsOptIn && (await isSmsOptedOut(phone))) {
       return NextResponse.json(
@@ -64,6 +90,8 @@ export async function POST(request: Request) {
         phone,
         smsOptIn,
         rewardsOptIn: rewardsOptIn ?? false,
+        laneCount,
+        sessionMinutes,
       });
     } catch (e) {
       if (e instanceof Error && e.message === "INVALID_PHONE") {

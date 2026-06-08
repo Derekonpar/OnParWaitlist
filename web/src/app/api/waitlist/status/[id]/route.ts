@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { getPosition } from "@/lib/store";
-import { ACTIVITY_LABELS, MINUTES_PER_PARTY } from "@/lib/types";
+import { getEstimatedWaitMinutes, getPosition } from "@/lib/store";
+import { ACTIVITY_LABELS } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -17,8 +17,7 @@ export async function GET(
   }
 
   const { entry, position } = result;
-  const estimatedWait =
-    (position - 1) * MINUTES_PER_PARTY[entry.activity];
+  const estimatedWaitMinutes = await getEstimatedWaitMinutes(id);
 
   return NextResponse.json({
     entry: {
@@ -27,8 +26,10 @@ export async function GET(
       activity: entry.activity,
       activityLabel: ACTIVITY_LABELS[entry.activity],
       status: entry.status,
+      laneCount: entry.laneCount,
+      sessionMinutes: entry.sessionMinutes,
     },
     position,
-    estimatedWaitMinutes: estimatedWait,
+    estimatedWaitMinutes,
   });
 }

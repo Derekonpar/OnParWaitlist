@@ -1,59 +1,86 @@
-# Deploy to Vercel (standard Next.js)
+# Deploy On Par Waitlist
 
-This is a normal **Next.js App Router** project in the `web/` folder.
+## Architecture
 
-## Vercel settings (only thing that matters)
+| Piece | Where |
+|-------|--------|
+| Guest + staff web app | `web/` on **Vercel** |
+| Customer + waitlist database | **Supabase** |
+| SMS | **Twilio** |
+| iOS shell app | `On Par Waitlist/` → **TestFlight** |
+
+**Production URL:** https://on-par-waitlist.vercel.app
+
+---
+
+## Vercel setup
 
 | Setting | Value |
 |---------|--------|
 | **Root Directory** | `web` |
-| **Framework Preset** | Next.js (auto) |
-| **Build Command** | *(leave default — `next build`)* |
-| **Install Command** | *(leave default — `npm install`)* |
-| **Output Directory** | *(leave default — do not set manually)* |
+| **Framework** | Next.js (auto) |
 
-Do **not** set a custom Output Directory. Do **not** use npm workspaces from the repo root.
+Import repo: [github.com/Derekonpar/OnParWaitlist](https://github.com/Derekonpar/OnParWaitlist)
 
-## Steps
+### Environment variables (Production + Preview)
 
-1. [vercel.com/new](https://vercel.com/new) → Import **Derekonpar/OnParWaitlist**
-2. Set **Root Directory** → **`web`**
-3. Deploy
-4. Add **Upstash Redis** (Storage → Marketplace) so the waitlist persists for all guests
-5. Environment variables (Settings → Environment Variables):
+| Variable | Required | Notes |
+|----------|----------|-------|
+| `NEXT_PUBLIC_APP_URL` | Yes | `https://on-par-waitlist.vercel.app` |
+| `NEXT_PUBLIC_SUPABASE_URL` | Yes | Supabase → Settings → API |
+| `SUPABASE_SERVICE_ROLE_KEY` | Yes | Service role key (secret) |
+| `STAFF_SECRET` | Yes | Password for `/staff` |
+| `TWILIO_ACCOUNT_SID` | For SMS | |
+| `TWILIO_AUTH_TOKEN` | For SMS | |
+| `TWILIO_PHONE_NUMBER` | For SMS | |
+| `VENUE_NAME` | Yes | `On Par Entertainment` |
+| `VENUE_PHONE` | Yes | `937-705-6024` |
+| `CONTACT_EMAIL` | Yes | `info@onparbar.com` |
 
-| Variable | Required |
-|----------|----------|
-| `NEXT_PUBLIC_APP_URL` | Yes — `https://on-par-waitlist.vercel.app` |
-| `STAFF_SECRET` | Yes |
-| `UPSTASH_REDIS_REST_URL` | Yes (from Upstash integration) |
-| `UPSTASH_REDIS_REST_TOKEN` | Yes |
-| Twilio vars | Optional (for SMS) |
-| `VENUE_PHONE` | `937-705-6024` |
-| `CONTACT_EMAIL` | `info@onparbar.com` |
+Redeploy after changing env vars.
 
-### Twilio SMS verification
+### Supabase tables
 
-Use this public URL in your Twilio campaign registration:
+Run once in Supabase → SQL Editor:
 
-**`https://on-par-waitlist.vercel.app/sms`**
+1. `supabase/schema.sql` (full setup)
+2. If you used GitHub integration and hit errors, also run `supabase/fix-500.sql`
 
-In Twilio Console → your phone number → **Messaging Configuration** → **A MESSAGE COMES IN**:
+See [SUPABASE_SETUP.md](./SUPABASE_SETUP.md).
 
-`https://on-par-waitlist.vercel.app/api/twilio/inbound` (HTTP POST)
+### Twilio
 
-6. **Redeploy** after adding env vars
+- Campaign / opt-in page: `https://on-par-waitlist.vercel.app/sms`
+- Inbound webhook: `https://on-par-waitlist.vercel.app/api/twilio/inbound` (POST)
+
+See [TWILIO_SETUP.md](./TWILIO_SETUP.md).
+
+### Verify production
+
+```bash
+cd web
+node scripts/test-live.mjs https://on-par-waitlist.vercel.app
+```
+
+Or open `https://on-par-waitlist.vercel.app/api/waitlist/health` — should show `"canWrite": true`.
+
+---
 
 ## iOS app
 
-Xcode `Config.swift` is set to `https://on-par-waitlist.vercel.app`. Rebuild the iOS app after deploy.
+- Xcode project: `On Par Waitlist/On Par Waitlist.xcodeproj`
+- Production URL in `Config.swift`: `https://on-par-waitlist.vercel.app`
+- **TestFlight steps:** [TESTFLIGHT.md](./TESTFLIGHT.md)
+
+---
 
 ## Local dev
 
 ```bash
 cd web
+cp .env.example .env.local   # fill in Supabase + Twilio
 npm install
 npm run dev
 ```
 
-Open http://localhost:3000
+Open http://localhost:3000 (simulator uses this URL automatically).

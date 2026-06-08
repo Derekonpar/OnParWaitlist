@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { verifyStaffSecret } from "@/lib/auth";
-import { updateStatus } from "@/lib/store";
+import { removeEntry } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
 
 const schema = z.object({
-  id: z.string().uuid(),
+  id: z.string().min(1),
 });
 
 export async function POST(request: Request) {
@@ -20,10 +20,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid id" }, { status: 400 });
   }
 
-  const entry = await updateStatus(parsed.data.id, "cancelled");
-  if (!entry) {
+  const removed = await removeEntry(parsed.data.id);
+  if (!removed) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  return NextResponse.json({ entry });
+  return NextResponse.json({ ok: true });
 }

@@ -41,6 +41,8 @@ let entryId;
       phone: testPhone,
       smsOptIn: false,
       rewardsOptIn: false,
+      laneCount: 2,
+      sessionMinutes: 60,
     }),
   });
   if (!res.ok) fail(`join returned ${res.status}`, JSON.stringify(body));
