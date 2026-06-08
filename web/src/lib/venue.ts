@@ -20,6 +20,6 @@ export function getContactEmail(): string {
 export function getPublicAppUrl(): string {
   return (
     process.env.NEXT_PUBLIC_APP_URL ??
-    "https://onparwaitlist.com"
+    "https://on-par-waitlist.vercel.app"
   ).replace(/\/$/, "");
 }

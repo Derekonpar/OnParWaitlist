@@ -24,7 +24,7 @@ Do **not** set a custom Output Directory. Do **not** use npm workspaces from the
 
 | Variable | Required |
 |----------|----------|
-| `NEXT_PUBLIC_APP_URL` | Yes — `https://onparwaitlist.com` |
+| `NEXT_PUBLIC_APP_URL` | Yes — `https://on-par-waitlist.vercel.app` |
 | `STAFF_SECRET` | Yes |
 | `UPSTASH_REDIS_REST_URL` | Yes (from Upstash integration) |
 | `UPSTASH_REDIS_REST_TOKEN` | Yes |
@@ -36,17 +36,17 @@ Do **not** set a custom Output Directory. Do **not** use npm workspaces from the
 
 Use this public URL in your Twilio campaign registration:
 
-**`https://onparwaitlist.com/sms`**
+**`https://on-par-waitlist.vercel.app/sms`**
 
 In Twilio Console → your phone number → **Messaging Configuration** → **A MESSAGE COMES IN**:
 
-`https://onparwaitlist.com/api/twilio/inbound` (HTTP POST)
+`https://on-par-waitlist.vercel.app/api/twilio/inbound` (HTTP POST)
 
 6. **Redeploy** after adding env vars
 
 ## iOS app
 
-Xcode `Config.swift` is set to `https://onparwaitlist.com`. Rebuild the iOS app after deploy.
+Xcode `Config.swift` is set to `https://on-par-waitlist.vercel.app`. Rebuild the iOS app after deploy.
 
 ## Local dev
 
