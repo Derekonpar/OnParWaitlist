@@ -1,11 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Header } from "@/components/Header";
 import { ActivityIcon } from "@/components/ActivityIcon";
 import {
   ACTIVITIES,
   ACTIVITY_LABELS,
+  ACTIVITY_THEME,
   type Activity,
   type WaitlistEntry,
 } from "@/lib/types";
@@ -18,10 +18,15 @@ export default function StaffPage() {
   >([]);
   const [loading, setLoading] = useState(false);
   const [actionId, setActionId] = useState<string | null>(null);
-  const [testPhone, setTestPhone] = useState("");
-  const [testSmsStatus, setTestSmsStatus] = useState<string | null>(null);
-  const [testSmsLoading, setTestSmsLoading] = useState(false);
-  const [storageHint, setStorageHint] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  const [addActivity, setAddActivity] = useState<Activity>("bowling");
+  const [addName, setAddName] = useState("");
+  const [addPhone, setAddPhone] = useState("");
+  const [addSms, setAddSms] = useState(false);
+  const [addRewards, setAddRewards] = useState(false);
+  const [addStatus, setAddStatus] = useState<string | null>(null);
+  const [addLoading, setAddLoading] = useState(false);
 
   const headers = useCallback(
     () => ({
@@ -38,238 +43,355 @@ export default function StaffPage() {
       const res = await fetch("/api/staff/queue", { headers: headers() });
       if (res.status === 401) {
         setAuthenticated(false);
+        sessionStorage.removeItem("onpar-staff-secret");
         return;
       }
       const data = await res.json();
       setQueues(data.queues ?? []);
       setAuthenticated(true);
-
-      const storageRes = await fetch("/api/staff/storage", { headers: headers() });
-      if (storageRes.ok) {
-        const storage = await storageRes.json();
-        setStorageHint(storage.canWrite ? null : (storage.hint ?? "Storage not ready"));
-      }
+      sessionStorage.setItem("onpar-staff-secret", secret);
     } finally {
       setLoading(false);
     }
   }, [secret, headers]);
 
   useEffect(() => {
+    const saved = sessionStorage.getItem("onpar-staff-secret");
+    if (!saved) return;
+    setSecret(saved);
+    void (async () => {
+      setLoading(true);
+      try {
+        const res = await fetch("/api/staff/queue", {
+          headers: {
+            "Content-Type": "application/json",
+            "x-staff-secret": saved,
+          },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setQueues(data.queues ?? []);
+          setAuthenticated(true);
+        } else {
+          sessionStorage.removeItem("onpar-staff-secret");
+        }
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
+
+  useEffect(() => {
     if (!authenticated) return;
     fetchQueues();
-    const interval = setInterval(fetchQueues, 8000);
+    const interval = setInterval(fetchQueues, 6000);
     return () => clearInterval(interval);
   }, [authenticated, fetchQueues]);
 
-  async function sendTestSms() {
-    setTestSmsLoading(true);
-    setTestSmsStatus(null);
-    try {
-      const res = await fetch("/api/staff/test-sms", {
-        method: "POST",
-        headers: headers(),
-        body: JSON.stringify({ phone: testPhone }),
-      });
-      const data = await res.json();
-      setTestSmsStatus(
-        res.ok ? data.message : (data.error ?? "Test SMS failed"),
-      );
-    } catch {
-      setTestSmsStatus("Network error");
-    } finally {
-      setTestSmsLoading(false);
-    }
-  }
-
-  async function staffAction(
-    endpoint: string,
-    id: string,
-  ) {
+  async function staffAction(endpoint: string, id: string) {
     setActionId(id);
     try {
-      await fetch(endpoint, {
+      const res = await fetch(endpoint, {
         method: "POST",
         headers: headers(),
         body: JSON.stringify({ id }),
       });
+      if (!res.ok) {
+        const data = await res.json();
+        alert(data.error ?? "Action failed");
+        return;
+      }
       await fetchQueues();
+      if (endpoint.includes("notify")) {
+        setSelectedId(null);
+      }
     } finally {
       setActionId(null);
     }
   }
 
+  async function addGuest(e: React.FormEvent) {
+    e.preventDefault();
+    setAddLoading(true);
+    setAddStatus(null);
+    try {
+      const res = await fetch("/api/staff/add", {
+        method: "POST",
+        headers: headers(),
+        body: JSON.stringify({
+          activity: addActivity,
+          name: addName,
+          phone: addPhone,
+          smsOptIn: addSms,
+          rewardsOptIn: addRewards,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setAddStatus(data.error ?? "Could not add guest");
+        return;
+      }
+      setAddStatus(`Added ${addName} to ${ACTIVITY_LABELS[addActivity]}`);
+      setAddName("");
+      setAddPhone("");
+      setAddSms(false);
+      setAddRewards(false);
+      await fetchQueues();
+    } catch {
+      setAddStatus("Network error");
+    } finally {
+      setAddLoading(false);
+    }
+  }
+
+  const selectedEntry = queues
+    .flatMap((q) => q.queue)
+    .find((e) => e.id === selectedId);
+
   if (!authenticated) {
     return (
-      <>
-        <Header />
-        <main className="mx-auto max-w-md px-5 py-12">
-          <h1 className="text-xl font-semibold text-neutral-900">
-            Staff sign in
-          </h1>
-          <p className="mt-2 text-sm text-neutral-500">
-            Enter the staff secret from your environment variables.
-          </p>
-          <input
-            type="password"
-            value={secret}
-            onChange={(e) => setSecret(e.target.value)}
-            placeholder="Staff secret"
-            className="mt-6 w-full rounded-xl border border-neutral-200 px-4 py-3"
-          />
-          <button
-            type="button"
-            onClick={fetchQueues}
-            className="mt-4 w-full rounded-xl bg-neutral-900 py-3 text-sm font-medium text-white"
-          >
-            Continue
-          </button>
-        </main>
-      </>
+      <main className="mx-auto flex min-h-screen max-w-md flex-col justify-center px-5">
+        <h1 className="text-2xl font-semibold text-white">Staff</h1>
+        <p className="mt-2 text-sm text-neutral-400">Enter your staff password.</p>
+        <input
+          type="password"
+          value={secret}
+          onChange={(e) => setSecret(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && fetchQueues()}
+          placeholder="Password"
+          className="mt-6 w-full rounded-xl border border-neutral-700 bg-neutral-900 px-4 py-3 text-white"
+        />
+        <button
+          type="button"
+          onClick={fetchQueues}
+          className="mt-4 w-full rounded-xl bg-white py-3 text-sm font-semibold text-neutral-900"
+        >
+          Sign in
+        </button>
+      </main>
     );
   }
 
   return (
-    <>
-      <Header />
-      <main className="mx-auto max-w-2xl px-5 py-8">
-        {storageHint && (
-          <section className="mb-6 rounded-2xl border border-red-500/40 bg-red-500/10 p-4">
-            <h2 className="text-sm font-semibold text-red-200">Waitlist storage issue</h2>
-            <p className="mt-1 text-xs text-red-100/90">{storageHint}</p>
-            <p className="mt-2 text-xs text-neutral-400">
-              Vercel → Storage → Marketplace → Upstash Redis → connect to this project → Redeploy.
-            </p>
-          </section>
-        )}
+    <main className="mx-auto min-h-screen max-w-2xl px-4 py-6 pb-24 sm:px-5">
+      <div className="mb-6 flex items-center justify-between">
+        <div>
+          <h1 className="text-xl font-semibold text-white">Staff console</h1>
+          <p className="text-xs text-neutral-500">Tap a guest to manage their spot</p>
+        </div>
+        <button
+          type="button"
+          onClick={fetchQueues}
+          disabled={loading}
+          className="rounded-full border border-white/10 px-3 py-1.5 text-xs text-neutral-300 hover:bg-white/5"
+        >
+          {loading ? "…" : "Refresh"}
+        </button>
+      </div>
 
-        <section className="mb-8 rounded-2xl border border-violet-500/30 bg-violet-500/10 p-4">
-          <h2 className="text-sm font-semibold text-white">Test Twilio SMS</h2>
-          <p className="mt-1 text-xs text-neutral-400">
-            Send a one-time test text to verify Twilio is connected.
-          </p>
-          <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+      <section className="mb-8 rounded-2xl border border-white/10 bg-[#141414] p-5">
+        <h2 className="text-sm font-semibold text-white">Add to waitlist</h2>
+        <form onSubmit={addGuest} className="mt-4 space-y-3">
+          <select
+            value={addActivity}
+            onChange={(e) => setAddActivity(e.target.value as Activity)}
+            className="w-full rounded-xl border border-neutral-700 bg-neutral-900 px-4 py-3 text-sm text-white"
+          >
+            {ACTIVITIES.map((a) => (
+              <option key={a} value={a}>
+                {ACTIVITY_LABELS[a]}
+              </option>
+            ))}
+          </select>
+          <input
+            type="text"
+            required
+            placeholder="Guest name"
+            value={addName}
+            onChange={(e) => setAddName(e.target.value)}
+            className="w-full rounded-xl border border-neutral-700 bg-neutral-900 px-4 py-3 text-sm text-white"
+          />
+          <input
+            type="tel"
+            required
+            placeholder="Mobile number"
+            value={addPhone}
+            onChange={(e) => setAddPhone(e.target.value)}
+            className="w-full rounded-xl border border-neutral-700 bg-neutral-900 px-4 py-3 text-sm text-white"
+          />
+          <label className="flex items-center gap-2 text-sm text-neutral-300">
             <input
-              type="tel"
-              value={testPhone}
-              onChange={(e) => setTestPhone(e.target.value)}
-              placeholder="Your mobile number"
-              className="flex-1 rounded-xl border border-neutral-600 bg-neutral-900 px-4 py-2.5 text-sm text-white"
+              type="checkbox"
+              checked={addSms}
+              onChange={(e) => setAddSms(e.target.checked)}
+              className="rounded"
             />
+            SMS opt-in
+          </label>
+          <label className="flex items-center gap-2 text-sm text-neutral-300">
+            <input
+              type="checkbox"
+              checked={addRewards}
+              onChange={(e) => setAddRewards(e.target.checked)}
+              className="rounded"
+            />
+            Rewards program
+          </label>
+          <button
+            type="submit"
+            disabled={addLoading}
+            className="w-full rounded-xl bg-white py-3 text-sm font-semibold text-neutral-900 disabled:opacity-60"
+          >
+            {addLoading ? "Adding…" : "Add guest"}
+          </button>
+          {addStatus && (
+            <p className="text-xs text-neutral-400">{addStatus}</p>
+          )}
+        </form>
+      </section>
+
+      <div className="space-y-8">
+        {ACTIVITIES.map((activity) => {
+          const block = queues.find((q) => q.activity === activity);
+          const active =
+            block?.queue.filter(
+              (e) => e.status === "waiting" || e.status === "notified",
+            ) ?? [];
+          const theme = ACTIVITY_THEME[activity];
+
+          return (
+            <section key={activity}>
+              <h2 className="mb-3 flex items-center gap-2 text-base font-semibold text-white">
+                <ActivityIcon activity={activity} className="h-5 w-5" />
+                {ACTIVITY_LABELS[activity]}
+                <span className="text-sm font-normal text-neutral-500">
+                  ({active.length})
+                </span>
+              </h2>
+
+              {active.length === 0 ? (
+                <p className="text-sm text-neutral-500">No one waiting</p>
+              ) : (
+                <ul className="space-y-2">
+                  {active.map((entry, i) => {
+                    const isSelected = selectedId === entry.id;
+                    return (
+                      <li key={entry.id}>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setSelectedId(isSelected ? null : entry.id)
+                          }
+                          className={`w-full rounded-2xl border p-4 text-left transition ${
+                            isSelected
+                              ? "border-white/30 bg-neutral-900"
+                              : "border-white/10 bg-[#141414] hover:border-white/20"
+                          }`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                              <span
+                                className="flex h-8 w-8 items-center justify-center rounded-lg text-xs font-bold text-white"
+                                style={{ backgroundColor: theme.accent }}
+                              >
+                                {i + 1}
+                              </span>
+                              <div>
+                                <p className="font-medium text-white">
+                                  {entry.name}
+                                </p>
+                                <p className="text-xs text-neutral-500">
+                                  {entry.phone}
+                                </p>
+                              </div>
+                            </div>
+                            <div className="flex gap-1.5">
+                              {entry.smsOptIn && (
+                                <span className="rounded bg-emerald-500/20 px-2 py-0.5 text-[10px] font-medium text-emerald-300">
+                                  SMS
+                                </span>
+                              )}
+                              {entry.status === "notified" && (
+                                <span className="rounded bg-amber-500/20 px-2 py-0.5 text-[10px] font-medium text-amber-300">
+                                  Called
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          {isSelected && (
+                            <div
+                              className="mt-4 flex flex-wrap gap-2 border-t border-white/10 pt-4"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              {entry.status === "waiting" && (
+                                <button
+                                  type="button"
+                                  disabled={actionId === entry.id}
+                                  onClick={() =>
+                                    staffAction("/api/staff/notify", entry.id)
+                                  }
+                                  className="flex-1 rounded-xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-60"
+                                >
+                                  {actionId === entry.id
+                                    ? "Sending…"
+                                    : entry.smsOptIn
+                                      ? "Notify — send SMS"
+                                      : "Notify — mark called"}
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                disabled={actionId === entry.id}
+                                onClick={() =>
+                                  staffAction("/api/staff/serve", entry.id)
+                                }
+                                className="rounded-xl border border-neutral-600 px-4 py-3 text-sm font-medium text-white hover:bg-neutral-800"
+                              >
+                                Served
+                              </button>
+                              <button
+                                type="button"
+                                disabled={actionId === entry.id}
+                                onClick={() =>
+                                  staffAction("/api/staff/remove", entry.id)
+                                }
+                                className="rounded-xl px-4 py-3 text-sm font-medium text-red-400 hover:bg-red-500/10"
+                              >
+                                Remove
+                              </button>
+                            </div>
+                          )}
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </section>
+          );
+        })}
+      </div>
+
+      {selectedEntry && (
+        <div className="fixed inset-x-0 bottom-0 border-t border-white/10 bg-[#0a0a0a]/95 p-4 backdrop-blur-xl sm:hidden">
+          <p className="mb-2 text-center text-sm font-medium text-white">
+            {selectedEntry.name}
+          </p>
+          {selectedEntry.status === "waiting" && (
             <button
               type="button"
-              onClick={sendTestSms}
-              disabled={testSmsLoading || !testPhone}
-              className="rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-violet-500 disabled:opacity-60"
+              disabled={actionId === selectedEntry.id}
+              onClick={() =>
+                staffAction("/api/staff/notify", selectedEntry.id)
+              }
+              className="w-full rounded-xl bg-emerald-600 py-3 text-sm font-semibold text-white"
             >
-              {testSmsLoading ? "Sending…" : "Send test"}
+              Notify guest
             </button>
-          </div>
-          {testSmsStatus && (
-            <p className="mt-2 text-xs text-neutral-300">{testSmsStatus}</p>
           )}
-        </section>
-
-        <div className="mb-6 flex items-center justify-between">
-          <h1 className="text-xl font-semibold text-white">Manage queues</h1>
-          <button
-            type="button"
-            onClick={fetchQueues}
-            disabled={loading}
-            className="text-sm text-neutral-500 hover:text-neutral-900"
-          >
-            {loading ? "Refreshing…" : "Refresh"}
-          </button>
         </div>
-
-        <div className="space-y-8">
-          {ACTIVITIES.map((activity) => {
-            const block = queues.find((q) => q.activity === activity);
-            const waiting =
-              block?.queue.filter((e) => e.status === "waiting") ?? [];
-            const notified =
-              block?.queue.filter((e) => e.status === "notified") ?? [];
-
-            return (
-              <section key={activity}>
-                <h2 className="mb-3 flex items-center gap-2 text-lg font-semibold">
-                  <ActivityIcon activity={activity} className="h-5 w-5 text-white" />
-                  {ACTIVITY_LABELS[activity]}
-                  <span className="text-sm font-normal text-neutral-400">
-                    ({waiting.length} waiting)
-                  </span>
-                </h2>
-
-                {waiting.length === 0 && notified.length === 0 ? (
-                  <p className="text-sm text-neutral-400">Queue empty</p>
-                ) : (
-                  <ul className="space-y-2">
-                    {[...waiting, ...notified].map((entry, i) => (
-                      <li
-                        key={entry.id}
-                        className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-neutral-200 bg-white p-4"
-                      >
-                        <div>
-                          <span className="mr-2 text-xs font-medium text-neutral-400">
-                            #{i + 1}
-                          </span>
-                          <span className="font-medium">{entry.name}</span>
-                          <span className="ml-2 text-xs text-neutral-400">
-                            {entry.phone}
-                          </span>
-                          {entry.smsOptIn && (
-                            <span className="ml-2 rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700">
-                              SMS
-                            </span>
-                          )}
-                          {entry.status === "notified" && (
-                            <span className="ml-2 rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">
-                              Notified
-                            </span>
-                          )}
-                        </div>
-                        <div className="flex gap-2">
-                          {entry.status === "waiting" && (
-                            <button
-                              type="button"
-                              disabled={actionId === entry.id}
-                              onClick={() =>
-                                staffAction("/api/staff/notify", entry.id)
-                              }
-                              className="rounded-lg bg-neutral-900 px-3 py-1.5 text-xs font-medium text-white"
-                            >
-                              Notify
-                            </button>
-                          )}
-                          <button
-                            type="button"
-                            disabled={actionId === entry.id}
-                            onClick={() =>
-                              staffAction("/api/staff/serve", entry.id)
-                            }
-                            className="rounded-lg border border-neutral-200 px-3 py-1.5 text-xs font-medium"
-                          >
-                            Served
-                          </button>
-                          <button
-                            type="button"
-                            disabled={actionId === entry.id}
-                            onClick={() =>
-                              staffAction("/api/staff/remove", entry.id)
-                            }
-                            className="rounded-lg px-3 py-1.5 text-xs text-red-600"
-                          >
-                            Remove
-                          </button>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </section>
-            );
-          })}
-        </div>
-      </main>
-    </>
+      )}
+    </main>
   );
 }

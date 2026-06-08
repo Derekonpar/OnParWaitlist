@@ -44,10 +44,7 @@ export default async function QrPage() {
         </p>
 
         <p className="mt-8 text-xs text-neutral-500">
-          Print for lobby signage ·{" "}
-          <a href="/staff" className="text-neutral-300 underline">
-            Staff console
-          </a>
+          Print for lobby signage
         </p>
       </main>
     </>

@@ -11,6 +11,7 @@ export type WaitlistStatus = "waiting" | "notified" | "served" | "cancelled";
 
 export interface WaitlistEntry {
   id: string;
+  customerId?: string;
   activity: Activity;
   name: string;
   phone: string;

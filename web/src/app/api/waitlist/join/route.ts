@@ -23,6 +23,7 @@ const joinSchema = z.object({
       message: "Enter at least 10 digits",
     }),
   smsOptIn: z.boolean(),
+  rewardsOptIn: z.boolean().optional(),
 });
 
 export async function POST(request: Request) {
@@ -36,7 +37,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const { activity, name, phone, smsOptIn } = parsed.data;
+    const { activity, name, phone, smsOptIn, rewardsOptIn } = parsed.data;
 
     if (smsOptIn && (await isSmsOptedOut(phone))) {
       return NextResponse.json(
@@ -57,7 +58,13 @@ export async function POST(request: Request) {
 
     let entry;
     try {
-      entry = await joinWaitlist({ activity, name, phone, smsOptIn });
+      entry = await joinWaitlist({
+        activity,
+        name,
+        phone,
+        smsOptIn,
+        rewardsOptIn: rewardsOptIn ?? false,
+      });
     } catch (e) {
       if (e instanceof Error && e.message === "INVALID_PHONE") {
         return NextResponse.json(
@@ -92,22 +99,7 @@ export async function POST(request: Request) {
       }
       if (err.message === "STORAGE_NOT_CONFIGURED") {
         return NextResponse.json(
-          {
-            error:
-              "Waitlist storage is not set up on the server. Add Upstash Redis in Vercel and redeploy.",
-          },
-          { status: 503 },
-        );
-      }
-      if (
-        err.message === "STORE_WRITE_FAILED" ||
-        err.message === "STORE_READ_FAILED"
-      ) {
-        return NextResponse.json(
-          {
-            error:
-              "Could not save your spot. Check Upstash Redis connection in Vercel.",
-          },
+          { error: "Waitlist is temporarily unavailable. Please try again soon." },
           { status: 503 },
         );
       }

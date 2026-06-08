@@ -2,7 +2,7 @@ import { promises as fs } from "fs";
 import path from "path";
 import { randomUUID } from "crypto";
 import { displayName } from "./display";
-import { getRedis, hasRedisConfigured, isVercelProduction } from "./redis";
+import { getSupabaseAdmin, hasSupabaseConfigured } from "./supabase";
 import {
   ACTIVITIES,
   type Activity,
@@ -13,7 +13,6 @@ import {
   type WaitlistStatus,
 } from "./types";
 
-const STORE_KEY = "onpar:waitlist";
 const DATA_DIR = path.join(process.cwd(), "data");
 const DATA_FILE = path.join(DATA_DIR, "waitlist.json");
 
@@ -25,18 +24,13 @@ function withStoreLock<T>(fn: () => Promise<T>): Promise<T> {
   return run;
 }
 
-async function readAllUnsafe(): Promise<WaitlistEntry[]> {
-  const redis = getRedis();
-  if (redis) {
-    try {
-      const data = await redis.get<WaitlistEntry[]>(STORE_KEY);
-      return Array.isArray(data) ? data : [];
-    } catch (err) {
-      console.error("[store] Redis read failed:", err);
-      throw new Error("STORE_READ_FAILED");
-    }
-  }
+function isVercel(): boolean {
+  return Boolean(process.env.VERCEL);
+}
 
+// --- File fallback (local dev only) ---
+
+async function readFileAll(): Promise<WaitlistEntry[]> {
   try {
     const raw = await fs.readFile(DATA_FILE, "utf-8");
     const parsed = JSON.parse(raw) as WaitlistEntry[];
@@ -46,40 +40,169 @@ async function readAllUnsafe(): Promise<WaitlistEntry[]> {
   }
 }
 
+async function writeFileAll(entries: WaitlistEntry[]): Promise<void> {
+  await fs.mkdir(DATA_DIR, { recursive: true });
+  const temp = `${DATA_FILE}.${process.pid}.tmp`;
+  await fs.writeFile(temp, JSON.stringify(entries, null, 2), "utf-8");
+  await fs.rename(temp, DATA_FILE);
+}
+
+// --- Supabase row mapping ---
+
+interface DbEntry {
+  id: string;
+  customer_id: string | null;
+  activity: Activity;
+  name: string;
+  phone: string;
+  sms_opt_in: boolean;
+  status: WaitlistStatus;
+  created_at: string;
+  notified_at: string | null;
+}
+
+function rowToEntry(row: DbEntry): WaitlistEntry {
+  return {
+    id: row.id,
+    customerId: row.customer_id ?? undefined,
+    activity: row.activity,
+    name: row.name,
+    phone: row.phone,
+    smsOptIn: row.sms_opt_in,
+    status: row.status,
+    createdAt: row.created_at,
+    notifiedAt: row.notified_at ?? undefined,
+  };
+}
+
+async function upsertCustomer(
+  name: string,
+  phone: string,
+  rewardsOptIn: boolean,
+): Promise<string | null> {
+  const supabase = getSupabaseAdmin();
+  if (!supabase) return null;
+
+  const { data: existing } = await supabase
+    .from("customers")
+    .select("id, visit_count, rewards_opt_in")
+    .eq("phone", phone)
+    .maybeSingle();
+
+  if (existing) {
+    await supabase
+      .from("customers")
+      .update({
+        name,
+        last_seen_at: new Date().toISOString(),
+        visit_count: (existing.visit_count ?? 0) + 1,
+        rewards_opt_in: existing.rewards_opt_in || rewardsOptIn,
+      })
+      .eq("id", existing.id);
+    return existing.id;
+  }
+
+  const { data: created, error } = await supabase
+    .from("customers")
+    .insert({
+      phone,
+      name,
+      rewards_opt_in: rewardsOptIn,
+    })
+    .select("id")
+    .single();
+
+  if (error) throw error;
+  return created.id;
+}
+
+async function readAllUnsafe(): Promise<WaitlistEntry[]> {
+  const supabase = getSupabaseAdmin();
+  if (supabase) {
+    const { data, error } = await supabase
+      .from("waitlist_entries")
+      .select("*")
+      .order("created_at", { ascending: true });
+    if (error) throw error;
+    return (data as DbEntry[]).map(rowToEntry);
+  }
+
+  if (isVercel()) throw new Error("STORAGE_NOT_CONFIGURED");
+  return readFileAll();
+}
+
 async function writeAllUnsafe(entries: WaitlistEntry[]): Promise<void> {
-  const redis = getRedis();
-  if (redis) {
-    try {
-      await redis.set(STORE_KEY, entries);
-      return;
-    } catch (err) {
-      console.error("[store] Redis write failed:", err);
-      throw new Error("STORE_WRITE_FAILED");
-    }
+  if (getSupabaseAdmin()) {
+    throw new Error("USE_ROW_OPERATIONS");
   }
-
-  if (isVercelProduction()) {
-    throw new Error("STORAGE_NOT_CONFIGURED");
-  }
-
-  try {
-    await fs.mkdir(DATA_DIR, { recursive: true });
-    const tempFile = `${DATA_FILE}.${process.pid}.tmp`;
-    await fs.writeFile(tempFile, JSON.stringify(entries, null, 2), "utf-8");
-    await fs.rename(tempFile, DATA_FILE);
-  } catch (err) {
-    console.error("[store] File write failed:", err);
-    throw new Error("STORE_WRITE_FAILED");
-  }
+  if (isVercel()) throw new Error("STORAGE_NOT_CONFIGURED");
+  await writeFileAll(entries);
 }
 
-async function readAll(): Promise<WaitlistEntry[]> {
-  return withStoreLock(readAllUnsafe);
+async function insertEntry(
+  entry: WaitlistEntry,
+  customerId: string | null,
+): Promise<WaitlistEntry> {
+  const supabase = getSupabaseAdmin();
+  if (supabase) {
+    const { data, error } = await supabase
+      .from("waitlist_entries")
+      .insert({
+        id: entry.id,
+        customer_id: customerId,
+        activity: entry.activity,
+        name: entry.name,
+        phone: entry.phone,
+        sms_opt_in: entry.smsOptIn,
+        status: entry.status,
+        created_at: entry.createdAt,
+      })
+      .select("*")
+      .single();
+    if (error) throw error;
+    return rowToEntry(data as DbEntry);
+  }
+
+  const entries = await readFileAll();
+  entries.push(entry);
+  await writeFileAll(entries);
+  return entry;
 }
 
-async function writeAll(entries: WaitlistEntry[]): Promise<void> {
-  return withStoreLock(() => writeAllUnsafe(entries));
+async function patchEntryStatus(
+  id: string,
+  status: WaitlistStatus,
+): Promise<WaitlistEntry | null> {
+  const supabase = getSupabaseAdmin();
+  if (supabase) {
+    const patch: Record<string, string> = { status };
+    if (status === "notified") patch.notified_at = new Date().toISOString();
+
+    const { data, error } = await supabase
+      .from("waitlist_entries")
+      .update(patch)
+      .eq("id", id)
+      .select("*")
+      .maybeSingle();
+    if (error) throw error;
+    return data ? rowToEntry(data as DbEntry) : null;
+  }
+
+  const entries = await readFileAll();
+  const idx = entries.findIndex((e) => e.id === id);
+  if (idx === -1) return null;
+  entries[idx] = {
+    ...entries[idx],
+    status,
+    ...(status === "notified"
+      ? { notifiedAt: new Date().toISOString() }
+      : {}),
+  };
+  await writeFileAll(entries);
+  return entries[idx];
 }
+
+// --- Public API ---
 
 export interface QueuePreview {
   position: number;
@@ -93,35 +216,35 @@ export interface ActivityBoard {
 }
 
 export async function getStorageStatus(): Promise<{
-  backend: "redis" | "file" | "none";
+  backend: "supabase" | "file" | "none";
   canWrite: boolean;
   hint?: string;
 }> {
-  if (hasRedisConfigured()) {
-    const redis = getRedis()!;
-    try {
-      await redis.ping();
-      return { backend: "redis", canWrite: true };
-    } catch {
+  const supabase = getSupabaseAdmin();
+  if (supabase) {
+    const { error } = await supabase.from("customers").select("id").limit(1);
+    if (error) {
       return {
-        backend: "redis",
+        backend: "supabase",
         canWrite: false,
-        hint: "Redis env vars are set but connection failed. Check Upstash credentials in Vercel.",
+        hint:
+          "Supabase is connected but tables may be missing. Run supabase/schema.sql in the SQL Editor.",
       };
     }
+    return { backend: "supabase", canWrite: true };
   }
-  if (isVercelProduction()) {
+  if (isVercel()) {
     return {
       backend: "none",
       canWrite: false,
-      hint: "Add Upstash Redis from Vercel Storage → Marketplace, then redeploy.",
+      hint: "Add Supabase env vars in Vercel and run supabase/schema.sql.",
     };
   }
   return { backend: "file", canWrite: true };
 }
 
 export async function getStats(): Promise<ActivityStats[]> {
-  const entries = await readAll();
+  const entries = await withStoreLock(readAllUnsafe);
   return ACTIVITIES.map((activity) => buildStats(activity, entries));
 }
 
@@ -142,7 +265,7 @@ function buildStats(
 }
 
 export async function getBoard(): Promise<ActivityBoard[]> {
-  const entries = await readAll();
+  const entries = await withStoreLock(readAllUnsafe);
   return ACTIVITIES.map((activity) => {
     const waiting = entries
       .filter(
@@ -167,7 +290,7 @@ export async function getBoard(): Promise<ActivityBoard[]> {
 }
 
 export async function getQueue(activity: Activity): Promise<WaitlistEntry[]> {
-  const entries = await readAll();
+  const entries = await withStoreLock(readAllUnsafe);
   return entries
     .filter((e) => e.activity === activity && e.status !== "cancelled")
     .sort(
@@ -179,7 +302,7 @@ export async function getQueue(activity: Activity): Promise<WaitlistEntry[]> {
 export async function getPosition(
   id: string,
 ): Promise<{ entry: WaitlistEntry; position: number } | null> {
-  const entries = await readAll();
+  const entries = await withStoreLock(readAllUnsafe);
   const entry = entries.find((e) => e.id === id);
   if (!entry || entry.status !== "waiting") return null;
 
@@ -197,10 +320,11 @@ export async function joinWaitlist(input: {
   name: string;
   phone: string;
   smsOptIn: boolean;
+  rewardsOptIn?: boolean;
 }): Promise<WaitlistEntry> {
   return withStoreLock(async () => {
-    const entries = await readAllUnsafe();
     const normalizedPhone = normalizePhone(input.phone);
+    const entries = await readAllUnsafe();
 
     const duplicate = entries.find(
       (e) =>
@@ -208,12 +332,17 @@ export async function joinWaitlist(input: {
         e.phone === normalizedPhone &&
         (e.status === "waiting" || e.status === "notified"),
     );
-    if (duplicate) {
-      throw new Error("ALREADY_ON_WAITLIST");
-    }
+    if (duplicate) throw new Error("ALREADY_ON_WAITLIST");
+
+    const customerId = await upsertCustomer(
+      input.name.trim(),
+      normalizedPhone,
+      input.rewardsOptIn ?? false,
+    );
 
     const entry: WaitlistEntry = {
       id: randomUUID(),
+      customerId: customerId ?? undefined,
       activity: input.activity,
       name: input.name.trim(),
       phone: normalizedPhone,
@@ -222,9 +351,7 @@ export async function joinWaitlist(input: {
       createdAt: new Date().toISOString(),
     };
 
-    entries.push(entry);
-    await writeAllUnsafe(entries);
-    return entry;
+    return insertEntry(entry, customerId);
   });
 }
 
@@ -232,21 +359,7 @@ export async function updateStatus(
   id: string,
   status: WaitlistStatus,
 ): Promise<WaitlistEntry | null> {
-  return withStoreLock(async () => {
-    const entries = await readAllUnsafe();
-    const idx = entries.findIndex((e) => e.id === id);
-    if (idx === -1) return null;
-
-    entries[idx] = {
-      ...entries[idx],
-      status,
-      ...(status === "notified"
-        ? { notifiedAt: new Date().toISOString() }
-        : {}),
-    };
-    await writeAllUnsafe(entries);
-    return entries[idx];
-  });
+  return withStoreLock(() => patchEntryStatus(id, status));
 }
 
 export async function cancelActiveEntriesForPhone(phone: string): Promise<number> {
@@ -254,16 +367,15 @@ export async function cancelActiveEntriesForPhone(phone: string): Promise<number
     const normalized = normalizePhone(phone);
     const entries = await readAllUnsafe();
     let count = 0;
-    for (let i = 0; i < entries.length; i++) {
+    for (const e of entries) {
       if (
-        entries[i].phone === normalized &&
-        (entries[i].status === "waiting" || entries[i].status === "notified")
+        e.phone === normalized &&
+        (e.status === "waiting" || e.status === "notified")
       ) {
-        entries[i] = { ...entries[i], status: "cancelled" };
+        await patchEntryStatus(e.id, "cancelled");
         count++;
       }
     }
-    if (count > 0) await writeAllUnsafe(entries);
     return count;
   });
 }
@@ -276,3 +388,5 @@ export function normalizePhone(phone: string): string {
   if (digits.length >= 10) return `+${digits}`;
   throw new Error("INVALID_PHONE");
 }
+
+export { hasSupabaseConfigured };
