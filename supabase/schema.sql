@@ -44,6 +44,46 @@ create table if not exists waitlist_entries (
   id uuid primary key default gen_random_uuid()
 );
 
+-- Legacy GitHub integration may leave BOTH camelCase and snake_case columns
+do $$
+begin
+  if exists (select 1 from information_schema.columns where table_schema='public' and table_name='waitlist_entries' and column_name='createdAt') then
+    if exists (select 1 from information_schema.columns where table_schema='public' and table_name='waitlist_entries' and column_name='created_at') then
+      update waitlist_entries set created_at = "createdAt" where created_at is null and "createdAt" is not null;
+      alter table waitlist_entries drop column "createdAt";
+    else
+      alter table waitlist_entries rename column "createdAt" to created_at;
+    end if;
+  end if;
+  if exists (select 1 from information_schema.columns where table_schema='public' and table_name='waitlist_entries' and column_name='smsOptIn') then
+    if exists (select 1 from information_schema.columns where table_schema='public' and table_name='waitlist_entries' and column_name='sms_opt_in') then
+      update waitlist_entries set sms_opt_in = "smsOptIn" where sms_opt_in is null and "smsOptIn" is not null;
+      alter table waitlist_entries drop column "smsOptIn";
+    else
+      alter table waitlist_entries rename column "smsOptIn" to sms_opt_in;
+    end if;
+  end if;
+  if exists (select 1 from information_schema.columns where table_schema='public' and table_name='waitlist_entries' and column_name='customerId') then
+    if exists (select 1 from information_schema.columns where table_schema='public' and table_name='waitlist_entries' and column_name='customer_id') then
+      update waitlist_entries set customer_id = "customerId" where customer_id is null and "customerId" is not null;
+      alter table waitlist_entries drop column "customerId";
+    else
+      alter table waitlist_entries rename column "customerId" to customer_id;
+    end if;
+  end if;
+  if exists (select 1 from information_schema.columns where table_schema='public' and table_name='waitlist_entries' and column_name='notifiedAt') then
+    if exists (select 1 from information_schema.columns where table_schema='public' and table_name='waitlist_entries' and column_name='notified_at') then
+      update waitlist_entries set notified_at = "notifiedAt" where notified_at is null and "notifiedAt" is not null;
+      alter table waitlist_entries drop column "notifiedAt";
+    else
+      alter table waitlist_entries rename column "notifiedAt" to notified_at;
+    end if;
+  end if;
+end $$;
+
+alter table customers disable row level security;
+alter table waitlist_entries disable row level security;
+
 alter table waitlist_entries add column if not exists customer_id uuid;
 alter table waitlist_entries add column if not exists activity text;
 alter table waitlist_entries add column if not exists name text;

@@ -8,6 +8,8 @@ In [Supabase](https://supabase.com) → your project → **SQL Editor**, paste a
 
 **Safe to re-run** — if tables already existed from the GitHub integration, this adds missing columns and converts enum types (like `WaitlistStatus`) to plain text the app expects.
 
+If join/board still fail after that, also run `supabase/fix-500.sql` — it handles duplicate camelCase/snake_case columns and legacy required fields like `publicToken`, `displayName`, and `updatedAt`.
+
 If you still get type errors and have no real data yet, run the reset block at the top of `schema.sql` first, then run the full script again.
 
 That creates:

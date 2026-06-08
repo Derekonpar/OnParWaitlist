@@ -2,6 +2,11 @@ import { promises as fs } from "fs";
 import path from "path";
 import { randomUUID } from "crypto";
 import { displayName } from "./display";
+import {
+  normalizeWaitlistRow,
+  statusForDb,
+  waitlistInsertSnake,
+} from "./db-mapper";
 import { getSupabaseAdmin, hasSupabaseConfigured } from "./supabase";
 import {
   ACTIVITIES,
@@ -49,30 +54,30 @@ async function writeFileAll(entries: WaitlistEntry[]): Promise<void> {
 
 // --- Supabase row mapping ---
 
-interface DbEntry {
-  id: string;
-  customer_id: string | null;
-  activity: Activity;
-  name: string;
-  phone: string;
-  sms_opt_in: boolean;
-  status: WaitlistStatus;
-  created_at: string;
-  notified_at: string | null;
+function rowToEntry(row: Record<string, unknown>): WaitlistEntry {
+  const db = normalizeWaitlistRow(row);
+  return {
+    id: db.id,
+    customerId: db.customer_id ?? undefined,
+    activity: db.activity,
+    name: db.name,
+    phone: db.phone,
+    smsOptIn: db.sms_opt_in,
+    status: db.status,
+    createdAt: db.created_at,
+    notifiedAt: db.notified_at ?? undefined,
+  };
 }
 
-function rowToEntry(row: DbEntry): WaitlistEntry {
-  return {
-    id: row.id,
-    customerId: row.customer_id ?? undefined,
-    activity: row.activity,
-    name: row.name,
-    phone: row.phone,
-    smsOptIn: row.sms_opt_in,
-    status: row.status,
-    createdAt: row.created_at,
-    notifiedAt: row.notified_at ?? undefined,
-  };
+function sortByCreatedAt(rows: WaitlistEntry[]): WaitlistEntry[] {
+  return [...rows].sort(
+    (a, b) =>
+      new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+  );
+}
+
+function logSupabaseError(context: string, error: { message: string; code?: string; details?: string; hint?: string }) {
+  console.error(`[store:${context}]`, error.message, error.code, error.details, error.hint);
 }
 
 async function upsertCustomer(
@@ -119,12 +124,14 @@ async function upsertCustomer(
 async function readAllUnsafe(): Promise<WaitlistEntry[]> {
   const supabase = getSupabaseAdmin();
   if (supabase) {
-    const { data, error } = await supabase
-      .from("waitlist_entries")
-      .select("*")
-      .order("created_at", { ascending: true });
-    if (error) throw error;
-    return (data as DbEntry[]).map(rowToEntry);
+    const { data, error } = await supabase.from("waitlist_entries").select("*");
+    if (error) {
+      logSupabaseError("read", error);
+      throw error;
+    }
+    return sortByCreatedAt(
+      (data ?? []).map((row) => rowToEntry(row as Record<string, unknown>)),
+    );
   }
 
   if (isVercel()) throw new Error("STORAGE_NOT_CONFIGURED");
@@ -139,28 +146,59 @@ async function writeAllUnsafe(entries: WaitlistEntry[]): Promise<void> {
   await writeFileAll(entries);
 }
 
+async function supabaseInsertEntry(
+  entry: WaitlistEntry,
+  customerId: string | null,
+): Promise<WaitlistEntry> {
+  const supabase = getSupabaseAdmin();
+  if (!supabase) throw new Error("STORAGE_NOT_CONFIGURED");
+
+  const attempts: Record<string, unknown>[] = [
+    waitlistInsertSnake(entry, customerId),
+    {
+      id: entry.id,
+      publicToken: entry.id,
+      customer_id: customerId,
+      activity: entry.activity,
+      displayName: displayName(entry.name),
+      partySize: 1,
+      name: entry.name,
+      phone: entry.phone,
+      status: entry.status,
+      updatedAt: entry.createdAt,
+    },
+  ];
+
+  let lastError: { message: string; code?: string } | null = null;
+  for (const base of attempts) {
+    for (const status of statusForDb(entry.status)) {
+      const payload = { ...base, status };
+      const result = await supabase
+        .from("waitlist_entries")
+        .insert(payload as never)
+        .select("*")
+        .single();
+      if (!result.error && result.data) {
+        return rowToEntry(result.data as Record<string, unknown>);
+      }
+      if (result.error) {
+        lastError = result.error;
+        logSupabaseError("insert", result.error);
+      }
+    }
+  }
+
+  if (lastError) throw lastError;
+  throw new Error("INSERT_FAILED");
+}
+
 async function insertEntry(
   entry: WaitlistEntry,
   customerId: string | null,
 ): Promise<WaitlistEntry> {
   const supabase = getSupabaseAdmin();
   if (supabase) {
-    const { data, error } = await supabase
-      .from("waitlist_entries")
-      .insert({
-        id: entry.id,
-        customer_id: customerId,
-        activity: entry.activity,
-        name: entry.name,
-        phone: entry.phone,
-        sms_opt_in: entry.smsOptIn,
-        status: entry.status,
-        created_at: entry.createdAt,
-      })
-      .select("*")
-      .single();
-    if (error) throw error;
-    return rowToEntry(data as DbEntry);
+    return supabaseInsertEntry(entry, customerId);
   }
 
   const entries = await readFileAll();
@@ -184,8 +222,11 @@ async function patchEntryStatus(
       .eq("id", id)
       .select("*")
       .maybeSingle();
-    if (error) throw error;
-    return data ? rowToEntry(data as DbEntry) : null;
+    if (error) {
+      logSupabaseError("patch", error);
+      throw error;
+    }
+    return data ? rowToEntry(data as Record<string, unknown>) : null;
   }
 
   const entries = await readFileAll();
@@ -222,13 +263,26 @@ export async function getStorageStatus(): Promise<{
 }> {
   const supabase = getSupabaseAdmin();
   if (supabase) {
-    const { error } = await supabase.from("customers").select("id").limit(1);
-    if (error) {
+    const { error: customersError } = await supabase
+      .from("customers")
+      .select("id")
+      .limit(1);
+    if (customersError) {
       return {
         backend: "supabase",
         canWrite: false,
-        hint:
-          "Supabase is connected but tables may be missing. Run supabase/schema.sql in the SQL Editor.",
+        hint: `customers table: ${customersError.message}`,
+      };
+    }
+    const { error: waitlistError } = await supabase
+      .from("waitlist_entries")
+      .select("id")
+      .limit(1);
+    if (waitlistError) {
+      return {
+        backend: "supabase",
+        canWrite: false,
+        hint: `waitlist_entries table: ${waitlistError.message}`,
       };
     }
     return { backend: "supabase", canWrite: true };
