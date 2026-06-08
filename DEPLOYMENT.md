@@ -24,29 +24,29 @@ Do **not** set a custom Output Directory. Do **not** use npm workspaces from the
 
 | Variable | Required |
 |----------|----------|
-| `NEXT_PUBLIC_APP_URL` | Yes — your `https://….vercel.app` URL |
+| `NEXT_PUBLIC_APP_URL` | Yes — `https://onparwaitlist.com` |
 | `STAFF_SECRET` | Yes |
 | `UPSTASH_REDIS_REST_URL` | Yes (from Upstash integration) |
 | `UPSTASH_REDIS_REST_TOKEN` | Yes |
 | Twilio vars | Optional (for SMS) |
-| `VENUE_PHONE` | Optional (shown on `/sms` page for Twilio verification) |
-| `CONTACT_EMAIL` | Optional (shown on `/sms` page) |
+| `VENUE_PHONE` | `937-705-6024` |
+| `CONTACT_EMAIL` | `info@onparbar.com` |
 
 ### Twilio SMS verification
 
 Use this public URL in your Twilio campaign registration:
 
-**`https://YOUR-PROJECT.vercel.app/sms`**
+**`https://onparwaitlist.com/sms`**
 
 In Twilio Console → your phone number → **Messaging Configuration** → **A MESSAGE COMES IN**:
 
-`https://YOUR-PROJECT.vercel.app/api/twilio/inbound` (HTTP POST)
+`https://onparwaitlist.com/api/twilio/inbound` (HTTP POST)
 
 6. **Redeploy** after adding env vars
 
 ## iOS app
 
-After deploy, set `productionWaitlistURL` in `On Par Waitlist/On Par Waitlist/Config.swift` to your Vercel URL.
+Xcode `Config.swift` is set to `https://onparwaitlist.com`. Rebuild the iOS app after deploy.
 
 ## Local dev
 

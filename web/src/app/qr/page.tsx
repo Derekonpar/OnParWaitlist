@@ -8,7 +8,7 @@ export default async function QrPage() {
     process.env.NEXT_PUBLIC_APP_URL ??
     (process.env.VERCEL_URL
       ? `https://${process.env.VERCEL_URL}`
-      : "http://localhost:3001");
+      : "https://onparwaitlist.com");
 
   const waitlistUrl = baseUrl.replace(/\/$/, "");
   const qrDataUrl = await QRCode.toDataURL(waitlistUrl, {

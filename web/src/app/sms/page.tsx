@@ -7,6 +7,7 @@ import {
   getPublicAppUrl,
   getVenueName,
   getVenuePhone,
+  getVenuePhoneTel,
 } from "@/lib/venue";
 
 export const metadata = {
@@ -18,6 +19,7 @@ export const metadata = {
 export default function SmsPage() {
   const venue = getVenueName();
   const phone = getVenuePhone();
+  const phoneTel = getVenuePhoneTel();
   const email = getContactEmail();
   const appUrl = getPublicAppUrl();
 
@@ -119,32 +121,22 @@ export default function SmsPage() {
             </div>
           </article>
 
-          {(phone || email) && (
-            <article className="rounded-2xl border border-white/10 bg-[#141414] p-5">
-              <h2 className="text-base font-semibold text-white">Contact</h2>
-              <p className="mt-2">
-                {venue}
-                {phone && (
-                  <>
-                    <br />
-                    Phone:{" "}
-                    <a href={`tel:${phone}`} className="text-white underline">
-                      {phone}
-                    </a>
-                  </>
-                )}
-                {email && (
-                  <>
-                    <br />
-                    Email:{" "}
-                    <a href={`mailto:${email}`} className="text-white underline">
-                      {email}
-                    </a>
-                  </>
-                )}
-              </p>
-            </article>
-          )}
+          <article className="rounded-2xl border border-white/10 bg-[#141414] p-5">
+            <h2 className="text-base font-semibold text-white">Contact</h2>
+            <p className="mt-2">
+              {venue}
+              <br />
+              Phone:{" "}
+              <a href={`tel:${phoneTel}`} className="text-white underline">
+                {phone}
+              </a>
+              <br />
+              Email:{" "}
+              <a href={`mailto:${email}`} className="text-white underline">
+                {email}
+              </a>
+            </p>
+          </article>
         </section>
 
         <p className="mt-8 text-center">

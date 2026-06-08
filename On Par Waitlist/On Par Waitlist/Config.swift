@@ -6,8 +6,7 @@
 import Foundation
 
 enum AppConfig {
-    /// Production waitlist (Vercel). Must match NEXT_PUBLIC_APP_URL in Vercel env.
-    static let productionWaitlistURL = "https://on-par-waitlist.vercel.app"
+    static let productionWaitlistURL = "https://onparwaitlist.com"
 
     static let waitlistURL: URL = {
         #if targetEnvironment(simulator)
