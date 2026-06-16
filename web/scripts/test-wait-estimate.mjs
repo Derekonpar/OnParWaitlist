@@ -1,30 +1,10 @@
 /**
- * Quick checks for capacity-based wait estimates.
+ * FIFO waitlist estimate checks.
  * Run: node scripts/test-wait-estimate.mjs
  */
 
-function assignParty(laneEnds, laneCount, sessionMinutes) {
-  const capacity = laneEnds.length;
-  const need = Math.min(Math.max(1, laneCount), capacity);
-  const indexed = laneEnds
-    .map((endAt, index) => ({ endAt, index }))
-    .sort((a, b) => a.endAt - b.endAt);
-  const startAt = indexed[need - 1].endAt;
-  const endAt = startAt + sessionMinutes;
-  for (let i = 0; i < need; i++) {
-    laneEnds[indexed[i].index] = endAt;
-  }
-  return startAt;
-}
-
-function simulateWaitMinutes(capacity, partiesAhead, request) {
-  const laneEnds = Array.from({ length: capacity }, () => 0);
-  for (const party of partiesAhead) {
-    assignParty(laneEnds, party.laneCount, party.sessionMinutes);
-  }
-  return Math.ceil(
-    assignParty(laneEnds, request.laneCount, request.sessionMinutes),
-  );
+function fifoWaitMinutes(parties) {
+  return parties.reduce((sum, entry) => sum + entry.sessionMinutes, 0);
 }
 
 function assert(label, actual, expected) {
@@ -35,57 +15,42 @@ function assert(label, actual, expected) {
   console.log(`OK ${label}`);
 }
 
+// First guest: nobody ahead → 0 min
+assert("first in line", fifoWaitMinutes([]), 0);
+
+// Darts: 2 lanes for 1 hour ahead → next guest waits full hour (not 0)
 assert(
-  "pool 2 tables 60min leaves 1 table open",
-  simulateWaitMinutes(
-    3,
-    [{ laneCount: 2, sessionMinutes: 60 }],
-    { laneCount: 1, sessionMinutes: 30 },
-  ),
-  0,
+  "darts 2 lanes 1hr ahead blocks next guest",
+  fifoWaitMinutes([{ sessionMinutes: 60 }]),
+  60,
 );
 
+// Two parties ahead at 60 min each → 120 min
 assert(
-  "pool full house blocks next guest",
-  simulateWaitMinutes(
-    3,
-    [{ laneCount: 3, sessionMinutes: 30 }],
-    { laneCount: 1, sessionMinutes: 30 },
-  ),
-  30,
-);
-
-assert(
-  "shuffleboard 2 lanes 2 hours",
-  simulateWaitMinutes(
-    2,
-    [{ laneCount: 2, sessionMinutes: 120 }],
-    { laneCount: 1, sessionMinutes: 30 },
-  ),
+  "two hour-long parties ahead",
+  fifoWaitMinutes([{ sessionMinutes: 60 }, { sessionMinutes: 60 }]),
   120,
 );
 
+// Pool: 2 tables 30 min does not divide — still 30 min for person behind
 assert(
-  "bowling multi-lane does not divide session",
-  simulateWaitMinutes(
-    12,
-    [{ laneCount: 2, sessionMinutes: 60 }],
-    { laneCount: 1, sessionMinutes: 30 },
-  ),
-  0,
+  "pool multi-table still full session wait",
+  fifoWaitMinutes([{ sessionMinutes: 30 }]),
+  30,
 );
 
+// Shuffleboard: 2 lanes 2 hours ahead
 assert(
-  "darts 5 lanes fill sequentially",
-  simulateWaitMinutes(
-    5,
-    Array.from({ length: 5 }, () => ({
-      laneCount: 1,
-      sessionMinutes: 30,
-    })),
-    { laneCount: 1, sessionMinutes: 30 },
-  ),
-  30,
+  "shuffleboard 2hr session ahead",
+  fifoWaitMinutes([{ sessionMinutes: 120 }]),
+  120,
+);
+
+// Bowling: 2 lanes 1 hour ahead
+assert(
+  "bowling 2 lanes 1hr ahead",
+  fifoWaitMinutes([{ sessionMinutes: 60 }]),
+  60,
 );
 
 console.log("\nALL WAIT ESTIMATE TESTS PASSED");
