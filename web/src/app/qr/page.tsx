@@ -32,16 +32,12 @@ export default async function QrPage() {
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={qrDataUrl}
-            alt={`QR code for ${waitlistUrl}`}
+            alt="QR code to join the waitlist"
             width={320}
             height={320}
             className="mx-auto rounded-2xl"
           />
         </div>
-
-        <p className="mt-6 break-all text-sm font-mono text-neutral-500">
-          {waitlistUrl}
-        </p>
 
         <p className="mt-8 text-xs text-neutral-500">
           Print for lobby signage

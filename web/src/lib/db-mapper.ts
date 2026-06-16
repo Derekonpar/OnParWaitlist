@@ -1,4 +1,8 @@
 import { displayName } from "./display";
+import {
+  normalizeLaneCount,
+  normalizeSessionMinutes,
+} from "./booking";
 import type {
   Activity,
   LaneCount,
@@ -48,10 +52,7 @@ export function normalizeWaitlistRow(
   ).trim();
 
   const partySize = Number(row.partySize ?? row.party_size ?? 1);
-  const laneCount = Math.min(
-    4,
-    Math.max(1, Number.isFinite(partySize) ? partySize : 1),
-  ) as LaneCount;
+  const laneCount = normalizeLaneCount(activity, partySize) as LaneCount;
 
   const rawSession = Number(
     row.session_minutes ??
@@ -59,7 +60,10 @@ export function normalizeWaitlistRow(
       row.estimated_wait_minutes ??
       30,
   );
-  const sessionMinutes = (rawSession >= 60 ? 60 : 30) as SessionDuration;
+  const sessionMinutes = normalizeSessionMinutes(
+    activity,
+    rawSession,
+  ) as SessionDuration;
 
   return {
     id: String(row.id),

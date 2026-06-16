@@ -58,7 +58,28 @@ console.log("3) GET /api/waitlist/status/:id");
   console.log(`   OK (position ${body.position})`);
 }
 
-console.log("4) board shows new guest");
+console.log("4) POST join with SMS opt-in (must succeed even if Twilio fails)");
+{
+  const smsPhone = `937556${String(Date.now()).slice(-4)}`;
+  const { res, body } = await json("/api/waitlist/join", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      activity: "pool",
+      name: "SMS Opt In Test",
+      phone: smsPhone,
+      smsOptIn: true,
+      rewardsOptIn: false,
+      laneCount: 1,
+      sessionMinutes: 30,
+    }),
+  });
+  if (!res.ok) fail(`sms join returned ${res.status}`, JSON.stringify(body));
+  if (!body.entry?.id) fail("sms join missing entry.id", JSON.stringify(body));
+  console.log(`   OK (smsSent=${body.smsSent})`);
+}
+
+console.log("5) board shows new guest");
 {
   const { res, body } = await json("/api/waitlist/board");
   if (!res.ok) fail(`board refresh ${res.status}`, JSON.stringify(body));
@@ -66,6 +87,11 @@ console.log("4) board shows new guest");
   const names = bowling?.queue?.map((q) => q.displayName) ?? [];
   if (!names.some((n) => n.includes("Live"))) {
     fail("guest not visible on board", JSON.stringify(bowling));
+  }
+  const pool = body.board.find((b) => b.stats.activity === "pool");
+  const poolNames = pool?.queue?.map((q) => q.displayName) ?? [];
+  if (!poolNames.some((n) => n.includes("SMS"))) {
+    fail("sms guest not visible on board", JSON.stringify(pool));
   }
   console.log("   OK");
 }

@@ -2,13 +2,16 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
+import { formatBookingSummary } from "@/lib/booking";
 import { Header } from "@/components/Header";
+import type { Activity } from "@/lib/types";
 
 interface StatusData {
   entry: {
     id: string;
     name: string;
+    activity: string;
     activityLabel: string;
     status: string;
     laneCount?: number;
@@ -20,7 +23,9 @@ interface StatusData {
 
 export default function StatusPage() {
   const params = useParams();
+  const searchParams = useSearchParams();
   const id = params.id as string;
+  const smsFailed = searchParams.get("sms") === "failed";
   const [data, setData] = useState<StatusData | null>(null);
   const [error, setError] = useState(false);
 
@@ -71,18 +76,29 @@ export default function StatusPage() {
             </h1>
             <p className="mt-2 text-neutral-400">
               {data.entry.activityLabel}
-              {data.entry.laneCount != null && (
+              {data.entry.laneCount != null && data.entry.activity && (
                 <>
                   {" "}
-                  · {data.entry.laneCount} lane
-                  {data.entry.laneCount === 1 ? "" : "s"} ·{" "}
-                  {data.entry.sessionMinutes === 60 ? "1 hour" : "30 min"}
+                  ·{" "}
+                  {formatBookingSummary(
+                    data.entry.activity as Activity,
+                    data.entry.laneCount,
+                    data.entry.sessionMinutes ?? 30,
+                  )}
                 </>
               )}
             </p>
             <p className="mt-1 text-xs text-neutral-500">
               Your spot updates live for everyone in line
             </p>
+
+            {smsFailed && (
+              <p className="mt-4 rounded-xl bg-amber-500/15 px-4 py-3 text-sm text-amber-200">
+                You&apos;re on the list, but we couldn&apos;t send a
+                confirmation text. Staff can still call your name — or watch
+                this screen for updates.
+              </p>
+            )}
 
             {data.entry.status === "waiting" ? (
               <div className="mt-10 rounded-3xl border border-white/10 bg-[#141414] p-8">

@@ -4,9 +4,13 @@ import { joinWaitlist, getPosition } from "@/lib/store";
 import {
   ACTIVITIES,
   ACTIVITY_LABELS,
-  LANE_COUNTS,
-  SESSION_DURATIONS,
+  type LaneCount,
+  type SessionDuration,
 } from "@/lib/types";
+import {
+  isValidLaneCount,
+  isValidSessionMinutes,
+} from "@/lib/booking";
 import { isSmsOptedOut } from "@/lib/sms-consent";
 import {
   buildJoinConfirmation,
@@ -16,41 +20,71 @@ import {
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
+function trimString(value: unknown): unknown {
+  return typeof value === "string" ? value.trim() : value;
+}
+
 const joinSchema = z.object({
   activity: z.enum(ACTIVITIES),
-  name: z.string().min(1).max(80),
-  phone: z
-    .string()
-    .min(7)
-    .max(24)
-    .refine((v) => v.replace(/\D/g, "").length >= 10, {
-      message: "Enter at least 10 digits",
-    }),
+  name: z.preprocess(trimString, z.string().min(1).max(80)),
+  phone: z.preprocess(
+    trimString,
+    z
+      .string()
+      .min(7)
+      .max(24)
+      .refine((v) => v.replace(/\D/g, "").length >= 10, {
+        message: "Enter at least 10 digits",
+      }),
+  ),
   smsOptIn: z.boolean(),
   rewardsOptIn: z.boolean().optional(),
-  laneCount: z
-    .number()
-    .int()
-    .refine((n): n is (typeof LANE_COUNTS)[number] =>
-      (LANE_COUNTS as readonly number[]).includes(n),
-    )
-    .default(1),
-  sessionMinutes: z
-    .number()
-    .int()
-    .refine((n): n is (typeof SESSION_DURATIONS)[number] =>
-      (SESSION_DURATIONS as readonly number[]).includes(n),
-    )
-    .default(30),
+  laneCount: z.coerce.number().int().default(1),
+  sessionMinutes: z.coerce.number().int().default(30),
+}).superRefine((data, ctx) => {
+  if (!isValidLaneCount(data.activity, data.laneCount)) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["laneCount"],
+      message: "Invalid lane count for this activity",
+    });
+  }
+  if (!isValidSessionMinutes(data.activity, data.sessionMinutes)) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["sessionMinutes"],
+      message: "Invalid session length for this activity",
+    });
+  }
 });
+
+function joinValidationMessage(details: {
+  fieldErrors: Record<string, string[] | undefined>;
+}): string {
+  const phone = details.fieldErrors.phone?.[0];
+  if (phone) {
+    return "Please enter a complete 10-digit mobile number.";
+  }
+  const name = details.fieldErrors.name?.[0];
+  if (name) return "Please enter your name.";
+  const lane = details.fieldErrors.laneCount?.[0];
+  if (lane) return "Please choose how many lanes (1–4).";
+  const session = details.fieldErrors.sessionMinutes?.[0];
+  if (session) return "Please choose half hour or full hour.";
+  return "Please check your entries and try again.";
+}
 
 export async function POST(request: Request) {
   try {
     const body = await request.json();
     const parsed = joinSchema.safeParse(body);
     if (!parsed.success) {
+      const details = parsed.error.flatten();
       return NextResponse.json(
-        { error: "Invalid request", details: parsed.error.flatten() },
+        {
+          error: joinValidationMessage(details),
+          details,
+        },
         { status: 400 },
       );
     }
@@ -90,8 +124,8 @@ export async function POST(request: Request) {
         phone,
         smsOptIn,
         rewardsOptIn: rewardsOptIn ?? false,
-        laneCount,
-        sessionMinutes,
+        laneCount: laneCount as LaneCount,
+        sessionMinutes: sessionMinutes as SessionDuration,
       });
     } catch (e) {
       if (e instanceof Error && e.message === "INVALID_PHONE") {
@@ -105,8 +139,9 @@ export async function POST(request: Request) {
     const positionInfo = await getPosition(entry.id);
     const position = positionInfo?.position ?? 1;
 
+    let smsSent = false;
     if (smsOptIn) {
-      await sendSms(
+      smsSent = await sendSms(
         entry.phone,
         buildJoinConfirmation(
           entry.name,
@@ -116,7 +151,7 @@ export async function POST(request: Request) {
       );
     }
 
-    return NextResponse.json({ entry, position });
+    return NextResponse.json({ entry, position, smsSent });
   } catch (err) {
     if (err instanceof Error) {
       if (err.message === "ALREADY_ON_WAITLIST") {

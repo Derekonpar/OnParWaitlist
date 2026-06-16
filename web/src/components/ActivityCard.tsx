@@ -1,6 +1,7 @@
 "use client";
 
 import type { ActivityBoard } from "@/lib/store";
+import { formatBookingSummary } from "@/lib/booking";
 import {
   ACTIVITY_TAGLINE,
   ACTIVITY_THEME,
@@ -100,9 +101,11 @@ export function ActivityCard({ board, onJoin }: ActivityCardProps) {
                         {person.displayName}
                       </span>
                       <span className="text-xs text-neutral-500">
-                        {person.laneCount} lane
-                        {person.laneCount === 1 ? "" : "s"} ·{" "}
-                        {person.sessionMinutes === 60 ? "1 hr" : "30 min"}
+                        {formatBookingSummary(
+                          stats.activity,
+                          person.laneCount,
+                          person.sessionMinutes,
+                        )}
                       </span>
                     </span>
                   </span>

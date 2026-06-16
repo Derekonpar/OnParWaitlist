@@ -2,36 +2,45 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { verifyStaffSecret } from "@/lib/auth";
 import { joinWaitlist } from "@/lib/store";
-import { ACTIVITIES, LANE_COUNTS, SESSION_DURATIONS } from "@/lib/types";
+import { ACTIVITIES, type LaneCount, type SessionDuration } from "@/lib/types";
+import {
+  isValidLaneCount,
+  isValidSessionMinutes,
+} from "@/lib/booking";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-const schema = z.object({
-  activity: z.enum(ACTIVITIES),
-  name: z.string().min(1).max(80),
-  phone: z
-    .string()
-    .min(7)
-    .max(24)
-    .refine((v) => v.replace(/\D/g, "").length >= 10),
-  smsOptIn: z.boolean().default(false),
-  rewardsOptIn: z.boolean().default(false),
-  laneCount: z
-    .number()
-    .int()
-    .refine((n): n is (typeof LANE_COUNTS)[number] =>
-      (LANE_COUNTS as readonly number[]).includes(n),
-    )
-    .default(1),
-  sessionMinutes: z
-    .number()
-    .int()
-    .refine((n): n is (typeof SESSION_DURATIONS)[number] =>
-      (SESSION_DURATIONS as readonly number[]).includes(n),
-    )
-    .default(30),
-});
+const schema = z
+  .object({
+    activity: z.enum(ACTIVITIES),
+    name: z.string().min(1).max(80),
+    phone: z
+      .string()
+      .min(7)
+      .max(24)
+      .refine((v) => v.replace(/\D/g, "").length >= 10),
+    smsOptIn: z.boolean().default(false),
+    rewardsOptIn: z.boolean().default(false),
+    laneCount: z.coerce.number().int().default(1),
+    sessionMinutes: z.coerce.number().int().default(30),
+  })
+  .superRefine((data, ctx) => {
+    if (!isValidLaneCount(data.activity, data.laneCount)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["laneCount"],
+        message: "Invalid lane count",
+      });
+    }
+    if (!isValidSessionMinutes(data.activity, data.sessionMinutes)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["sessionMinutes"],
+        message: "Invalid session length",
+      });
+    }
+  });
 
 export async function POST(request: Request) {
   if (!verifyStaffSecret(request)) {
@@ -45,7 +54,13 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Invalid request" }, { status: 400 });
     }
 
-    const entry = await joinWaitlist(parsed.data);
+    const { activity, laneCount, sessionMinutes, ...rest } = parsed.data;
+    const entry = await joinWaitlist({
+      ...rest,
+      activity,
+      laneCount: laneCount as LaneCount,
+      sessionMinutes: sessionMinutes as SessionDuration,
+    });
     return NextResponse.json({ entry });
   } catch (err) {
     if (err instanceof Error && err.message === "ALREADY_ON_WAITLIST") {

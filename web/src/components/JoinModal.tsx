@@ -30,6 +30,13 @@ export function JoinModal({ activity, onClose }: JoinModalProps) {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+
+    const digits = phone.replace(/\D/g, "");
+    if (digits.length < 10) {
+      setError("Please enter a complete 10-digit mobile number.");
+      return;
+    }
+
     setLoading(true);
 
     try {
@@ -50,6 +57,12 @@ export function JoinModal({ activity, onClose }: JoinModalProps) {
 
       if (!res.ok) {
         setError(data.error ?? "Something went wrong");
+        return;
+      }
+
+      if (smsOptIn && data.smsSent === false) {
+        // Join succeeded; confirmation text failed — still send them to their spot.
+        window.location.href = `/status/${data.entry.id}?sms=failed`;
         return;
       }
 

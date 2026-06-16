@@ -21,8 +21,13 @@ export async function sendSms(to: string, body: string): Promise<boolean> {
     return false;
   }
 
-  await client.messages.create({ to, from, body });
-  return true;
+  try {
+    await client.messages.create({ to, from, body });
+    return true;
+  } catch (err) {
+    console.error("[twilio] Send failed:", err);
+    return false;
+  }
 }
 
 export function buildReadyMessage(

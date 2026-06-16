@@ -4,6 +4,11 @@ import { useCallback, useEffect, useState } from "react";
 import { ActivityIcon } from "@/components/ActivityIcon";
 import { BookingOptions } from "@/components/BookingOptions";
 import {
+  formatBookingSummary,
+  normalizeLaneCount,
+  normalizeSessionMinutes,
+} from "@/lib/booking";
+import {
   ACTIVITIES,
   ACTIVITY_LABELS,
   ACTIVITY_THEME,
@@ -204,7 +209,16 @@ export default function StaffPage() {
         <form onSubmit={addGuest} className="mt-4 space-y-3">
           <select
             value={addActivity}
-            onChange={(e) => setAddActivity(e.target.value as Activity)}
+            onChange={(e) => {
+              const activity = e.target.value as Activity;
+              setAddActivity(activity);
+              setAddLaneCount((prev) =>
+                normalizeLaneCount(activity, prev) as LaneCount,
+              );
+              setAddSessionMinutes((prev) =>
+                normalizeSessionMinutes(activity, prev) as SessionDuration,
+              );
+            }}
             className="w-full rounded-xl border border-neutral-700 bg-neutral-900 px-4 py-3 text-sm text-white"
           >
             {ACTIVITIES.map((a) => (
@@ -319,11 +333,11 @@ export default function StaffPage() {
                                   {entry.name}
                                 </p>
                                 <p className="text-xs text-neutral-500">
-                                  {entry.laneCount} lane
-                                  {entry.laneCount === 1 ? "" : "s"} ·{" "}
-                                  {entry.sessionMinutes === 60
-                                    ? "1 hr"
-                                    : "30 min"}{" "}
+                                  {formatBookingSummary(
+                                    activity,
+                                    entry.laneCount,
+                                    entry.sessionMinutes,
+                                  )}{" "}
                                   · {entry.phone}
                                 </p>
                               </div>
