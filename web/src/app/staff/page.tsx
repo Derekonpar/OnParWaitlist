@@ -29,7 +29,8 @@ export default function StaffPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const [addActivity, setAddActivity] = useState<Activity>("bowling");
-  const [addName, setAddName] = useState("");
+  const [addFirstName, setAddFirstName] = useState("");
+  const [addLastName, setAddLastName] = useState("");
   const [addPhone, setAddPhone] = useState("");
   const [addSms, setAddSms] = useState(false);
   const [addRewards, setAddRewards] = useState(false);
@@ -113,7 +114,7 @@ export default function StaffPage() {
         return;
       }
       await fetchQueues();
-      if (endpoint.includes("notify")) {
+      if (endpoint.includes("notify") || endpoint.includes("recall")) {
         setSelectedId(null);
       }
     } finally {
@@ -131,7 +132,8 @@ export default function StaffPage() {
         headers: headers(),
         body: JSON.stringify({
           activity: addActivity,
-          name: addName,
+          firstName: addFirstName,
+          lastName: addLastName,
           phone: addPhone,
           smsOptIn: addSms,
           rewardsOptIn: addRewards,
@@ -144,8 +146,11 @@ export default function StaffPage() {
         setAddStatus(data.error ?? "Could not add guest");
         return;
       }
-      setAddStatus(`Added ${addName} to ${ACTIVITY_LABELS[addActivity]}`);
-      setAddName("");
+      setAddStatus(
+        `Added ${addFirstName} ${addLastName} to ${ACTIVITY_LABELS[addActivity]}`,
+      );
+      setAddFirstName("");
+      setAddLastName("");
       setAddPhone("");
       setAddSms(false);
       setAddRewards(false);
@@ -227,14 +232,24 @@ export default function StaffPage() {
               </option>
             ))}
           </select>
-          <input
-            type="text"
-            required
-            placeholder="Guest name"
-            value={addName}
-            onChange={(e) => setAddName(e.target.value)}
-            className="w-full rounded-xl border border-neutral-700 bg-neutral-900 px-4 py-3 text-sm text-white"
-          />
+          <div className="grid grid-cols-2 gap-3">
+            <input
+              type="text"
+              required
+              placeholder="First name"
+              value={addFirstName}
+              onChange={(e) => setAddFirstName(e.target.value)}
+              className="w-full rounded-xl border border-neutral-700 bg-neutral-900 px-4 py-3 text-sm text-white"
+            />
+            <input
+              type="text"
+              required
+              placeholder="Last name"
+              value={addLastName}
+              onChange={(e) => setAddLastName(e.target.value)}
+              className="w-full rounded-xl border border-neutral-700 bg-neutral-900 px-4 py-3 text-sm text-white"
+            />
+          </div>
           <input
             type="tel"
             required
@@ -288,6 +303,10 @@ export default function StaffPage() {
           const active =
             block?.queue.filter(
               (e) => e.status === "waiting" || e.status === "notified",
+            ) ?? [];
+          const recallable =
+            block?.queue.filter(
+              (e) => e.status === "served" || e.status === "cancelled",
             ) ?? [];
           const theme = ACTIVITY_THEME[activity];
 
@@ -377,6 +396,20 @@ export default function StaffPage() {
                                       : "Notify — mark called"}
                                 </button>
                               )}
+                              {entry.status === "notified" && (
+                                <button
+                                  type="button"
+                                  disabled={actionId === entry.id}
+                                  onClick={() =>
+                                    staffAction("/api/staff/recall", entry.id)
+                                  }
+                                  className="flex-1 rounded-xl border border-amber-500/40 px-4 py-3 text-sm font-semibold text-amber-200 hover:bg-amber-500/10 disabled:opacity-60"
+                                >
+                                  {actionId === entry.id
+                                    ? "Recalling…"
+                                    : "Recall — resend text"}
+                                </button>
+                              )}
                               <button
                                 type="button"
                                 disabled={actionId === entry.id}
@@ -405,6 +438,42 @@ export default function StaffPage() {
                   })}
                 </ul>
               )}
+
+              {recallable.length > 0 && (
+                <div className="mt-4">
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-neutral-500">
+                    Accidental serve / remove
+                  </p>
+                  <ul className="space-y-2">
+                    {recallable.map((entry) => (
+                      <li
+                        key={entry.id}
+                        className="flex items-center justify-between rounded-2xl border border-dashed border-white/10 bg-neutral-900/50 p-4"
+                      >
+                        <div>
+                          <p className="font-medium text-neutral-300">
+                            {entry.name}
+                          </p>
+                          <p className="text-xs text-neutral-500">
+                            {entry.status === "served" ? "Marked served" : "Removed"}{" "}
+                            · {entry.phone}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          disabled={actionId === entry.id}
+                          onClick={() =>
+                            staffAction("/api/staff/recall", entry.id)
+                          }
+                          className="rounded-xl bg-amber-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-amber-500 disabled:opacity-60"
+                        >
+                          {actionId === entry.id ? "…" : "Recall to queue"}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </section>
           );
         })}
@@ -425,6 +494,18 @@ export default function StaffPage() {
               className="w-full rounded-xl bg-emerald-600 py-3 text-sm font-semibold text-white"
             >
               Notify guest
+            </button>
+          )}
+          {selectedEntry.status === "notified" && (
+            <button
+              type="button"
+              disabled={actionId === selectedEntry.id}
+              onClick={() =>
+                staffAction("/api/staff/recall", selectedEntry.id)
+              }
+              className="mt-2 w-full rounded-xl border border-amber-500/40 py-3 text-sm font-semibold text-amber-200"
+            >
+              Recall — resend text
             </button>
           )}
         </div>

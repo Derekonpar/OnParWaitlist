@@ -37,7 +37,8 @@ let entryId;
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       activity: "bowling",
-      name: "Live Test",
+      firstName: "Live",
+      lastName: "Test",
       phone: testPhone,
       smsOptIn: false,
       rewardsOptIn: false,
@@ -66,7 +67,8 @@ console.log("4) POST join with SMS opt-in (must succeed even if Twilio fails)");
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       activity: "pool",
-      name: "SMS Opt In Test",
+      firstName: "SMS",
+      lastName: "OptIn",
       phone: smsPhone,
       smsOptIn: true,
       rewardsOptIn: false,
@@ -84,14 +86,15 @@ console.log("5) board shows new guest");
   const { res, body } = await json("/api/waitlist/board");
   if (!res.ok) fail(`board refresh ${res.status}`, JSON.stringify(body));
   const bowling = body.board.find((b) => b.stats.activity === "bowling");
-  const names = bowling?.queue?.map((q) => q.displayName) ?? [];
-  if (!names.some((n) => n.includes("Live"))) {
+  if (!bowling?.queue?.some((q) => q.position >= 1)) {
     fail("guest not visible on board", JSON.stringify(bowling));
   }
   const pool = body.board.find((b) => b.stats.activity === "pool");
-  const poolNames = pool?.queue?.map((q) => q.displayName) ?? [];
-  if (!poolNames.some((n) => n.includes("SMS"))) {
+  if (!pool?.queue?.length) {
     fail("sms guest not visible on board", JSON.stringify(pool));
+  }
+  if (bowling.queue.some((q) => q.displayName)) {
+    fail("public board must not expose names", JSON.stringify(bowling.queue[0]));
   }
   console.log("   OK");
 }

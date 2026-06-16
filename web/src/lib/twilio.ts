@@ -1,5 +1,6 @@
 import twilio from "twilio";
 import { isSmsOptedOut } from "./sms-consent";
+import { smsFirstName } from "./names";
 
 function getClient() {
   const sid = process.env.TWILIO_ACCOUNT_SID;
@@ -35,14 +36,17 @@ export function buildReadyMessage(
   activityLabel: string,
 ): string {
   const venue = process.env.VENUE_NAME ?? "On Par Entertainment";
-  return `Hi ${name}! You're up for ${activityLabel} at ${venue}. Please check in at the front desk within 5 minutes. Reply STOP to opt out.`;
+  const first = smsFirstName(name);
+  return `Hi ${first}! You're up for ${activityLabel} at ${venue}. Please check in at the front desk within 5 minutes. Reply STOP to opt out.`;
 }
 
 export function buildJoinConfirmation(
   name: string,
   activityLabel: string,
   position: number,
+  statusUrl: string,
 ): string {
   const venue = process.env.VENUE_NAME ?? "On Par Entertainment";
-  return `Thanks ${name}! You're #${position} on the ${activityLabel} waitlist at ${venue}. We'll text you when it's your turn. Reply STOP to opt out.`;
+  const first = smsFirstName(name);
+  return `Thanks ${first}! You're #${position} on the ${activityLabel} waitlist at ${venue}. View your spot in line: ${statusUrl} We'll text you when it's your turn. Reply STOP to opt out.`;
 }

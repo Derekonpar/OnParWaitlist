@@ -11,6 +11,8 @@ import {
   isValidLaneCount,
   isValidSessionMinutes,
 } from "@/lib/booking";
+import { combineName } from "@/lib/names";
+import { statusPageUrl } from "@/lib/app-url";
 import { isSmsOptedOut } from "@/lib/sms-consent";
 import {
   buildJoinConfirmation,
@@ -26,7 +28,8 @@ function trimString(value: unknown): unknown {
 
 const joinSchema = z.object({
   activity: z.enum(ACTIVITIES),
-  name: z.preprocess(trimString, z.string().min(1).max(80)),
+  firstName: z.preprocess(trimString, z.string().min(1).max(40)),
+  lastName: z.preprocess(trimString, z.string().min(1).max(40)),
   phone: z.preprocess(
     trimString,
     z
@@ -65,8 +68,10 @@ function joinValidationMessage(details: {
   if (phone) {
     return "Please enter a complete 10-digit mobile number.";
   }
-  const name = details.fieldErrors.name?.[0];
-  if (name) return "Please enter your name.";
+  const firstName = details.fieldErrors.firstName?.[0];
+  if (firstName) return "Please enter your first name.";
+  const lastName = details.fieldErrors.lastName?.[0];
+  if (lastName) return "Please enter your last name.";
   const lane = details.fieldErrors.laneCount?.[0];
   if (lane) return "Please choose how many lanes (1–4).";
   const session = details.fieldErrors.sessionMinutes?.[0];
@@ -91,13 +96,15 @@ export async function POST(request: Request) {
 
     const {
       activity,
-      name,
+      firstName,
+      lastName,
       phone,
       smsOptIn,
       rewardsOptIn,
       laneCount,
       sessionMinutes,
     } = parsed.data;
+    const name = combineName(firstName, lastName);
 
     if (smsOptIn && (await isSmsOptedOut(phone))) {
       return NextResponse.json(
@@ -147,6 +154,7 @@ export async function POST(request: Request) {
           entry.name,
           ACTIVITY_LABELS[activity],
           position,
+          statusPageUrl(entry.id),
         ),
       );
     }

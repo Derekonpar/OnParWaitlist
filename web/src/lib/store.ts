@@ -1,7 +1,6 @@
 import { promises as fs } from "fs";
 import path from "path";
 import { randomUUID } from "crypto";
-import { displayName } from "./display";
 import {
   isValidEntryId,
   normalizeWaitlistRow,
@@ -196,7 +195,7 @@ async function supabaseInsertEntry(
       publicToken: entry.id,
       customer_id: customerId,
       activity: entry.activity,
-      displayName: displayName(entry.name),
+      displayName: "Guest",
       partySize: entry.laneCount,
       estimated_wait_minutes: entry.sessionMinutes,
       name: entry.name,
@@ -250,7 +249,10 @@ async function patchEntryStatus(
 ): Promise<WaitlistEntry | null> {
   const supabase = getSupabaseAdmin();
   if (supabase) {
-    const patch: Record<string, string> = { status };
+    const patch: Record<string, string> = {
+      status,
+      updatedAt: new Date().toISOString(),
+    };
     if (status === "notified") patch.notified_at = new Date().toISOString();
 
     const { data, error } = await supabase
@@ -285,7 +287,6 @@ async function patchEntryStatus(
 export interface QueuePreview {
   id: string;
   position: number;
-  displayName: string;
   status: WaitlistStatus;
   laneCount: number;
   sessionMinutes: number;
@@ -376,7 +377,6 @@ export async function getBoard(): Promise<ActivityBoard[]> {
       queue: waiting.map((e, i) => ({
         id: e.id,
         position: i + 1,
-        displayName: displayName(e.name),
         status: e.status,
         laneCount: e.laneCount,
         sessionMinutes: e.sessionMinutes,
@@ -385,14 +385,19 @@ export async function getBoard(): Promise<ActivityBoard[]> {
   });
 }
 
-export async function getQueue(activity: Activity): Promise<WaitlistEntry[]> {
+export async function getStaffQueues(): Promise<
+  { activity: Activity; queue: WaitlistEntry[] }[]
+> {
   const entries = await withStoreLock(readAllUnsafe);
-  return entries
-    .filter((e) => e.activity === activity && e.status !== "cancelled")
-    .sort(
-      (a, b) =>
-        new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
-    );
+  return ACTIVITIES.map((activity) => ({
+    activity,
+    queue: entries
+      .filter((e) => e.activity === activity)
+      .sort(
+        (a, b) =>
+          new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+      ),
+  }));
 }
 
 export async function getEstimatedWaitMinutes(id: string): Promise<number> {
@@ -472,6 +477,34 @@ export async function updateStatus(
   status: WaitlistStatus,
 ): Promise<WaitlistEntry | null> {
   return withStoreLock(() => patchEntryStatus(id, status));
+}
+
+/** Undo accidental serve/remove, or re-text a notified guest. */
+export async function recallEntry(
+  id: string,
+): Promise<{ entry: WaitlistEntry; resentSms: boolean } | null> {
+  return withStoreLock(async () => {
+    const entries = await readAllUnsafe();
+    const entry = entries.find((e) => e.id === id);
+    if (!entry) return null;
+
+    if (entry.status === "notified") {
+      return { entry, resentSms: false };
+    }
+
+    if (entry.status === "served" || entry.status === "cancelled") {
+      const restored = await patchEntryStatus(id, "waiting");
+      if (!restored) return null;
+      return { entry: restored, resentSms: false };
+    }
+
+    return null;
+  });
+}
+
+export async function getEntryById(id: string): Promise<WaitlistEntry | null> {
+  const entries = await withStoreLock(readAllUnsafe);
+  return entries.find((e) => e.id === id) ?? null;
 }
 
 /** Remove from queue — works for valid UUIDs (cancel) or legacy invalid ids (delete). */

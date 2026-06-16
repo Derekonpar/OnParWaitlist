@@ -89,7 +89,8 @@ export default function StatusPage() {
               )}
             </p>
             <p className="mt-1 text-xs text-neutral-500">
-              Your spot updates live for everyone in line
+              Only you can see your name — the public waitlist shows your spot,
+              not your name
             </p>
 
             {smsFailed && (

@@ -7,14 +7,20 @@ import {
   isValidLaneCount,
   isValidSessionMinutes,
 } from "@/lib/booking";
+import { combineName } from "@/lib/names";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
+function trimString(value: unknown): unknown {
+  return typeof value === "string" ? value.trim() : value;
+}
+
 const schema = z
   .object({
     activity: z.enum(ACTIVITIES),
-    name: z.string().min(1).max(80),
+    firstName: z.preprocess(trimString, z.string().min(1).max(40)),
+    lastName: z.preprocess(trimString, z.string().min(1).max(40)),
     phone: z
       .string()
       .min(7)
@@ -54,10 +60,12 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Invalid request" }, { status: 400 });
     }
 
-    const { activity, laneCount, sessionMinutes, ...rest } = parsed.data;
+    const { activity, firstName, lastName, laneCount, sessionMinutes, ...rest } =
+      parsed.data;
     const entry = await joinWaitlist({
       ...rest,
       activity,
+      name: combineName(firstName, lastName),
       laneCount: laneCount as LaneCount,
       sessionMinutes: sessionMinutes as SessionDuration,
     });

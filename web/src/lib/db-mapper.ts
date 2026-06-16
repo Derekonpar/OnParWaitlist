@@ -1,4 +1,3 @@
-import { displayName } from "./display";
 import {
   normalizeLaneCount,
   normalizeSessionMinutes,
@@ -100,7 +99,7 @@ export function waitlistInsertSnake(
     publicToken: entry.id,
     customer_id: customerId,
     activity: entry.activity,
-    displayName: displayName(entry.name),
+    displayName: "Guest",
     partySize: entry.laneCount,
     estimated_wait_minutes: entry.sessionMinutes,
     name: entry.name,

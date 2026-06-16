@@ -18,7 +18,8 @@ interface JoinModalProps {
 
 export function JoinModal({ activity, onClose }: JoinModalProps) {
   const theme = ACTIVITY_THEME[activity];
-  const [name, setName] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
   const [phone, setPhone] = useState("");
   const [smsOptIn, setSmsOptIn] = useState(false);
   const [rewardsOptIn, setRewardsOptIn] = useState(false);
@@ -30,6 +31,11 @@ export function JoinModal({ activity, onClose }: JoinModalProps) {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+
+    if (!firstName.trim() || !lastName.trim()) {
+      setError("Please enter your first and last name.");
+      return;
+    }
 
     const digits = phone.replace(/\D/g, "");
     if (digits.length < 10) {
@@ -45,7 +51,8 @@ export function JoinModal({ activity, onClose }: JoinModalProps) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           activity,
-          name,
+          firstName: firstName.trim(),
+          lastName: lastName.trim(),
           phone,
           smsOptIn,
           rewardsOptIn,
@@ -61,12 +68,10 @@ export function JoinModal({ activity, onClose }: JoinModalProps) {
       }
 
       if (smsOptIn && data.smsSent === false) {
-        // Join succeeded; confirmation text failed — still send them to their spot.
         window.location.href = `/status/${data.entry.id}?sms=failed`;
         return;
       }
 
-      // Full navigation works reliably in iOS WKWebView (Next router often does not)
       window.location.href = `/status/${data.entry.id}`;
     } catch {
       setError("Network error. Check Wi‑Fi and that the server is running.");
@@ -94,30 +99,50 @@ export function JoinModal({ activity, onClose }: JoinModalProps) {
                 Join {ACTIVITY_LABELS[activity]}
               </h2>
               <p className="text-sm text-white/80">
-                Everyone in line sees your first name
+                Your name stays private — only staff see it
               </p>
             </div>
           </div>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4 p-6">
-          <div>
-            <label
-              htmlFor="name"
-              className="mb-1.5 block text-sm font-medium text-neutral-300"
-            >
-              Name
-            </label>
-            <input
-              id="name"
-              type="text"
-              required
-              autoComplete="name"
-              placeholder="Jordan Smith"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className="w-full rounded-xl border border-neutral-700 bg-neutral-900 px-4 py-3 text-white placeholder:text-neutral-500 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-500/30"
-            />
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label
+                htmlFor="firstName"
+                className="mb-1.5 block text-sm font-medium text-neutral-300"
+              >
+                First name
+              </label>
+              <input
+                id="firstName"
+                type="text"
+                required
+                autoComplete="given-name"
+                placeholder="Jordan"
+                value={firstName}
+                onChange={(e) => setFirstName(e.target.value)}
+                className="w-full rounded-xl border border-neutral-700 bg-neutral-900 px-4 py-3 text-white placeholder:text-neutral-500 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-500/30"
+              />
+            </div>
+            <div>
+              <label
+                htmlFor="lastName"
+                className="mb-1.5 block text-sm font-medium text-neutral-300"
+              >
+                Last name
+              </label>
+              <input
+                id="lastName"
+                type="text"
+                required
+                autoComplete="family-name"
+                placeholder="Smith"
+                value={lastName}
+                onChange={(e) => setLastName(e.target.value)}
+                className="w-full rounded-xl border border-neutral-700 bg-neutral-900 px-4 py-3 text-white placeholder:text-neutral-500 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-500/30"
+              />
+            </div>
           </div>
 
           <div>

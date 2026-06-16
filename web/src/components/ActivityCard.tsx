@@ -98,7 +98,7 @@ export function ActivityCard({ board, onJoin }: ActivityCardProps) {
                     </span>
                     <span>
                       <span className="block font-medium text-neutral-100">
-                        {person.displayName}
+                        Party #{person.position}
                       </span>
                       <span className="text-xs text-neutral-500">
                         {formatBookingSummary(
