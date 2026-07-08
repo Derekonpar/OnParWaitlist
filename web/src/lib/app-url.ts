@@ -5,7 +5,7 @@ export function getAppBaseUrl(): string {
   if (process.env.VERCEL_URL) {
     return `https://${process.env.VERCEL_URL}`;
   }
-  return "https://on-par-waitlist.vercel.app";
+  return "https://onparwaitlist.com";
 }
 
 export function statusPageUrl(entryId: string): string {

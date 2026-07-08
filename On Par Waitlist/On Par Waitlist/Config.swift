@@ -6,7 +6,7 @@
 import Foundation
 
 enum AppConfig {
-    static let productionWaitlistURL = "https://on-par-waitlist.vercel.app"
+    static let productionWaitlistURL = "https://onparwaitlist.com"
 
     static let waitlistURL: URL = {
         #if targetEnvironment(simulator)

@@ -32,7 +32,7 @@ For local dev, copy `web/.env.example` to `web/.env.local` and fill in the same 
 
 ## 3. Confirm it works
 
-1. Join the waitlist from your phone or `https://on-par-waitlist.vercel.app`
+1. Join the waitlist from your phone or `https://onparwaitlist.com`
 2. In Supabase → **Table Editor** → `customers` — you should see the new row
 3. `waitlist_entries` should have the matching queue entry
 

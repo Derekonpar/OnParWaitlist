@@ -1,6 +1,6 @@
 # Twilio setup
 
-Your site: **https://on-par-waitlist.vercel.app**
+Your site: **https://onparwaitlist.com**
 
 ## Step 1: Get credentials from Twilio
 
@@ -23,7 +23,7 @@ Add these for **Production** (and Preview if you want):
 | `TWILIO_AUTH_TOKEN` | `your_auth_token` | Keep secret |
 | `TWILIO_PHONE_NUMBER` | `+19375551234` | Must include `+1` |
 | `VENUE_NAME` | `On Par Entertainment` | Used in message text |
-| `NEXT_PUBLIC_APP_URL` | `https://on-par-waitlist.vercel.app` | Already set? verify |
+| `NEXT_PUBLIC_APP_URL` | `https://onparwaitlist.com` | Already set? verify |
 | `STAFF_SECRET` | your password | For staff console |
 
 Click **Save**, then **Deployments → Redeploy** (uncheck build cache).
@@ -37,7 +37,7 @@ Under **Messaging Configuration**:
 | Field | Value |
 |-------|--------|
 | **A message comes in** | Webhook |
-| **URL** | `https://on-par-waitlist.vercel.app/api/twilio/inbound` |
+| **URL** | `https://onparwaitlist.com/api/twilio/inbound` |
 | **HTTP** | `POST` |
 
 Save. This handles **STOP**, **START**, and **HELP** replies.
@@ -46,7 +46,7 @@ Save. This handles **STOP**, **START**, and **HELP** replies.
 
 ### Option A — Full guest flow
 
-1. Open https://on-par-waitlist.vercel.app
+1. Open https://onparwaitlist.com
 2. Tap **Get on waitlist** on any activity
 3. Enter your name + **your real phone number**
 4. Check **Text me when I'm up**
@@ -55,7 +55,7 @@ Save. This handles **STOP**, **START**, and **HELP** replies.
 ### Option B — Staff “Notify” (you’re up message)
 
 1. Join the waitlist with SMS opt-in (Option B)
-2. Go to https://on-par-waitlist.vercel.app/staff
+2. Go to https://onparwaitlist.com/staff
 3. Enter your `STAFF_SECRET`
 4. Tap **Notify** next to your name
 5. You should get the “You’re up!” text
@@ -66,7 +66,7 @@ Reply **STOP** to the text. You should get an unsubscribe confirmation.
 
 Try joining again with SMS checked — it should block texts until you reply **START**.
 
-Or use https://on-par-waitlist.vercel.app/sms to unsubscribe online.
+Or use https://onparwaitlist.com/sms to unsubscribe online.
 
 ## Troubleshooting
 
@@ -80,5 +80,5 @@ Or use https://on-par-waitlist.vercel.app/sms to unsubscribe online.
 
 ## Twilio campaign URLs (for your records)
 
-- Opt-in page: `https://on-par-waitlist.vercel.app/sms`
-- Inbound webhook: `https://on-par-waitlist.vercel.app/api/twilio/inbound`
+- Opt-in page: `https://onparwaitlist.com/sms`
+- Inbound webhook: `https://onparwaitlist.com/api/twilio/inbound`

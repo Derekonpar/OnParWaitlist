@@ -2,7 +2,7 @@
 
 The iOS app is a **WebView shell** that loads your live site:
 
-**https://on-par-waitlist.vercel.app**
+**https://onparwaitlist.com**
 
 No backend code ships in the app — Vercel + Supabase must be working first (they are).
 
@@ -14,16 +14,16 @@ No backend code ships in the app — Vercel + Supabase must be working first (th
 
 | Check | Status |
 |-------|--------|
-| Site loads | https://on-par-waitlist.vercel.app |
+| Site loads | https://onparwaitlist.com |
 | Join waitlist works | Test on your phone in Safari |
 | Supabase saving guests | Table Editor → `customers` + `waitlist_entries` |
-| Staff console | https://on-par-waitlist.vercel.app/staff |
+| Staff console | https://onparwaitlist.com/staff |
 
 ### Vercel env vars (Production)
 
 These must be set in Vercel → Settings → Environment Variables:
 
-- `NEXT_PUBLIC_APP_URL` = `https://on-par-waitlist.vercel.app`
+- `NEXT_PUBLIC_APP_URL` = `https://onparwaitlist.com`
 - `NEXT_PUBLIC_SUPABASE_URL`
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `STAFF_SECRET`
@@ -37,7 +37,7 @@ Open: **`On Par Waitlist/On Par Waitlist.xcodeproj`**
 `Config.swift` already points physical devices to production:
 
 ```swift
-static let productionWaitlistURL = "https://on-par-waitlist.vercel.app"
+static let productionWaitlistURL = "https://onparwaitlist.com"
 ```
 
 Simulator still uses `http://127.0.0.1:3000` for local dev.

@@ -9,7 +9,7 @@
 | SMS | **Twilio** |
 | iOS shell app | `On Par Waitlist/` → **TestFlight** |
 
-**Production URL:** https://on-par-waitlist.vercel.app
+**Production URL:** https://onparwaitlist.com
 
 ---
 
@@ -26,7 +26,7 @@ Import repo: [github.com/Derekonpar/OnParWaitlist](https://github.com/Derekonpar
 
 | Variable | Required | Notes |
 |----------|----------|-------|
-| `NEXT_PUBLIC_APP_URL` | Yes | `https://on-par-waitlist.vercel.app` |
+| `NEXT_PUBLIC_APP_URL` | Yes | `https://onparwaitlist.com` |
 | `NEXT_PUBLIC_SUPABASE_URL` | Yes | Supabase → Settings → API |
 | `SUPABASE_SERVICE_ROLE_KEY` | Yes | Service role key (secret) |
 | `STAFF_SECRET` | Yes | Password for `/staff` |
@@ -50,8 +50,8 @@ See [SUPABASE_SETUP.md](./SUPABASE_SETUP.md).
 
 ### Twilio
 
-- Campaign / opt-in page: `https://on-par-waitlist.vercel.app/sms`
-- Inbound webhook: `https://on-par-waitlist.vercel.app/api/twilio/inbound` (POST)
+- Campaign / opt-in page: `https://onparwaitlist.com/sms`
+- Inbound webhook: `https://onparwaitlist.com/api/twilio/inbound` (POST)
 
 See [TWILIO_SETUP.md](./TWILIO_SETUP.md).
 
@@ -59,17 +59,17 @@ See [TWILIO_SETUP.md](./TWILIO_SETUP.md).
 
 ```bash
 cd web
-node scripts/test-live.mjs https://on-par-waitlist.vercel.app
+node scripts/test-live.mjs https://onparwaitlist.com
 ```
 
-Or open `https://on-par-waitlist.vercel.app/api/waitlist/health` — should show `"canWrite": true`.
+Or open `https://onparwaitlist.com/api/waitlist/health` — should show `"canWrite": true`.
 
 ---
 
 ## iOS app
 
 - Xcode project: `On Par Waitlist/On Par Waitlist.xcodeproj`
-- Production URL in `Config.swift`: `https://on-par-waitlist.vercel.app`
+- Production URL in `Config.swift`: `https://onparwaitlist.com`
 - **TestFlight steps:** [TESTFLIGHT.md](./TESTFLIGHT.md)
 
 ---
