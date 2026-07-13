@@ -304,10 +304,17 @@ export default function StaffPage() {
             block?.queue.filter(
               (e) => e.status === "waiting" || e.status === "notified",
             ) ?? [];
+          // Only recent accidental serve/remove — not the whole history of cancelled stress tests
+          const recallCutoff = Date.now() - 2 * 60 * 60 * 1000;
           const recallable =
-            block?.queue.filter(
-              (e) => e.status === "served" || e.status === "cancelled",
-            ) ?? [];
+            block?.queue
+              .filter(
+                (e) =>
+                  (e.status === "served" || e.status === "cancelled") &&
+                  new Date(e.createdAt).getTime() >= recallCutoff,
+              )
+              .slice(-10)
+              .reverse() ?? [];
           const theme = ACTIVITY_THEME[activity];
 
           return (
