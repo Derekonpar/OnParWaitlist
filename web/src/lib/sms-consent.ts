@@ -1,4 +1,3 @@
-import { promises as fs } from "fs";
 import path from "path";
 import { getSupabaseAdmin } from "./supabase";
 import { normalizePhone } from "./store";
@@ -6,8 +5,20 @@ import { normalizePhone } from "./store";
 const DATA_DIR = path.join(process.cwd(), "data");
 const OPT_OUT_FILE = path.join(DATA_DIR, "sms-opt-out.json");
 
+function isServerlessHost(): boolean {
+  return Boolean(
+    process.env.VERCEL ||
+      process.env.CF_PAGES ||
+      process.env.CLOUDFLARE ||
+      typeof (globalThis as { WebSocketPair?: unknown }).WebSocketPair !==
+        "undefined",
+  );
+}
+
 async function readFileOptOutList(): Promise<string[]> {
+  if (isServerlessHost()) return [];
   try {
+    const fs = await import("fs/promises");
     const raw = await fs.readFile(OPT_OUT_FILE, "utf-8");
     const parsed = JSON.parse(raw) as string[];
     return Array.isArray(parsed) ? parsed : [];
@@ -17,6 +28,8 @@ async function readFileOptOutList(): Promise<string[]> {
 }
 
 async function writeFileOptOutList(phones: string[]): Promise<void> {
+  if (isServerlessHost()) return;
+  const fs = await import("fs/promises");
   await fs.mkdir(DATA_DIR, { recursive: true });
   await fs.writeFile(OPT_OUT_FILE, JSON.stringify(phones, null, 2), "utf-8");
 }

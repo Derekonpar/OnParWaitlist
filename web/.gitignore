@@ -37,6 +37,13 @@ yarn-error.log*
 # vercel
 .vercel
 
+# cloudflare / opennext
+.open-next
+.wrangler
+.dev.vars
+.env.cloudflare.tmp
+cloudflare-env.d.ts
+
 # local waitlist data
 /data/
 

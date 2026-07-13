@@ -1,4 +1,3 @@
-import { promises as fs } from "fs";
 import path from "path";
 import { randomUUID } from "crypto";
 import {
@@ -34,14 +33,27 @@ function withStoreLock<T>(fn: () => Promise<T>): Promise<T> {
   return run;
 }
 
-function isVercel(): boolean {
-  return Boolean(process.env.VERCEL);
+/** Vercel / Cloudflare Workers — no durable local filesystem. */
+function isServerlessHost(): boolean {
+  return Boolean(
+    process.env.VERCEL ||
+      process.env.CF_PAGES ||
+      process.env.CLOUDFLARE ||
+      typeof (globalThis as { WebSocketPair?: unknown }).WebSocketPair !==
+        "undefined",
+  );
 }
 
-// --- File fallback (local dev only) ---
+async function getFs() {
+  return import("fs/promises");
+}
+
+// --- File fallback (local Next.js only) ---
 
 async function readFileAll(): Promise<WaitlistEntry[]> {
+  if (isServerlessHost()) return [];
   try {
+    const fs = await getFs();
     const raw = await fs.readFile(DATA_FILE, "utf-8");
     const parsed = JSON.parse(raw) as WaitlistEntry[];
     return Array.isArray(parsed) ? parsed : [];
@@ -51,6 +63,8 @@ async function readFileAll(): Promise<WaitlistEntry[]> {
 }
 
 async function writeFileAll(entries: WaitlistEntry[]): Promise<void> {
+  if (isServerlessHost()) throw new Error("STORAGE_NOT_CONFIGURED");
+  const fs = await getFs();
   await fs.mkdir(DATA_DIR, { recursive: true });
   const temp = `${DATA_FILE}.${process.pid}.tmp`;
   await fs.writeFile(temp, JSON.stringify(entries, null, 2), "utf-8");
@@ -169,7 +183,7 @@ async function readAllUnsafe(): Promise<WaitlistEntry[]> {
     return sanitizeStaleEntries(entries);
   }
 
-  if (isVercel()) throw new Error("STORAGE_NOT_CONFIGURED");
+  if (isServerlessHost()) throw new Error("STORAGE_NOT_CONFIGURED");
   return sanitizeStaleEntries(await readFileAll());
 }
 
@@ -177,7 +191,7 @@ async function writeAllUnsafe(entries: WaitlistEntry[]): Promise<void> {
   if (getSupabaseAdmin()) {
     throw new Error("USE_ROW_OPERATIONS");
   }
-  if (isVercel()) throw new Error("STORAGE_NOT_CONFIGURED");
+  if (isServerlessHost()) throw new Error("STORAGE_NOT_CONFIGURED");
   await writeFileAll(entries);
 }
 
@@ -328,11 +342,11 @@ export async function getStorageStatus(): Promise<{
     }
     return { backend: "supabase", canWrite: true };
   }
-  if (isVercel()) {
+  if (isServerlessHost()) {
     return {
       backend: "none",
       canWrite: false,
-      hint: "Add Supabase env vars in Vercel and run supabase/schema.sql.",
+      hint: "Add Supabase env vars and run supabase/schema.sql.",
     };
   }
   return { backend: "file", canWrite: true };
