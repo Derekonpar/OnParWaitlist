@@ -13,6 +13,22 @@ export async function GET() {
   let waitlistColumns: string[] = [];
   let sampleKeys: string[] = [];
   let rowCount = 0;
+  let envKeys: string[] = [];
+
+  try {
+    const { getCloudflareContext } = await import("@opennextjs/cloudflare");
+    const ctx = getCloudflareContext();
+    envKeys = Object.keys(ctx?.env ?? {}).filter(
+      (k) =>
+        k.includes("SUPABASE") ||
+        k.includes("TWILIO") ||
+        k.includes("STAFF") ||
+        k.includes("VENUE") ||
+        k.includes("APP_URL"),
+    );
+  } catch {
+    envKeys = ["(no cloudflare context)"];
+  }
 
   if (supabase) {
     const { data, error } = await supabase
@@ -34,5 +50,6 @@ export async function GET() {
     waitlistColumns,
     sampleKeys,
     rowCount,
+    envKeysPresent: envKeys,
   });
 }
