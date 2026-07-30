@@ -1,0 +1,1091 @@
+
+         /\      Grafana   /‾‾/  
+    /\  /  \     |\  __   /  /   
+   /  \/    \    | |/ /  /   ‾‾\ 
+  /          \   |   (  |  (‾)  |
+ / __________ \  |_|\_\  \_____/ 
+
+
+     execution: local
+        script: web/scripts/k6-stress.js
+        output: -
+
+     scenarios: (100.00%) 1 scenario, 200 max VUs, 5m30s max duration (incl. graceful stop):
+              * stress: 200 looping VUs for 5m0s (gracefulStop: 30s)
+
+
+running (0m00.9s), 200/200 VUs, 0 complete and 0 interrupted iterations
+stress   [   0% ] 200 VUs  0m00.9s/5m0s
+
+running (0m01.9s), 200/200 VUs, 7 complete and 0 interrupted iterations
+stress   [   1% ] 200 VUs  0m01.9s/5m0s
+
+running (0m02.9s), 200/200 VUs, 157 complete and 0 interrupted iterations
+stress   [   1% ] 200 VUs  0m02.9s/5m0s
+
+running (0m03.9s), 200/200 VUs, 268 complete and 0 interrupted iterations
+stress   [   1% ] 200 VUs  0m03.9s/5m0s
+
+running (0m04.9s), 200/200 VUs, 367 complete and 0 interrupted iterations
+stress   [   2% ] 200 VUs  0m04.9s/5m0s
+
+running (0m05.9s), 200/200 VUs, 459 complete and 0 interrupted iterations
+stress   [   2% ] 200 VUs  0m05.9s/5m0s
+
+running (0m06.9s), 200/200 VUs, 544 complete and 0 interrupted iterations
+stress   [   2% ] 200 VUs  0m06.9s/5m0s
+
+running (0m07.9s), 200/200 VUs, 609 complete and 0 interrupted iterations
+stress   [   3% ] 200 VUs  0m07.9s/5m0s
+
+running (0m08.9s), 200/200 VUs, 677 complete and 0 interrupted iterations
+stress   [   3% ] 200 VUs  0m08.9s/5m0s
+
+running (0m09.9s), 200/200 VUs, 734 complete and 0 interrupted iterations
+stress   [   3% ] 200 VUs  0m09.9s/5m0s
+
+running (0m10.9s), 200/200 VUs, 789 complete and 0 interrupted iterations
+stress   [   4% ] 200 VUs  0m10.9s/5m0s
+
+running (0m11.9s), 200/200 VUs, 830 complete and 0 interrupted iterations
+stress   [   4% ] 200 VUs  0m11.9s/5m0s
+
+running (0m12.9s), 200/200 VUs, 874 complete and 0 interrupted iterations
+stress   [   4% ] 200 VUs  0m12.9s/5m0s
+
+running (0m13.9s), 200/200 VUs, 917 complete and 0 interrupted iterations
+stress   [   5% ] 200 VUs  0m13.9s/5m0s
+
+running (0m14.9s), 200/200 VUs, 961 complete and 0 interrupted iterations
+stress   [   5% ] 200 VUs  0m14.9s/5m0s
+
+running (0m15.9s), 200/200 VUs, 1009 complete and 0 interrupted iterations
+stress   [   5% ] 200 VUs  0m15.9s/5m0s
+
+running (0m16.9s), 200/200 VUs, 1047 complete and 0 interrupted iterations
+stress   [   6% ] 200 VUs  0m16.9s/5m0s
+
+running (0m17.9s), 200/200 VUs, 1079 complete and 0 interrupted iterations
+stress   [   6% ] 200 VUs  0m17.9s/5m0s
+
+running (0m18.9s), 200/200 VUs, 1093 complete and 0 interrupted iterations
+stress   [   6% ] 200 VUs  0m18.9s/5m0s
+
+running (0m19.9s), 200/200 VUs, 1113 complete and 0 interrupted iterations
+stress   [   7% ] 200 VUs  0m19.9s/5m0s
+
+running (0m20.9s), 200/200 VUs, 1125 complete and 0 interrupted iterations
+stress   [   7% ] 200 VUs  0m20.9s/5m0s
+
+running (0m21.9s), 200/200 VUs, 1147 complete and 0 interrupted iterations
+stress   [   7% ] 200 VUs  0m21.9s/5m0s
+
+running (0m22.9s), 200/200 VUs, 1174 complete and 0 interrupted iterations
+stress   [   8% ] 200 VUs  0m22.9s/5m0s
+
+running (0m23.9s), 200/200 VUs, 1201 complete and 0 interrupted iterations
+stress   [   8% ] 200 VUs  0m23.9s/5m0s
+
+running (0m24.9s), 200/200 VUs, 1223 complete and 0 interrupted iterations
+stress   [   8% ] 200 VUs  0m24.9s/5m0s
+
+running (0m25.9s), 200/200 VUs, 1246 complete and 0 interrupted iterations
+stress   [   9% ] 200 VUs  0m25.9s/5m0s
+
+running (0m26.9s), 200/200 VUs, 1268 complete and 0 interrupted iterations
+stress   [   9% ] 200 VUs  0m26.9s/5m0s
+
+running (0m27.9s), 200/200 VUs, 1288 complete and 0 interrupted iterations
+stress   [   9% ] 200 VUs  0m27.9s/5m0s
+
+running (0m28.9s), 200/200 VUs, 1302 complete and 0 interrupted iterations
+stress   [  10% ] 200 VUs  0m28.9s/5m0s
+
+running (0m29.9s), 200/200 VUs, 1324 complete and 0 interrupted iterations
+stress   [  10% ] 200 VUs  0m29.9s/5m0s
+
+running (0m30.9s), 200/200 VUs, 1342 complete and 0 interrupted iterations
+stress   [  10% ] 200 VUs  0m30.9s/5m0s
+
+running (0m31.9s), 200/200 VUs, 1371 complete and 0 interrupted iterations
+stress   [  11% ] 200 VUs  0m31.9s/5m0s
+
+running (0m32.9s), 200/200 VUs, 1398 complete and 0 interrupted iterations
+stress   [  11% ] 200 VUs  0m32.9s/5m0s
+
+running (0m33.9s), 200/200 VUs, 1418 complete and 0 interrupted iterations
+stress   [  11% ] 200 VUs  0m33.9s/5m0s
+
+running (0m34.9s), 200/200 VUs, 1439 complete and 0 interrupted iterations
+stress   [  12% ] 200 VUs  0m34.9s/5m0s
+
+running (0m35.9s), 200/200 VUs, 1459 complete and 0 interrupted iterations
+stress   [  12% ] 200 VUs  0m35.9s/5m0s
+
+running (0m36.9s), 200/200 VUs, 1478 complete and 0 interrupted iterations
+stress   [  12% ] 200 VUs  0m36.9s/5m0s
+
+running (0m37.9s), 200/200 VUs, 1503 complete and 0 interrupted iterations
+stress   [  13% ] 200 VUs  0m37.9s/5m0s
+
+running (0m38.9s), 200/200 VUs, 1526 complete and 0 interrupted iterations
+stress   [  13% ] 200 VUs  0m38.9s/5m0s
+
+running (0m39.9s), 200/200 VUs, 1541 complete and 0 interrupted iterations
+stress   [  13% ] 200 VUs  0m39.9s/5m0s
+
+running (0m40.9s), 200/200 VUs, 1563 complete and 0 interrupted iterations
+stress   [  14% ] 200 VUs  0m40.9s/5m0s
+
+running (0m41.9s), 200/200 VUs, 1579 complete and 0 interrupted iterations
+stress   [  14% ] 200 VUs  0m41.9s/5m0s
+
+running (0m42.9s), 200/200 VUs, 1595 complete and 0 interrupted iterations
+stress   [  14% ] 200 VUs  0m42.9s/5m0s
+
+running (0m43.9s), 200/200 VUs, 1610 complete and 0 interrupted iterations
+stress   [  15% ] 200 VUs  0m43.9s/5m0s
+
+running (0m44.9s), 200/200 VUs, 1627 complete and 0 interrupted iterations
+stress   [  15% ] 200 VUs  0m44.9s/5m0s
+
+running (0m45.9s), 200/200 VUs, 1649 complete and 0 interrupted iterations
+stress   [  15% ] 200 VUs  0m45.9s/5m0s
+
+running (0m46.9s), 200/200 VUs, 1672 complete and 0 interrupted iterations
+stress   [  16% ] 200 VUs  0m46.9s/5m0s
+
+running (0m47.9s), 200/200 VUs, 1694 complete and 0 interrupted iterations
+stress   [  16% ] 200 VUs  0m47.9s/5m0s
+
+running (0m48.9s), 200/200 VUs, 1713 complete and 0 interrupted iterations
+stress   [  16% ] 200 VUs  0m48.9s/5m0s
+
+running (0m49.9s), 200/200 VUs, 1742 complete and 0 interrupted iterations
+stress   [  17% ] 200 VUs  0m49.9s/5m0s
+
+running (0m50.9s), 200/200 VUs, 1756 complete and 0 interrupted iterations
+stress   [  17% ] 200 VUs  0m50.9s/5m0s
+
+running (0m51.9s), 200/200 VUs, 1769 complete and 0 interrupted iterations
+stress   [  17% ] 200 VUs  0m51.9s/5m0s
+
+running (0m52.9s), 200/200 VUs, 1780 complete and 0 interrupted iterations
+stress   [  18% ] 200 VUs  0m52.9s/5m0s
+
+running (0m53.9s), 200/200 VUs, 1796 complete and 0 interrupted iterations
+stress   [  18% ] 200 VUs  0m53.9s/5m0s
+
+running (0m54.9s), 200/200 VUs, 1812 complete and 0 interrupted iterations
+stress   [  18% ] 200 VUs  0m54.9s/5m0s
+
+running (0m55.9s), 200/200 VUs, 1828 complete and 0 interrupted iterations
+stress   [  19% ] 200 VUs  0m55.9s/5m0s
+
+running (0m56.9s), 200/200 VUs, 1840 complete and 0 interrupted iterations
+stress   [  19% ] 200 VUs  0m56.9s/5m0s
+
+running (0m57.9s), 200/200 VUs, 1859 complete and 0 interrupted iterations
+stress   [  19% ] 200 VUs  0m57.9s/5m0s
+
+running (0m58.9s), 200/200 VUs, 1882 complete and 0 interrupted iterations
+stress   [  20% ] 200 VUs  0m58.9s/5m0s
+
+running (0m59.9s), 200/200 VUs, 1901 complete and 0 interrupted iterations
+stress   [  20% ] 200 VUs  0m59.9s/5m0s
+
+running (1m00.9s), 200/200 VUs, 1926 complete and 0 interrupted iterations
+stress   [  20% ] 200 VUs  1m00.9s/5m0s
+
+running (1m01.9s), 200/200 VUs, 1952 complete and 0 interrupted iterations
+stress   [  21% ] 200 VUs  1m01.9s/5m0s
+
+running (1m02.9s), 200/200 VUs, 1977 complete and 0 interrupted iterations
+stress   [  21% ] 200 VUs  1m02.9s/5m0s
+
+running (1m03.9s), 200/200 VUs, 2005 complete and 0 interrupted iterations
+stress   [  21% ] 200 VUs  1m03.9s/5m0s
+
+running (1m04.9s), 200/200 VUs, 2029 complete and 0 interrupted iterations
+stress   [  22% ] 200 VUs  1m04.9s/5m0s
+
+running (1m05.9s), 200/200 VUs, 2046 complete and 0 interrupted iterations
+stress   [  22% ] 200 VUs  1m05.9s/5m0s
+
+running (1m06.9s), 200/200 VUs, 2072 complete and 0 interrupted iterations
+stress   [  22% ] 200 VUs  1m06.9s/5m0s
+
+running (1m07.9s), 200/200 VUs, 2092 complete and 0 interrupted iterations
+stress   [  23% ] 200 VUs  1m07.9s/5m0s
+
+running (1m08.9s), 200/200 VUs, 2115 complete and 0 interrupted iterations
+stress   [  23% ] 200 VUs  1m08.9s/5m0s
+
+running (1m09.9s), 200/200 VUs, 2136 complete and 0 interrupted iterations
+stress   [  23% ] 200 VUs  1m09.9s/5m0s
+
+running (1m10.9s), 200/200 VUs, 2161 complete and 0 interrupted iterations
+stress   [  24% ] 200 VUs  1m10.9s/5m0s
+
+running (1m11.9s), 200/200 VUs, 2173 complete and 0 interrupted iterations
+stress   [  24% ] 200 VUs  1m11.9s/5m0s
+
+running (1m12.9s), 200/200 VUs, 2192 complete and 0 interrupted iterations
+stress   [  24% ] 200 VUs  1m12.9s/5m0s
+
+running (1m13.9s), 200/200 VUs, 2213 complete and 0 interrupted iterations
+stress   [  25% ] 200 VUs  1m13.9s/5m0s
+
+running (1m14.9s), 200/200 VUs, 2227 complete and 0 interrupted iterations
+stress   [  25% ] 200 VUs  1m14.9s/5m0s
+
+running (1m15.9s), 200/200 VUs, 2245 complete and 0 interrupted iterations
+stress   [  25% ] 200 VUs  1m15.9s/5m0s
+
+running (1m16.9s), 200/200 VUs, 2261 complete and 0 interrupted iterations
+stress   [  26% ] 200 VUs  1m16.9s/5m0s
+
+running (1m17.9s), 200/200 VUs, 2276 complete and 0 interrupted iterations
+stress   [  26% ] 200 VUs  1m17.9s/5m0s
+
+running (1m18.9s), 200/200 VUs, 2294 complete and 0 interrupted iterations
+stress   [  26% ] 200 VUs  1m18.9s/5m0s
+
+running (1m19.9s), 200/200 VUs, 2308 complete and 0 interrupted iterations
+stress   [  27% ] 200 VUs  1m19.9s/5m0s
+
+running (1m20.9s), 200/200 VUs, 2324 complete and 0 interrupted iterations
+stress   [  27% ] 200 VUs  1m20.9s/5m0s
+
+running (1m21.9s), 200/200 VUs, 2347 complete and 0 interrupted iterations
+stress   [  27% ] 200 VUs  1m21.9s/5m0s
+
+running (1m22.9s), 200/200 VUs, 2364 complete and 0 interrupted iterations
+stress   [  28% ] 200 VUs  1m22.9s/5m0s
+
+running (1m23.9s), 200/200 VUs, 2384 complete and 0 interrupted iterations
+stress   [  28% ] 200 VUs  1m23.9s/5m0s
+
+running (1m24.9s), 200/200 VUs, 2403 complete and 0 interrupted iterations
+stress   [  28% ] 200 VUs  1m24.9s/5m0s
+
+running (1m25.9s), 200/200 VUs, 2418 complete and 0 interrupted iterations
+stress   [  29% ] 200 VUs  1m25.9s/5m0s
+
+running (1m26.9s), 200/200 VUs, 2428 complete and 0 interrupted iterations
+stress   [  29% ] 200 VUs  1m26.9s/5m0s
+
+running (1m27.9s), 200/200 VUs, 2443 complete and 0 interrupted iterations
+stress   [  29% ] 200 VUs  1m27.9s/5m0s
+
+running (1m28.9s), 200/200 VUs, 2457 complete and 0 interrupted iterations
+stress   [  30% ] 200 VUs  1m28.9s/5m0s
+
+running (1m29.9s), 200/200 VUs, 2472 complete and 0 interrupted iterations
+stress   [  30% ] 200 VUs  1m29.9s/5m0s
+
+running (1m30.9s), 200/200 VUs, 2487 complete and 0 interrupted iterations
+stress   [  30% ] 200 VUs  1m30.9s/5m0s
+
+running (1m31.9s), 200/200 VUs, 2510 complete and 0 interrupted iterations
+stress   [  31% ] 200 VUs  1m31.9s/5m0s
+
+running (1m32.9s), 200/200 VUs, 2530 complete and 0 interrupted iterations
+stress   [  31% ] 200 VUs  1m32.9s/5m0s
+
+running (1m33.9s), 200/200 VUs, 2549 complete and 0 interrupted iterations
+stress   [  31% ] 200 VUs  1m33.9s/5m0s
+
+running (1m34.9s), 200/200 VUs, 2567 complete and 0 interrupted iterations
+stress   [  32% ] 200 VUs  1m34.9s/5m0s
+
+running (1m35.9s), 200/200 VUs, 2586 complete and 0 interrupted iterations
+stress   [  32% ] 200 VUs  1m35.9s/5m0s
+
+running (1m36.9s), 200/200 VUs, 2606 complete and 0 interrupted iterations
+stress   [  32% ] 200 VUs  1m36.9s/5m0s
+
+running (1m37.9s), 200/200 VUs, 2621 complete and 0 interrupted iterations
+stress   [  33% ] 200 VUs  1m37.9s/5m0s
+
+running (1m38.9s), 200/200 VUs, 2643 complete and 0 interrupted iterations
+stress   [  33% ] 200 VUs  1m38.9s/5m0s
+
+running (1m39.9s), 200/200 VUs, 2664 complete and 0 interrupted iterations
+stress   [  33% ] 200 VUs  1m39.9s/5m0s
+
+running (1m40.9s), 200/200 VUs, 2687 complete and 0 interrupted iterations
+stress   [  34% ] 200 VUs  1m40.9s/5m0s
+
+running (1m41.9s), 200/200 VUs, 2706 complete and 0 interrupted iterations
+stress   [  34% ] 200 VUs  1m41.9s/5m0s
+
+running (1m42.9s), 200/200 VUs, 2729 complete and 0 interrupted iterations
+stress   [  34% ] 200 VUs  1m42.9s/5m0s
+
+running (1m43.9s), 200/200 VUs, 2754 complete and 0 interrupted iterations
+stress   [  35% ] 200 VUs  1m43.9s/5m0s
+
+running (1m44.9s), 200/200 VUs, 2773 complete and 0 interrupted iterations
+stress   [  35% ] 200 VUs  1m44.9s/5m0s
+
+running (1m45.9s), 200/200 VUs, 2797 complete and 0 interrupted iterations
+stress   [  35% ] 200 VUs  1m45.9s/5m0s
+
+running (1m46.9s), 200/200 VUs, 2820 complete and 0 interrupted iterations
+stress   [  36% ] 200 VUs  1m46.9s/5m0s
+
+running (1m47.9s), 200/200 VUs, 2839 complete and 0 interrupted iterations
+stress   [  36% ] 200 VUs  1m47.9s/5m0s
+
+running (1m48.9s), 200/200 VUs, 2858 complete and 0 interrupted iterations
+stress   [  36% ] 200 VUs  1m48.9s/5m0s
+
+running (1m49.9s), 200/200 VUs, 2880 complete and 0 interrupted iterations
+stress   [  37% ] 200 VUs  1m49.9s/5m0s
+
+running (1m50.9s), 200/200 VUs, 2907 complete and 0 interrupted iterations
+stress   [  37% ] 200 VUs  1m50.9s/5m0s
+
+running (1m51.9s), 200/200 VUs, 2926 complete and 0 interrupted iterations
+stress   [  37% ] 200 VUs  1m51.9s/5m0s
+
+running (1m52.9s), 200/200 VUs, 2936 complete and 0 interrupted iterations
+stress   [  38% ] 200 VUs  1m52.9s/5m0s
+
+running (1m53.9s), 200/200 VUs, 2951 complete and 0 interrupted iterations
+stress   [  38% ] 200 VUs  1m53.9s/5m0s
+
+running (1m54.9s), 200/200 VUs, 2974 complete and 0 interrupted iterations
+stress   [  38% ] 200 VUs  1m54.9s/5m0s
+
+running (1m55.9s), 200/200 VUs, 3007 complete and 0 interrupted iterations
+stress   [  39% ] 200 VUs  1m55.9s/5m0s
+
+running (1m56.9s), 200/200 VUs, 3029 complete and 0 interrupted iterations
+stress   [  39% ] 200 VUs  1m56.9s/5m0s
+
+running (1m57.9s), 200/200 VUs, 3048 complete and 0 interrupted iterations
+stress   [  39% ] 200 VUs  1m57.9s/5m0s
+
+running (1m58.9s), 200/200 VUs, 3071 complete and 0 interrupted iterations
+stress   [  40% ] 200 VUs  1m58.9s/5m0s
+
+running (1m59.9s), 200/200 VUs, 3092 complete and 0 interrupted iterations
+stress   [  40% ] 200 VUs  1m59.9s/5m0s
+
+running (2m00.9s), 200/200 VUs, 3107 complete and 0 interrupted iterations
+stress   [  40% ] 200 VUs  2m00.9s/5m0s
+
+running (2m01.9s), 200/200 VUs, 3126 complete and 0 interrupted iterations
+stress   [  41% ] 200 VUs  2m01.9s/5m0s
+
+running (2m02.9s), 200/200 VUs, 3148 complete and 0 interrupted iterations
+stress   [  41% ] 200 VUs  2m02.9s/5m0s
+
+running (2m03.9s), 200/200 VUs, 3167 complete and 0 interrupted iterations
+stress   [  41% ] 200 VUs  2m03.9s/5m0s
+
+running (2m04.9s), 200/200 VUs, 3190 complete and 0 interrupted iterations
+stress   [  42% ] 200 VUs  2m04.9s/5m0s
+
+running (2m05.9s), 200/200 VUs, 3212 complete and 0 interrupted iterations
+stress   [  42% ] 200 VUs  2m05.9s/5m0s
+
+running (2m06.9s), 200/200 VUs, 3235 complete and 0 interrupted iterations
+stress   [  42% ] 200 VUs  2m06.9s/5m0s
+
+running (2m07.9s), 200/200 VUs, 3257 complete and 0 interrupted iterations
+stress   [  43% ] 200 VUs  2m07.9s/5m0s
+
+running (2m08.9s), 200/200 VUs, 3280 complete and 0 interrupted iterations
+stress   [  43% ] 200 VUs  2m08.9s/5m0s
+
+running (2m09.9s), 200/200 VUs, 3296 complete and 0 interrupted iterations
+stress   [  43% ] 200 VUs  2m09.9s/5m0s
+
+running (2m10.9s), 200/200 VUs, 3315 complete and 0 interrupted iterations
+stress   [  44% ] 200 VUs  2m10.9s/5m0s
+
+running (2m11.9s), 200/200 VUs, 3332 complete and 0 interrupted iterations
+stress   [  44% ] 200 VUs  2m11.9s/5m0s
+
+running (2m12.9s), 200/200 VUs, 3352 complete and 0 interrupted iterations
+stress   [  44% ] 200 VUs  2m12.9s/5m0s
+
+running (2m13.9s), 200/200 VUs, 3368 complete and 0 interrupted iterations
+stress   [  45% ] 200 VUs  2m13.9s/5m0s
+
+running (2m14.9s), 200/200 VUs, 3374 complete and 0 interrupted iterations
+stress   [  45% ] 200 VUs  2m14.9s/5m0s
+
+running (2m15.9s), 200/200 VUs, 3385 complete and 0 interrupted iterations
+stress   [  45% ] 200 VUs  2m15.9s/5m0s
+
+running (2m16.9s), 200/200 VUs, 3393 complete and 0 interrupted iterations
+stress   [  46% ] 200 VUs  2m16.9s/5m0s
+
+running (2m17.9s), 200/200 VUs, 3402 complete and 0 interrupted iterations
+stress   [  46% ] 200 VUs  2m17.9s/5m0s
+
+running (2m18.9s), 200/200 VUs, 3407 complete and 0 interrupted iterations
+stress   [  46% ] 200 VUs  2m18.9s/5m0s
+
+running (2m19.9s), 200/200 VUs, 3413 complete and 0 interrupted iterations
+stress   [  47% ] 200 VUs  2m19.9s/5m0s
+
+running (2m20.9s), 200/200 VUs, 3419 complete and 0 interrupted iterations
+stress   [  47% ] 200 VUs  2m20.9s/5m0s
+
+running (2m21.9s), 200/200 VUs, 3426 complete and 0 interrupted iterations
+stress   [  47% ] 200 VUs  2m21.9s/5m0s
+
+running (2m22.9s), 200/200 VUs, 3435 complete and 0 interrupted iterations
+stress   [  48% ] 200 VUs  2m22.9s/5m0s
+
+running (2m23.9s), 200/200 VUs, 3446 complete and 0 interrupted iterations
+stress   [  48% ] 200 VUs  2m23.9s/5m0s
+
+running (2m24.9s), 200/200 VUs, 3456 complete and 0 interrupted iterations
+stress   [  48% ] 200 VUs  2m24.9s/5m0s
+
+running (2m25.9s), 200/200 VUs, 3460 complete and 0 interrupted iterations
+stress   [  49% ] 200 VUs  2m25.9s/5m0s
+
+running (2m26.9s), 200/200 VUs, 3465 complete and 0 interrupted iterations
+stress   [  49% ] 200 VUs  2m26.9s/5m0s
+
+running (2m27.9s), 200/200 VUs, 3476 complete and 0 interrupted iterations
+stress   [  49% ] 200 VUs  2m27.9s/5m0s
+
+running (2m28.9s), 200/200 VUs, 3484 complete and 0 interrupted iterations
+stress   [  50% ] 200 VUs  2m28.9s/5m0s
+
+running (2m29.9s), 200/200 VUs, 3490 complete and 0 interrupted iterations
+stress   [  50% ] 200 VUs  2m29.9s/5m0s
+
+running (2m30.9s), 200/200 VUs, 3498 complete and 0 interrupted iterations
+stress   [  50% ] 200 VUs  2m30.9s/5m0s
+
+running (2m31.9s), 200/200 VUs, 3505 complete and 0 interrupted iterations
+stress   [  51% ] 200 VUs  2m31.9s/5m0s
+
+running (2m32.9s), 200/200 VUs, 3512 complete and 0 interrupted iterations
+stress   [  51% ] 200 VUs  2m32.9s/5m0s
+
+running (2m33.9s), 200/200 VUs, 3521 complete and 0 interrupted iterations
+stress   [  51% ] 200 VUs  2m33.9s/5m0s
+
+running (2m34.9s), 200/200 VUs, 3529 complete and 0 interrupted iterations
+stress   [  52% ] 200 VUs  2m34.9s/5m0s
+
+running (2m35.9s), 200/200 VUs, 3537 complete and 0 interrupted iterations
+stress   [  52% ] 200 VUs  2m35.9s/5m0s
+
+running (2m36.9s), 200/200 VUs, 3546 complete and 0 interrupted iterations
+stress   [  52% ] 200 VUs  2m36.9s/5m0s
+
+running (2m37.9s), 200/200 VUs, 3552 complete and 0 interrupted iterations
+stress   [  53% ] 200 VUs  2m37.9s/5m0s
+
+running (2m38.9s), 200/200 VUs, 3555 complete and 0 interrupted iterations
+stress   [  53% ] 200 VUs  2m38.9s/5m0s
+
+running (2m39.9s), 200/200 VUs, 3562 complete and 0 interrupted iterations
+stress   [  53% ] 200 VUs  2m39.9s/5m0s
+
+running (2m40.9s), 200/200 VUs, 3563 complete and 0 interrupted iterations
+stress   [  54% ] 200 VUs  2m40.9s/5m0s
+
+running (2m41.9s), 200/200 VUs, 3573 complete and 0 interrupted iterations
+stress   [  54% ] 200 VUs  2m41.9s/5m0s
+
+running (2m42.9s), 200/200 VUs, 3580 complete and 0 interrupted iterations
+stress   [  54% ] 200 VUs  2m42.9s/5m0s
+
+running (2m43.9s), 200/200 VUs, 3588 complete and 0 interrupted iterations
+stress   [  55% ] 200 VUs  2m43.9s/5m0s
+
+running (2m44.9s), 200/200 VUs, 3594 complete and 0 interrupted iterations
+stress   [  55% ] 200 VUs  2m44.9s/5m0s
+
+running (2m45.9s), 200/200 VUs, 3600 complete and 0 interrupted iterations
+stress   [  55% ] 200 VUs  2m45.9s/5m0s
+
+running (2m46.9s), 200/200 VUs, 3605 complete and 0 interrupted iterations
+stress   [  56% ] 200 VUs  2m46.9s/5m0s
+
+running (2m47.9s), 200/200 VUs, 3612 complete and 0 interrupted iterations
+stress   [  56% ] 200 VUs  2m47.9s/5m0s
+
+running (2m48.9s), 200/200 VUs, 3620 complete and 0 interrupted iterations
+stress   [  56% ] 200 VUs  2m48.9s/5m0s
+
+running (2m49.9s), 200/200 VUs, 3629 complete and 0 interrupted iterations
+stress   [  57% ] 200 VUs  2m49.9s/5m0s
+
+running (2m50.9s), 200/200 VUs, 3635 complete and 0 interrupted iterations
+stress   [  57% ] 200 VUs  2m50.9s/5m0s
+time="2026-07-13T09:27:00-04:00" level=warning msg="Request Failed" error="Post \"https://onparwaitlist.com/api/waitlist/join\": request timeout"
+
+running (2m51.9s), 200/200 VUs, 3642 complete and 0 interrupted iterations
+stress   [  57% ] 200 VUs  2m51.9s/5m0s
+
+running (2m52.9s), 200/200 VUs, 3648 complete and 0 interrupted iterations
+stress   [  58% ] 200 VUs  2m52.9s/5m0s
+time="2026-07-13T09:27:02-04:00" level=warning msg="Request Failed" error="Post \"https://onparwaitlist.com/api/waitlist/join\": request timeout"
+
+running (2m53.9s), 200/200 VUs, 3653 complete and 0 interrupted iterations
+stress   [  58% ] 200 VUs  2m53.9s/5m0s
+
+running (2m54.9s), 200/200 VUs, 3659 complete and 0 interrupted iterations
+stress   [  58% ] 200 VUs  2m54.9s/5m0s
+
+running (2m55.9s), 200/200 VUs, 3665 complete and 0 interrupted iterations
+stress   [  59% ] 200 VUs  2m55.9s/5m0s
+
+running (2m56.9s), 200/200 VUs, 3670 complete and 0 interrupted iterations
+stress   [  59% ] 200 VUs  2m56.9s/5m0s
+
+running (2m57.9s), 200/200 VUs, 3678 complete and 0 interrupted iterations
+stress   [  59% ] 200 VUs  2m57.9s/5m0s
+time="2026-07-13T09:27:06-04:00" level=warning msg="Request Failed" error="Post \"https://onparwaitlist.com/api/waitlist/join\": request timeout"
+
+running (2m58.9s), 200/200 VUs, 3684 complete and 0 interrupted iterations
+stress   [  60% ] 200 VUs  2m58.9s/5m0s
+
+running (2m59.9s), 200/200 VUs, 3689 complete and 0 interrupted iterations
+stress   [  60% ] 200 VUs  2m59.9s/5m0s
+
+running (3m00.9s), 200/200 VUs, 3695 complete and 0 interrupted iterations
+stress   [  60% ] 200 VUs  3m00.9s/5m0s
+
+running (3m01.9s), 200/200 VUs, 3703 complete and 0 interrupted iterations
+stress   [  61% ] 200 VUs  3m01.9s/5m0s
+
+running (3m02.9s), 200/200 VUs, 3708 complete and 0 interrupted iterations
+stress   [  61% ] 200 VUs  3m02.9s/5m0s
+
+running (3m03.9s), 200/200 VUs, 3714 complete and 0 interrupted iterations
+stress   [  61% ] 200 VUs  3m03.9s/5m0s
+time="2026-07-13T09:27:13-04:00" level=warning msg="Request Failed" error="Post \"https://onparwaitlist.com/api/waitlist/join\": request timeout"
+
+running (3m04.9s), 200/200 VUs, 3719 complete and 0 interrupted iterations
+stress   [  62% ] 200 VUs  3m04.9s/5m0s
+time="2026-07-13T09:27:14-04:00" level=warning msg="Request Failed" error="Post \"https://onparwaitlist.com/api/waitlist/join\": request timeout"
+
+running (3m05.9s), 200/200 VUs, 3724 complete and 0 interrupted iterations
+stress   [  62% ] 200 VUs  3m05.9s/5m0s
+time="2026-07-13T09:27:14-04:00" level=warning msg="Request Failed" error="Post \"https://onparwaitlist.com/api/waitlist/join\": request timeout"
+
+running (3m06.9s), 200/200 VUs, 3727 complete and 0 interrupted iterations
+stress   [  62% ] 200 VUs  3m06.9s/5m0s
+
+running (3m07.9s), 200/200 VUs, 3730 complete and 0 interrupted iterations
+stress   [  63% ] 200 VUs  3m07.9s/5m0s
+
+running (3m08.9s), 200/200 VUs, 3735 complete and 0 interrupted iterations
+stress   [  63% ] 200 VUs  3m08.9s/5m0s
+
+running (3m09.9s), 200/200 VUs, 3740 complete and 0 interrupted iterations
+stress   [  63% ] 200 VUs  3m09.9s/5m0s
+
+running (3m10.9s), 200/200 VUs, 3748 complete and 0 interrupted iterations
+stress   [  64% ] 200 VUs  3m10.9s/5m0s
+
+running (3m11.9s), 200/200 VUs, 3752 complete and 0 interrupted iterations
+stress   [  64% ] 200 VUs  3m11.9s/5m0s
+
+running (3m12.9s), 200/200 VUs, 3757 complete and 0 interrupted iterations
+stress   [  64% ] 200 VUs  3m12.9s/5m0s
+
+running (3m13.9s), 200/200 VUs, 3763 complete and 0 interrupted iterations
+stress   [  65% ] 200 VUs  3m13.9s/5m0s
+
+running (3m14.9s), 200/200 VUs, 3770 complete and 0 interrupted iterations
+stress   [  65% ] 200 VUs  3m14.9s/5m0s
+
+running (3m15.9s), 200/200 VUs, 3775 complete and 0 interrupted iterations
+stress   [  65% ] 200 VUs  3m15.9s/5m0s
+
+running (3m16.9s), 200/200 VUs, 3780 complete and 0 interrupted iterations
+stress   [  66% ] 200 VUs  3m16.9s/5m0s
+
+running (3m17.9s), 200/200 VUs, 3788 complete and 0 interrupted iterations
+stress   [  66% ] 200 VUs  3m17.9s/5m0s
+
+running (3m18.9s), 200/200 VUs, 3797 complete and 0 interrupted iterations
+stress   [  66% ] 200 VUs  3m18.9s/5m0s
+time="2026-07-13T09:27:28-04:00" level=warning msg="Request Failed" error="Post \"https://onparwaitlist.com/api/waitlist/join\": request timeout"
+
+running (3m19.9s), 200/200 VUs, 3801 complete and 0 interrupted iterations
+stress   [  67% ] 200 VUs  3m19.9s/5m0s
+
+running (3m20.9s), 200/200 VUs, 3804 complete and 0 interrupted iterations
+stress   [  67% ] 200 VUs  3m20.9s/5m0s
+
+running (3m21.9s), 200/200 VUs, 3807 complete and 0 interrupted iterations
+stress   [  67% ] 200 VUs  3m21.9s/5m0s
+
+running (3m22.9s), 200/200 VUs, 3811 complete and 0 interrupted iterations
+stress   [  68% ] 200 VUs  3m22.9s/5m0s
+
+running (3m23.9s), 200/200 VUs, 3816 complete and 0 interrupted iterations
+stress   [  68% ] 200 VUs  3m23.9s/5m0s
+time="2026-07-13T09:27:32-04:00" level=warning msg="Request Failed" error="Post \"https://onparwaitlist.com/api/waitlist/join\": request timeout"
+
+running (3m24.9s), 200/200 VUs, 3822 complete and 0 interrupted iterations
+stress   [  68% ] 200 VUs  3m24.9s/5m0s
+time="2026-07-13T09:27:33-04:00" level=warning msg="Request Failed" error="Post \"https://onparwaitlist.com/api/waitlist/join\": request timeout"
+
+running (3m25.9s), 200/200 VUs, 3833 complete and 0 interrupted iterations
+stress   [  69% ] 200 VUs  3m25.9s/5m0s
+time="2026-07-13T09:27:34-04:00" level=warning msg="Request Failed" error="Post \"https://onparwaitlist.com/api/waitlist/join\": request timeout"
+
+running (3m26.9s), 200/200 VUs, 3841 complete and 0 interrupted iterations
+stress   [  69% ] 200 VUs  3m26.9s/5m0s
+time="2026-07-13T09:27:36-04:00" level=warning msg="Request Failed" error="Post \"https://onparwaitlist.com/api/waitlist/join\": request timeout"
+time="2026-07-13T09:27:36-04:00" level=warning msg="Request Failed" error="Post \"https://onparwaitlist.com/api/waitlist/join\": request timeout"
+
+running (3m27.9s), 200/200 VUs, 3853 complete and 0 interrupted iterations
+stress   [  69% ] 200 VUs  3m27.9s/5m0s
+
+running (3m28.9s), 200/200 VUs, 3860 complete and 0 interrupted iterations
+stress   [  70% ] 200 VUs  3m28.9s/5m0s
+
+running (3m29.9s), 200/200 VUs, 3870 complete and 0 interrupted iterations
+stress   [  70% ] 200 VUs  3m29.9s/5m0s
+time="2026-07-13T09:27:38-04:00" level=warning msg="Request Failed" error="Post \"https://onparwaitlist.com/api/waitlist/join\": request timeout"
+time="2026-07-13T09:27:39-04:00" level=warning msg="Request Failed" error="Post \"https://onparwaitlist.com/api/waitlist/join\": request timeout"
+
+running (3m30.9s), 200/200 VUs, 3877 complete and 0 interrupted iterations
+stress   [  70% ] 200 VUs  3m30.9s/5m0s
+
+running (3m31.9s), 200/200 VUs, 3883 complete and 0 interrupted iterations
+stress   [  71% ] 200 VUs  3m31.9s/5m0s
+
+running (3m32.9s), 200/200 VUs, 3890 complete and 0 interrupted iterations
+stress   [  71% ] 200 VUs  3m32.9s/5m0s
+
+running (3m33.9s), 200/200 VUs, 3897 complete and 0 interrupted iterations
+stress   [  71% ] 200 VUs  3m33.9s/5m0s
+time="2026-07-13T09:27:43-04:00" level=warning msg="Request Failed" error="Post \"https://onparwaitlist.com/api/waitlist/join\": request timeout"
+
+running (3m34.9s), 200/200 VUs, 3902 complete and 0 interrupted iterations
+stress   [  72% ] 200 VUs  3m34.9s/5m0s
+
+running (3m35.9s), 200/200 VUs, 3908 complete and 0 interrupted iterations
+stress   [  72% ] 200 VUs  3m35.9s/5m0s
+
+running (3m36.9s), 200/200 VUs, 3918 complete and 0 interrupted iterations
+stress   [  72% ] 200 VUs  3m36.9s/5m0s
+time="2026-07-13T09:27:46-04:00" level=warning msg="Request Failed" error="Post \"https://onparwaitlist.com/api/waitlist/join\": request timeout"
+
+running (3m37.9s), 200/200 VUs, 3921 complete and 0 interrupted iterations
+stress   [  73% ] 200 VUs  3m37.9s/5m0s
+time="2026-07-13T09:27:46-04:00" level=warning msg="Request Failed" error="Post \"https://onparwaitlist.com/api/waitlist/join\": request timeout"
+time="2026-07-13T09:27:46-04:00" level=warning msg="Request Failed" error="Post \"https://onparwaitlist.com/api/waitlist/join\": request timeout"
+
+running (3m38.9s), 200/200 VUs, 3928 complete and 0 interrupted iterations
+stress   [  73% ] 200 VUs  3m38.9s/5m0s
+
+running (3m39.9s), 200/200 VUs, 3931 complete and 0 interrupted iterations
+stress   [  73% ] 200 VUs  3m39.9s/5m0s
+
+running (3m40.9s), 200/200 VUs, 3936 complete and 0 interrupted iterations
+stress   [  74% ] 200 VUs  3m40.9s/5m0s
+time="2026-07-13T09:27:49-04:00" level=warning msg="Request Failed" error="Post \"https://onparwaitlist.com/api/waitlist/join\": request timeout"
+
+running (3m41.9s), 200/200 VUs, 3946 complete and 0 interrupted iterations
+stress   [  74% ] 200 VUs  3m41.9s/5m0s
+
+running (3m42.9s), 200/200 VUs, 3954 complete and 0 interrupted iterations
+stress   [  74% ] 200 VUs  3m42.9s/5m0s
+
+running (3m43.9s), 200/200 VUs, 3963 complete and 0 interrupted iterations
+stress   [  75% ] 200 VUs  3m43.9s/5m0s
+
+running (3m44.9s), 200/200 VUs, 3972 complete and 0 interrupted iterations
+stress   [  75% ] 200 VUs  3m44.9s/5m0s
+time="2026-07-13T09:27:54-04:00" level=warning msg="Request Failed" error="Post \"https://onparwaitlist.com/api/waitlist/join\": request timeout"
+
+running (3m45.9s), 200/200 VUs, 3975 complete and 0 interrupted iterations
+stress   [  75% ] 200 VUs  3m45.9s/5m0s
+
+running (3m46.9s), 200/200 VUs, 3983 complete and 0 interrupted iterations
+stress   [  76% ] 200 VUs  3m46.9s/5m0s
+
+running (3m47.9s), 200/200 VUs, 3989 complete and 0 interrupted iterations
+stress   [  76% ] 200 VUs  3m47.9s/5m0s
+time="2026-07-13T09:27:57-04:00" level=warning msg="Request Failed" error="Post \"https://onparwaitlist.com/api/waitlist/join\": request timeout"
+
+running (3m48.9s), 200/200 VUs, 3998 complete and 0 interrupted iterations
+stress   [  76% ] 200 VUs  3m48.9s/5m0s
+
+running (3m49.9s), 200/200 VUs, 4005 complete and 0 interrupted iterations
+stress   [  77% ] 200 VUs  3m49.9s/5m0s
+time="2026-07-13T09:27:59-04:00" level=warning msg="Request Failed" error="Post \"https://onparwaitlist.com/api/waitlist/join\": request timeout"
+
+running (3m50.9s), 200/200 VUs, 4008 complete and 0 interrupted iterations
+stress   [  77% ] 200 VUs  3m50.9s/5m0s
+time="2026-07-13T09:28:00-04:00" level=warning msg="Request Failed" error="Post \"https://onparwaitlist.com/api/waitlist/join\": request timeout"
+
+running (3m51.9s), 200/200 VUs, 4014 complete and 0 interrupted iterations
+stress   [  77% ] 200 VUs  3m51.9s/5m0s
+
+running (3m52.9s), 200/200 VUs, 4020 complete and 0 interrupted iterations
+stress   [  78% ] 200 VUs  3m52.9s/5m0s
+time="2026-07-13T09:28:01-04:00" level=warning msg="Request Failed" error="Post \"https://onparwaitlist.com/api/waitlist/join\": request timeout"
+
+running (3m53.9s), 200/200 VUs, 4025 complete and 0 interrupted iterations
+stress   [  78% ] 200 VUs  3m53.9s/5m0s
+time="2026-07-13T09:28:03-04:00" level=warning msg="Request Failed" error="Post \"https://onparwaitlist.com/api/waitlist/join\": request timeout"
+time="2026-07-13T09:28:03-04:00" level=warning msg="Request Failed" error="Post \"https://onparwaitlist.com/api/waitlist/join\": request timeout"
+
+running (3m54.9s), 200/200 VUs, 4028 complete and 0 interrupted iterations
+stress   [  78% ] 200 VUs  3m54.9s/5m0s
+
+running (3m55.9s), 200/200 VUs, 4035 complete and 0 interrupted iterations
+stress   [  79% ] 200 VUs  3m55.9s/5m0s
+
+running (3m56.9s), 200/200 VUs, 4040 complete and 0 interrupted iterations
+stress   [  79% ] 200 VUs  3m56.9s/5m0s
+
+running (3m57.9s), 200/200 VUs, 4046 complete and 0 interrupted iterations
+stress   [  79% ] 200 VUs  3m57.9s/5m0s
+
+running (3m58.9s), 200/200 VUs, 4052 complete and 0 interrupted iterations
+stress   [  80% ] 200 VUs  3m58.9s/5m0s
+time="2026-07-13T09:28:08-04:00" level=warning msg="Request Failed" error="Post \"https://onparwaitlist.com/api/waitlist/join\": request timeout"
+
+running (3m59.9s), 200/200 VUs, 4060 complete and 0 interrupted iterations
+stress   [  80% ] 200 VUs  3m59.9s/5m0s
+time="2026-07-13T09:28:08-04:00" level=warning msg="Request Failed" error="Post \"https://onparwaitlist.com/api/waitlist/join\": request timeout"
+
+running (4m00.9s), 200/200 VUs, 4069 complete and 0 interrupted iterations
+stress   [  80% ] 200 VUs  4m00.9s/5m0s
+
+running (4m01.9s), 200/200 VUs, 4076 complete and 0 interrupted iterations
+stress   [  81% ] 200 VUs  4m01.9s/5m0s
+
+running (4m02.9s), 200/200 VUs, 4087 complete and 0 interrupted iterations
+stress   [  81% ] 200 VUs  4m02.9s/5m0s
+
+running (4m03.9s), 200/200 VUs, 4093 complete and 0 interrupted iterations
+stress   [  81% ] 200 VUs  4m03.9s/5m0s
+
+running (4m04.9s), 200/200 VUs, 4100 complete and 0 interrupted iterations
+stress   [  82% ] 200 VUs  4m04.9s/5m0s
+time="2026-07-13T09:28:14-04:00" level=warning msg="Request Failed" error="Post \"https://onparwaitlist.com/api/waitlist/join\": request timeout"
+time="2026-07-13T09:28:14-04:00" level=warning msg="Request Failed" error="Post \"https://onparwaitlist.com/api/waitlist/join\": request timeout"
+
+running (4m05.9s), 200/200 VUs, 4111 complete and 0 interrupted iterations
+stress   [  82% ] 200 VUs  4m05.9s/5m0s
+
+running (4m06.9s), 200/200 VUs, 4123 complete and 0 interrupted iterations
+stress   [  82% ] 200 VUs  4m06.9s/5m0s
+
+running (4m07.9s), 200/200 VUs, 4127 complete and 0 interrupted iterations
+stress   [  83% ] 200 VUs  4m07.9s/5m0s
+time="2026-07-13T09:28:17-04:00" level=warning msg="Request Failed" error="Post \"https://onparwaitlist.com/api/waitlist/join\": request timeout"
+
+running (4m08.9s), 200/200 VUs, 4131 complete and 0 interrupted iterations
+stress   [  83% ] 200 VUs  4m08.9s/5m0s
+time="2026-07-13T09:28:18-04:00" level=warning msg="Request Failed" error="Post \"https://onparwaitlist.com/api/waitlist/join\": request timeout"
+
+running (4m09.9s), 200/200 VUs, 4142 complete and 0 interrupted iterations
+stress   [  83% ] 200 VUs  4m09.9s/5m0s
+
+running (4m10.9s), 200/200 VUs, 4156 complete and 0 interrupted iterations
+stress   [  84% ] 200 VUs  4m10.9s/5m0s
+time="2026-07-13T09:28:19-04:00" level=warning msg="Request Failed" error="Post \"https://onparwaitlist.com/api/waitlist/join\": request timeout"
+
+running (4m11.9s), 200/200 VUs, 4172 complete and 0 interrupted iterations
+stress   [  84% ] 200 VUs  4m11.9s/5m0s
+
+running (4m12.9s), 200/200 VUs, 4187 complete and 0 interrupted iterations
+stress   [  84% ] 200 VUs  4m12.9s/5m0s
+
+running (4m13.9s), 200/200 VUs, 4210 complete and 0 interrupted iterations
+stress   [  85% ] 200 VUs  4m13.9s/5m0s
+
+running (4m14.9s), 200/200 VUs, 4227 complete and 0 interrupted iterations
+stress   [  85% ] 200 VUs  4m14.9s/5m0s
+
+running (4m15.9s), 200/200 VUs, 4247 complete and 0 interrupted iterations
+stress   [  85% ] 200 VUs  4m15.9s/5m0s
+
+running (4m16.9s), 200/200 VUs, 4268 complete and 0 interrupted iterations
+stress   [  86% ] 200 VUs  4m16.9s/5m0s
+
+running (4m17.9s), 200/200 VUs, 4288 complete and 0 interrupted iterations
+stress   [  86% ] 200 VUs  4m17.9s/5m0s
+time="2026-07-13T09:28:26-04:00" level=warning msg="Request Failed" error="Post \"https://onparwaitlist.com/api/waitlist/join\": request timeout"
+
+running (4m18.9s), 200/200 VUs, 4301 complete and 0 interrupted iterations
+stress   [  86% ] 200 VUs  4m18.9s/5m0s
+
+running (4m19.9s), 200/200 VUs, 4310 complete and 0 interrupted iterations
+stress   [  87% ] 200 VUs  4m19.9s/5m0s
+time="2026-07-13T09:28:29-04:00" level=warning msg="Request Failed" error="Post \"https://onparwaitlist.com/api/waitlist/join\": request timeout"
+
+running (4m20.9s), 200/200 VUs, 4321 complete and 0 interrupted iterations
+stress   [  87% ] 200 VUs  4m20.9s/5m0s
+
+running (4m21.9s), 200/200 VUs, 4333 complete and 0 interrupted iterations
+stress   [  87% ] 200 VUs  4m21.9s/5m0s
+time="2026-07-13T09:28:31-04:00" level=warning msg="Request Failed" error="Post \"https://onparwaitlist.com/api/waitlist/join\": request timeout"
+
+running (4m22.9s), 200/200 VUs, 4344 complete and 0 interrupted iterations
+stress   [  88% ] 200 VUs  4m22.9s/5m0s
+
+running (4m23.9s), 200/200 VUs, 4363 complete and 0 interrupted iterations
+stress   [  88% ] 200 VUs  4m23.9s/5m0s
+
+running (4m24.9s), 200/200 VUs, 4377 complete and 0 interrupted iterations
+stress   [  88% ] 200 VUs  4m24.9s/5m0s
+
+running (4m25.9s), 200/200 VUs, 4392 complete and 0 interrupted iterations
+stress   [  89% ] 200 VUs  4m25.9s/5m0s
+
+running (4m26.9s), 200/200 VUs, 4408 complete and 0 interrupted iterations
+stress   [  89% ] 200 VUs  4m26.9s/5m0s
+
+running (4m27.9s), 200/200 VUs, 4424 complete and 0 interrupted iterations
+stress   [  89% ] 200 VUs  4m27.9s/5m0s
+
+running (4m28.9s), 200/200 VUs, 4438 complete and 0 interrupted iterations
+stress   [  90% ] 200 VUs  4m28.9s/5m0s
+
+running (4m29.9s), 200/200 VUs, 4453 complete and 0 interrupted iterations
+stress   [  90% ] 200 VUs  4m29.9s/5m0s
+
+running (4m30.9s), 200/200 VUs, 4473 complete and 0 interrupted iterations
+stress   [  90% ] 200 VUs  4m30.9s/5m0s
+
+running (4m31.9s), 200/200 VUs, 4491 complete and 0 interrupted iterations
+stress   [  91% ] 200 VUs  4m31.9s/5m0s
+time="2026-07-13T09:28:41-04:00" level=warning msg="Request Failed" error="Post \"https://onparwaitlist.com/api/waitlist/join\": request timeout"
+
+running (4m32.9s), 200/200 VUs, 4514 complete and 0 interrupted iterations
+stress   [  91% ] 200 VUs  4m32.9s/5m0s
+time="2026-07-13T09:28:41-04:00" level=warning msg="Request Failed" error="Post \"https://onparwaitlist.com/api/waitlist/join\": request timeout"
+time="2026-07-13T09:28:42-04:00" level=warning msg="Request Failed" error="Post \"https://onparwaitlist.com/api/waitlist/join\": request timeout"
+
+running (4m33.9s), 200/200 VUs, 4532 complete and 0 interrupted iterations
+stress   [  91% ] 200 VUs  4m33.9s/5m0s
+
+running (4m34.9s), 200/200 VUs, 4553 complete and 0 interrupted iterations
+stress   [  92% ] 200 VUs  4m34.9s/5m0s
+
+running (4m35.9s), 200/200 VUs, 4567 complete and 0 interrupted iterations
+stress   [  92% ] 200 VUs  4m35.9s/5m0s
+time="2026-07-13T09:28:44-04:00" level=warning msg="Request Failed" error="Post \"https://onparwaitlist.com/api/waitlist/join\": request timeout"
+
+running (4m36.9s), 200/200 VUs, 4584 complete and 0 interrupted iterations
+stress   [  92% ] 200 VUs  4m36.9s/5m0s
+
+running (4m37.9s), 200/200 VUs, 4599 complete and 0 interrupted iterations
+stress   [  93% ] 200 VUs  4m37.9s/5m0s
+
+running (4m38.9s), 200/200 VUs, 4619 complete and 0 interrupted iterations
+stress   [  93% ] 200 VUs  4m38.9s/5m0s
+
+running (4m39.9s), 200/200 VUs, 4642 complete and 0 interrupted iterations
+stress   [  93% ] 200 VUs  4m39.9s/5m0s
+time="2026-07-13T09:28:48-04:00" level=warning msg="Request Failed" error="Post \"https://onparwaitlist.com/api/waitlist/join\": request timeout"
+
+running (4m40.9s), 200/200 VUs, 4661 complete and 0 interrupted iterations
+stress   [  94% ] 200 VUs  4m40.9s/5m0s
+
+running (4m41.9s), 200/200 VUs, 4681 complete and 0 interrupted iterations
+stress   [  94% ] 200 VUs  4m41.9s/5m0s
+
+running (4m42.9s), 200/200 VUs, 4701 complete and 0 interrupted iterations
+stress   [  94% ] 200 VUs  4m42.9s/5m0s
+time="2026-07-13T09:28:51-04:00" level=warning msg="Request Failed" error="Post \"https://onparwaitlist.com/api/waitlist/join\": request timeout"
+
+running (4m43.9s), 200/200 VUs, 4723 complete and 0 interrupted iterations
+stress   [  95% ] 200 VUs  4m43.9s/5m0s
+
+running (4m44.9s), 200/200 VUs, 4744 complete and 0 interrupted iterations
+stress   [  95% ] 200 VUs  4m44.9s/5m0s
+
+running (4m45.9s), 200/200 VUs, 4765 complete and 0 interrupted iterations
+stress   [  95% ] 200 VUs  4m45.9s/5m0s
+
+running (4m46.9s), 200/200 VUs, 4783 complete and 0 interrupted iterations
+stress   [  96% ] 200 VUs  4m46.9s/5m0s
+
+running (4m47.9s), 200/200 VUs, 4799 complete and 0 interrupted iterations
+stress   [  96% ] 200 VUs  4m47.9s/5m0s
+time="2026-07-13T09:28:56-04:00" level=warning msg="Request Failed" error="Post \"https://onparwaitlist.com/api/waitlist/join\": request timeout"
+
+running (4m48.9s), 200/200 VUs, 4812 complete and 0 interrupted iterations
+stress   [  96% ] 200 VUs  4m48.9s/5m0s
+
+running (4m49.9s), 200/200 VUs, 4828 complete and 0 interrupted iterations
+stress   [  97% ] 200 VUs  4m49.9s/5m0s
+
+running (4m50.9s), 200/200 VUs, 4843 complete and 0 interrupted iterations
+stress   [  97% ] 200 VUs  4m50.9s/5m0s
+
+running (4m51.9s), 200/200 VUs, 4855 complete and 0 interrupted iterations
+stress   [  97% ] 200 VUs  4m51.9s/5m0s
+
+running (4m52.9s), 200/200 VUs, 4866 complete and 0 interrupted iterations
+stress   [  98% ] 200 VUs  4m52.9s/5m0s
+
+running (4m53.9s), 200/200 VUs, 4877 complete and 0 interrupted iterations
+stress   [  98% ] 200 VUs  4m53.9s/5m0s
+
+running (4m54.9s), 200/200 VUs, 4891 complete and 0 interrupted iterations
+stress   [  98% ] 200 VUs  4m54.9s/5m0s
+
+running (4m55.9s), 200/200 VUs, 4895 complete and 0 interrupted iterations
+stress   [  99% ] 200 VUs  4m55.9s/5m0s
+
+running (4m56.9s), 200/200 VUs, 4907 complete and 0 interrupted iterations
+stress   [  99% ] 200 VUs  4m56.9s/5m0s
+
+running (4m57.9s), 200/200 VUs, 4920 complete and 0 interrupted iterations
+stress   [  99% ] 200 VUs  4m57.9s/5m0s
+
+running (4m58.9s), 200/200 VUs, 4933 complete and 0 interrupted iterations
+stress   [ 100% ] 200 VUs  4m58.9s/5m0s
+
+running (4m59.9s), 200/200 VUs, 4950 complete and 0 interrupted iterations
+stress   [ 100% ] 200 VUs  4m59.9s/5m0s
+
+running (5m00.9s), 190/200 VUs, 4960 complete and 0 interrupted iterations
+stress ↓ [ 100% ] 200 VUs  5m0s
+
+running (5m01.9s), 180/200 VUs, 4970 complete and 0 interrupted iterations
+stress ↓ [ 100% ] 200 VUs  5m0s
+
+running (5m02.9s), 174/200 VUs, 4976 complete and 0 interrupted iterations
+stress ↓ [ 100% ] 200 VUs  5m0s
+
+running (5m03.9s), 166/200 VUs, 4984 complete and 0 interrupted iterations
+stress ↓ [ 100% ] 200 VUs  5m0s
+
+running (5m04.9s), 161/200 VUs, 4989 complete and 0 interrupted iterations
+stress ↓ [ 100% ] 200 VUs  5m0s
+
+running (5m05.9s), 151/200 VUs, 4999 complete and 0 interrupted iterations
+stress ↓ [ 100% ] 200 VUs  5m0s
+
+running (5m06.9s), 142/200 VUs, 5008 complete and 0 interrupted iterations
+stress ↓ [ 100% ] 200 VUs  5m0s
+
+running (5m07.9s), 134/200 VUs, 5016 complete and 0 interrupted iterations
+stress ↓ [ 100% ] 200 VUs  5m0s
+
+running (5m08.9s), 124/200 VUs, 5026 complete and 0 interrupted iterations
+stress ↓ [ 100% ] 200 VUs  5m0s
+
+running (5m09.9s), 116/200 VUs, 5034 complete and 0 interrupted iterations
+stress ↓ [ 100% ] 200 VUs  5m0s
+
+running (5m10.9s), 109/200 VUs, 5041 complete and 0 interrupted iterations
+stress ↓ [ 100% ] 200 VUs  5m0s
+
+running (5m11.9s), 098/200 VUs, 5052 complete and 0 interrupted iterations
+stress ↓ [ 100% ] 200 VUs  5m0s
+
+running (5m12.9s), 088/200 VUs, 5062 complete and 0 interrupted iterations
+stress ↓ [ 100% ] 200 VUs  5m0s
+
+running (5m13.9s), 075/200 VUs, 5075 complete and 0 interrupted iterations
+stress ↓ [ 100% ] 200 VUs  5m0s
+
+running (5m14.9s), 068/200 VUs, 5082 complete and 0 interrupted iterations
+stress ↓ [ 100% ] 200 VUs  5m0s
+
+running (5m15.9s), 060/200 VUs, 5090 complete and 0 interrupted iterations
+stress ↓ [ 100% ] 200 VUs  5m0s
+
+running (5m16.9s), 048/200 VUs, 5102 complete and 0 interrupted iterations
+stress ↓ [ 100% ] 200 VUs  5m0s
+
+running (5m17.9s), 038/200 VUs, 5112 complete and 0 interrupted iterations
+stress ↓ [ 100% ] 200 VUs  5m0s
+
+running (5m18.9s), 031/200 VUs, 5119 complete and 0 interrupted iterations
+stress ↓ [ 100% ] 200 VUs  5m0s
+
+running (5m19.9s), 026/200 VUs, 5124 complete and 0 interrupted iterations
+stress ↓ [ 100% ] 200 VUs  5m0s
+
+running (5m20.9s), 021/200 VUs, 5129 complete and 0 interrupted iterations
+stress ↓ [ 100% ] 200 VUs  5m0s
+
+running (5m21.9s), 017/200 VUs, 5133 complete and 0 interrupted iterations
+stress ↓ [ 100% ] 200 VUs  5m0s
+
+running (5m22.9s), 013/200 VUs, 5137 complete and 0 interrupted iterations
+stress ↓ [ 100% ] 200 VUs  5m0s
+
+running (5m23.9s), 008/200 VUs, 5142 complete and 0 interrupted iterations
+stress ↓ [ 100% ] 200 VUs  5m0s
+
+running (5m24.9s), 003/200 VUs, 5147 complete and 0 interrupted iterations
+stress ↓ [ 100% ] 200 VUs  5m0s
+
+
+  █ THRESHOLDS 
+
+    errors
+    ✓ 'rate<0.05' rate=0.91%
+
+    http_req_duration
+    ✗ 'p(95)<3000' p(95)=43.75s
+    ✗ 'p(99)<8000' p(99)=46.1s
+
+    http_req_failed
+    ✓ 'rate<0.05' rate=0.91%
+
+
+  █ TOTAL RESULTS 
+
+    checks_total.......: 9524   29.264962/s
+    checks_succeeded...: 99.01% 9430 out of 9524
+    checks_failed......: 0.98%  94 out of 9524
+
+    ✓ board 200
+    ✓ board has activities
+    ✓ home 200
+    ✓ health 200
+    ✓ storage writable
+    ✗ join 200
+      ↳  82% — ✓ 222 / ✗ 47
+    ✗ join has entry
+      ↳  82% — ✓ 222 / ✗ 47
+
+    CUSTOM
+    board_ms.......................: avg=14079.746062 min=140.746  med=10019.1465 max=45679.997 p(90)=40825.8432 p(95)=43942.24385
+    errors.........................: 0.91%  47 out of 5150
+    join_ms........................: avg=26249.666576 min=753.272  med=24971.346  max=60001.199 p(90)=60000.4432 p(95)=60001.1016 
+
+    HTTP
+    http_req_duration..............: avg=11.33s       min=140.74ms med=5.32s      max=1m0s      p(90)=37.7s      p(95)=43.75s     
+      { expected_response:true }...: avg=10.93s       min=140.74ms med=5.22s      max=59.28s    p(90)=36.05s     p(95)=43.38s     
+    http_req_failed................: 0.91%  47 out of 5150
+    http_reqs......................: 5150   15.824712/s
+
+    EXECUTION
+    iteration_duration.............: avg=12.1s        min=675.05ms med=6.11s      max=1m0s      p(90)=38.42s     p(95)=44.52s     
+    iterations.....................: 5150   15.824712/s
+    vus............................: 3      min=3          max=200
+    vus_max........................: 200    min=200        max=200
+
+    NETWORK
+    data_received..................: 88 MB  270 kB/s
+    data_sent......................: 910 kB 2.8 kB/s
+
+
+
+
+running (5m25.4s), 000/200 VUs, 5150 complete and 0 interrupted iterations
+stress ✓ [ 100% ] 200 VUs  5m0s
+time="2026-07-13T09:29:34-04:00" level=error msg="thresholds on metrics 'http_req_duration' have been crossed"

@@ -22,7 +22,6 @@ export function JoinModal({ activity, onClose }: JoinModalProps) {
   const [lastName, setLastName] = useState("");
   const [phone, setPhone] = useState("");
   const [smsOptIn, setSmsOptIn] = useState(false);
-  const [rewardsOptIn, setRewardsOptIn] = useState(false);
   const [laneCount, setLaneCount] = useState<LaneCount>(1);
   const [sessionMinutes, setSessionMinutes] = useState<SessionDuration>(30);
   const [loading, setLoading] = useState(false);
@@ -55,7 +54,6 @@ export function JoinModal({ activity, onClose }: JoinModalProps) {
           lastName: lastName.trim(),
           phone,
           smsOptIn,
-          rewardsOptIn,
           laneCount,
           sessionMinutes,
         }),
@@ -189,22 +187,6 @@ export function JoinModal({ activity, onClose }: JoinModalProps) {
               <a href="/sms" className="underline hover:text-neutral-200">
                 SMS program details
               </a>
-            </span>
-          </label>
-
-          <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-neutral-700 bg-neutral-900/80 p-4 has-[:checked]:border-violet-500/50 has-[:checked]:bg-violet-500/10">
-            <input
-              type="checkbox"
-              checked={rewardsOptIn}
-              onChange={(e) => setRewardsOptIn(e.target.checked)}
-              className="mt-1 h-4 w-4 rounded border-neutral-600 text-violet-500 focus:ring-violet-500"
-            />
-            <span className="text-sm leading-relaxed text-neutral-400">
-              <span className="font-medium text-neutral-100">
-                Sign me up for rewards
-              </span>
-              <br />
-              Optional. Earn perks on future visits.
             </span>
           </label>
 

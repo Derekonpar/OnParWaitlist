@@ -7,7 +7,12 @@ export const ACTIVITIES = [
 
 export type Activity = (typeof ACTIVITIES)[number];
 
-export type WaitlistStatus = "waiting" | "notified" | "served" | "cancelled";
+export type WaitlistStatus =
+  | "waiting"
+  | "notified"
+  | "served"
+  | "cancelled"
+  | "archived";
 
 export type LaneCount = 1 | 2 | 3 | 4 | 5;
 export type SessionDuration = 30 | 60 | 120;
@@ -41,7 +46,7 @@ export const ACTIVITY_LABELS: Record<Activity, string> = {
 };
 
 export const ACTIVITY_TAGLINE: Record<Activity, string> = {
-  bowling: "Lanes · Shoes · Good times",
+  bowling: "Lanes · Good times",
   darts: "Steel tip · League night energy",
   pool: "Tables open · Rack 'em up",
   shuffleboard: "Slide · Score · Celebrate",

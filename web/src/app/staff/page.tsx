@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIcon } from "@/components/ActivityIcon";
 import { BookingOptions } from "@/components/BookingOptions";
 import {
@@ -18,6 +18,22 @@ import {
   type WaitlistEntry,
 } from "@/lib/types";
 
+const SOUND_STORAGE_KEY = "onpar-staff-sound";
+
+function activeEntryIds(
+  queues: { activity: Activity; queue: WaitlistEntry[] }[],
+): Set<string> {
+  const ids = new Set<string>();
+  for (const { queue } of queues) {
+    for (const entry of queue) {
+      if (entry.status === "waiting" || entry.status === "notified") {
+        ids.add(entry.id);
+      }
+    }
+  }
+  return ids;
+}
+
 export default function StaffPage() {
   const [secret, setSecret] = useState("");
   const [authenticated, setAuthenticated] = useState(false);
@@ -27,6 +43,10 @@ export default function StaffPage() {
   const [loading, setLoading] = useState(false);
   const [actionId, setActionId] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [soundOn, setSoundOn] = useState(false);
+
+  const knownIdsRef = useRef<Set<string> | null>(null);
+  const chimeRef = useRef<HTMLAudioElement | null>(null);
 
   const [addActivity, setAddActivity] = useState<Activity>("bowling");
   const [addFirstName, setAddFirstName] = useState("");
@@ -39,6 +59,9 @@ export default function StaffPage() {
     useState<SessionDuration>(30);
   const [addStatus, setAddStatus] = useState<string | null>(null);
   const [addLoading, setAddLoading] = useState(false);
+  const [servedOpen, setServedOpen] = useState(true);
+  const [archiveOpen, setArchiveOpen] = useState(false);
+  const [archiveQuery, setArchiveQuery] = useState("");
 
   const headers = useCallback(
     () => ({
@@ -68,6 +91,17 @@ export default function StaffPage() {
   }, [secret, headers]);
 
   useEffect(() => {
+    setSoundOn(sessionStorage.getItem(SOUND_STORAGE_KEY) === "1");
+    const audio = new Audio("/sounds/new-guest.wav");
+    audio.preload = "auto";
+    chimeRef.current = audio;
+    return () => {
+      audio.pause();
+      chimeRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
     const saved = sessionStorage.getItem("onpar-staff-secret");
     if (!saved) return;
     setSecret(saved);
@@ -94,11 +128,55 @@ export default function StaffPage() {
   }, []);
 
   useEffect(() => {
-    if (!authenticated) return;
+    if (!authenticated) {
+      knownIdsRef.current = null;
+      return;
+    }
     fetchQueues();
     const interval = setInterval(fetchQueues, 6000);
     return () => clearInterval(interval);
   }, [authenticated, fetchQueues]);
+
+  useEffect(() => {
+    if (!authenticated) return;
+    const nextIds = activeEntryIds(queues);
+    if (knownIdsRef.current === null) {
+      knownIdsRef.current = nextIds;
+      return;
+    }
+    let hasNew = false;
+    for (const id of nextIds) {
+      if (!knownIdsRef.current.has(id)) {
+        hasNew = true;
+        break;
+      }
+    }
+    knownIdsRef.current = nextIds;
+    if (!hasNew || !soundOn) return;
+    const audio = chimeRef.current;
+    if (!audio) return;
+    audio.currentTime = 0;
+    void audio.play().catch((err) => {
+      console.warn("[staff] chime blocked or failed", err);
+    });
+  }, [queues, authenticated, soundOn]);
+
+  function toggleSound() {
+    setSoundOn((prev) => {
+      const next = !prev;
+      sessionStorage.setItem(SOUND_STORAGE_KEY, next ? "1" : "0");
+      if (next) {
+        const audio = chimeRef.current;
+        if (audio) {
+          audio.currentTime = 0;
+          void audio.play().catch((err) => {
+            console.warn("[staff] chime preview blocked", err);
+          });
+        }
+      }
+      return next;
+    });
+  }
 
   async function staffAction(endpoint: string, id: string) {
     setActionId(id);
@@ -114,7 +192,13 @@ export default function StaffPage() {
         return;
       }
       await fetchQueues();
-      if (endpoint.includes("notify") || endpoint.includes("recall")) {
+      if (
+        endpoint.includes("notify") ||
+        endpoint.includes("recall") ||
+        endpoint.includes("serve") ||
+        endpoint.includes("remove") ||
+        endpoint.includes("archive")
+      ) {
         setSelectedId(null);
       }
     } finally {
@@ -168,6 +252,31 @@ export default function StaffPage() {
     .flatMap((q) => q.queue)
     .find((e) => e.id === selectedId);
 
+  const allEntries = queues.flatMap((q) => q.queue);
+  const servedCutoff = Date.now() - 48 * 60 * 60 * 1000;
+  const servedRemoved = allEntries
+    .filter(
+      (e) =>
+        (e.status === "served" || e.status === "cancelled") &&
+        new Date(e.createdAt).getTime() >= servedCutoff,
+    )
+    .sort(
+      (a, b) =>
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+    )
+    .slice(0, 40);
+  const archivedEntries = allEntries
+    .filter((e) => e.status === "archived")
+    .filter((e) => {
+      const q = archiveQuery.trim().toLowerCase();
+      if (!q) return true;
+      return e.name.toLowerCase().includes(q);
+    })
+    .sort(
+      (a, b) =>
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+    );
+
   if (!authenticated) {
     return (
       <main className="mx-auto flex min-h-screen max-w-md flex-col justify-center px-5">
@@ -194,19 +303,34 @@ export default function StaffPage() {
 
   return (
     <main className="mx-auto min-h-screen max-w-2xl px-4 py-6 pb-24 sm:px-5">
-      <div className="mb-6 flex items-center justify-between">
+      <div className="mb-6 flex items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold text-white">Staff console</h1>
           <p className="text-xs text-neutral-500">Tap a guest to manage their spot</p>
         </div>
-        <button
-          type="button"
-          onClick={fetchQueues}
-          disabled={loading}
-          className="rounded-full border border-white/10 px-3 py-1.5 text-xs text-neutral-300 hover:bg-white/5"
-        >
-          {loading ? "…" : "Refresh"}
-        </button>
+        <div className="flex shrink-0 items-center gap-2">
+          <button
+            type="button"
+            onClick={toggleSound}
+            aria-pressed={soundOn}
+            className="rounded-full border border-white/10 px-3 py-1.5 text-xs text-neutral-300 hover:bg-white/5"
+            title={
+              soundOn
+                ? "Mute new-guest chime"
+                : "Enable chime when someone joins"
+            }
+          >
+            {soundOn ? "Sound on" : "Sound off"}
+          </button>
+          <button
+            type="button"
+            onClick={fetchQueues}
+            disabled={loading}
+            className="rounded-full border border-white/10 px-3 py-1.5 text-xs text-neutral-300 hover:bg-white/5"
+          >
+            {loading ? "…" : "Refresh"}
+          </button>
+        </div>
       </div>
 
       <section className="mb-8 rounded-2xl border border-white/10 bg-[#141414] p-5">
@@ -304,17 +428,6 @@ export default function StaffPage() {
             block?.queue.filter(
               (e) => e.status === "waiting" || e.status === "notified",
             ) ?? [];
-          // Only recent accidental serve/remove — not the whole history of cancelled stress tests
-          const recallCutoff = Date.now() - 2 * 60 * 60 * 1000;
-          const recallable =
-            block?.queue
-              .filter(
-                (e) =>
-                  (e.status === "served" || e.status === "cancelled") &&
-                  new Date(e.createdAt).getTime() >= recallCutoff,
-              )
-              .slice(-10)
-              .reverse() ?? [];
           const theme = ACTIVITY_THEME[activity];
 
           return (
@@ -445,48 +558,167 @@ export default function StaffPage() {
                   })}
                 </ul>
               )}
-
-              {recallable.length > 0 && (
-                <div className="mt-4">
-                  <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-neutral-500">
-                    Accidental serve / remove
-                  </p>
-                  <ul className="space-y-2">
-                    {recallable.map((entry) => (
-                      <li
-                        key={entry.id}
-                        className="flex items-center justify-between rounded-2xl border border-dashed border-white/10 bg-neutral-900/50 p-4"
-                      >
-                        <div>
-                          <p className="font-medium text-neutral-300">
-                            {entry.name}
-                          </p>
-                          <p className="text-xs text-neutral-500">
-                            {entry.status === "served" ? "Marked served" : "Removed"}{" "}
-                            · {entry.phone}
-                          </p>
-                        </div>
-                        <button
-                          type="button"
-                          disabled={actionId === entry.id}
-                          onClick={() =>
-                            staffAction("/api/staff/recall", entry.id)
-                          }
-                          className="rounded-xl bg-amber-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-amber-500 disabled:opacity-60"
-                        >
-                          {actionId === entry.id ? "…" : "Recall to queue"}
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
             </section>
           );
         })}
       </div>
 
-      {selectedEntry && (
+      <section className="mt-10 border-t border-white/10 pt-6">
+        <button
+          type="button"
+          onClick={() => setServedOpen((o) => !o)}
+          className="flex w-full items-center justify-between text-left"
+        >
+          <div>
+            <h2 className="text-base font-semibold text-white">
+              Served / removed
+            </h2>
+            <p className="text-xs text-neutral-500">
+              Tap a name to recall or delete to archive ({servedRemoved.length})
+            </p>
+          </div>
+          <span className="text-sm text-neutral-400">
+            {servedOpen ? "Hide" : "Show"}
+          </span>
+        </button>
+
+        {servedOpen && (
+          <div className="mt-4">
+            {servedRemoved.length === 0 ? (
+              <p className="text-sm text-neutral-500">None yet</p>
+            ) : (
+              <ul className="space-y-2">
+                {servedRemoved.map((entry) => {
+                  const isSelected = selectedId === entry.id;
+                  return (
+                    <li key={entry.id}>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setSelectedId(isSelected ? null : entry.id)
+                        }
+                        className={`w-full rounded-2xl border p-4 text-left transition ${
+                          isSelected
+                            ? "border-white/30 bg-neutral-900"
+                            : "border-dashed border-white/10 bg-neutral-900/50 hover:border-white/20"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <p className="font-medium text-neutral-200">
+                              {entry.name}
+                            </p>
+                            <p className="text-xs text-neutral-500">
+                              {ACTIVITY_LABELS[entry.activity]} ·{" "}
+                              {entry.status === "served"
+                                ? "Served"
+                                : "Removed"}{" "}
+                              · {entry.phone}
+                            </p>
+                          </div>
+                        </div>
+
+                        {isSelected && (
+                          <div
+                            className="mt-4 flex flex-wrap gap-2 border-t border-white/10 pt-4"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <button
+                              type="button"
+                              disabled={actionId === entry.id}
+                              onClick={() =>
+                                staffAction("/api/staff/recall", entry.id)
+                              }
+                              className="flex-1 rounded-xl bg-amber-600 px-4 py-3 text-sm font-semibold text-white hover:bg-amber-500 disabled:opacity-60"
+                            >
+                              {actionId === entry.id
+                                ? "…"
+                                : "Recall to queue"}
+                            </button>
+                            <button
+                              type="button"
+                              disabled={actionId === entry.id}
+                              onClick={() =>
+                                staffAction("/api/staff/archive", entry.id)
+                              }
+                              className="flex-1 rounded-xl px-4 py-3 text-sm font-semibold text-red-300 hover:bg-red-500/10 disabled:opacity-60"
+                            >
+                              {actionId === entry.id
+                                ? "…"
+                                : "Delete — hide in archive"}
+                            </button>
+                          </div>
+                        )}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+        )}
+      </section>
+
+      <section className="mt-8 border-t border-white/10 pt-6 pb-8">
+        <button
+          type="button"
+          onClick={() => setArchiveOpen((o) => !o)}
+          className="flex w-full items-center justify-between text-left"
+        >
+          <div>
+            <h2 className="text-base font-semibold text-neutral-300">
+              Hidden archive
+            </h2>
+            <p className="text-xs text-neutral-500">
+              Search deleted parties by name (
+              {
+                allEntries.filter((e) => e.status === "archived").length
+              }
+              )
+            </p>
+          </div>
+          <span className="text-sm text-neutral-400">
+            {archiveOpen ? "Hide" : "Show"}
+          </span>
+        </button>
+
+        {archiveOpen && (
+          <div className="mt-4 space-y-3">
+            <input
+              type="search"
+              value={archiveQuery}
+              onChange={(e) => setArchiveQuery(e.target.value)}
+              placeholder="Search party name…"
+              className="w-full rounded-xl border border-neutral-700 bg-neutral-900 px-4 py-3 text-sm text-white placeholder:text-neutral-500"
+            />
+            {archivedEntries.length === 0 ? (
+              <p className="text-sm text-neutral-500">
+                {archiveQuery.trim()
+                  ? "No matching parties"
+                  : "Archive is empty"}
+              </p>
+            ) : (
+              <ul className="space-y-2">
+                {archivedEntries.map((entry) => (
+                  <li
+                    key={entry.id}
+                    className="rounded-2xl border border-white/5 bg-neutral-950/80 p-4"
+                  >
+                    <p className="font-medium text-neutral-400">{entry.name}</p>
+                    <p className="text-xs text-neutral-600">
+                      {ACTIVITY_LABELS[entry.activity]} · {entry.phone}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+      </section>
+
+      {selectedEntry &&
+        (selectedEntry.status === "waiting" ||
+          selectedEntry.status === "notified") && (
         <div className="fixed inset-x-0 bottom-0 border-t border-white/10 bg-[#0a0a0a]/95 p-4 backdrop-blur-xl sm:hidden">
           <p className="mb-2 text-center text-sm font-medium text-white">
             {selectedEntry.name}

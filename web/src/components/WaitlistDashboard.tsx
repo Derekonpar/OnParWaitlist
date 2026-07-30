@@ -63,8 +63,8 @@ export function WaitlistDashboard({ initialBoard }: WaitlistDashboardProps) {
             </span>
           </h1>
           <p className="mt-3 max-w-md text-base leading-relaxed text-neutral-400">
-            Everyone sees the same line in real time. Join once, watch your
-            spot move, get a text when you&apos;re up.
+            Everyone sees the same line in real time. Join once and
+            skip the line. You&apos;ll get a text when you&apos;re up.
           </p>
         </section>
 

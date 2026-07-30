@@ -427,7 +427,13 @@ export async function getPosition(
   const entries = await withStoreLock(readAllUnsafe);
   const entry = entries.find((e) => e.id === id);
   if (!entry) return null;
-  if (entry.status === "served" || entry.status === "cancelled") return null;
+  if (
+    entry.status === "served" ||
+    entry.status === "cancelled" ||
+    entry.status === "archived"
+  ) {
+    return null;
+  }
 
   if (entry.status === "notified") {
     return { entry, position: 1 };
@@ -530,6 +536,19 @@ export async function removeEntry(id: string): Promise<boolean> {
     }
     await deleteEntryById(id);
     return true;
+  });
+}
+
+/** Hide served/cancelled party from the recall strip into the searchable archive. */
+export async function archiveEntry(id: string): Promise<WaitlistEntry | null> {
+  return withStoreLock(async () => {
+    const entries = await readAllUnsafe();
+    const entry = entries.find((e) => e.id === id);
+    if (!entry) return null;
+    if (entry.status !== "served" && entry.status !== "cancelled") {
+      return null;
+    }
+    return patchEntryStatus(id, "archived");
   });
 }
 
