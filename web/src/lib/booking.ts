@@ -1,4 +1,4 @@
-import type { Activity } from "./types";
+import type { Activity, SessionDuration } from "./types";
 
 /** Total lanes / tables available at the venue per activity. */
 export const ACTIVITY_CAPACITY: Record<Activity, number> = {
@@ -28,8 +28,19 @@ export function laneCountOptions(activity: Activity): number[] {
   return Array.from({ length: max }, (_, i) => i + 1);
 }
 
-export function sessionOptionsFor(activity: Activity): number[] {
-  return activity === "bowling" ? [30, 60, 120] : [30, 60];
+const SESSION_OPTIONS: Record<Activity, SessionDuration[]> = {
+  bowling: [120, 60, 30],
+  darts: [60, 30],
+  pool: [60, 30],
+  shuffleboard: [60, 30],
+};
+
+export function sessionOptionsFor(activity: Activity): SessionDuration[] {
+  return [...SESSION_OPTIONS[activity]];
+}
+
+export function defaultSessionMinutesFor(activity: Activity): SessionDuration {
+  return SESSION_OPTIONS[activity][0];
 }
 
 export function normalizeLaneCount(activity: Activity, value: number): number {
@@ -56,7 +67,9 @@ export function isValidSessionMinutes(
   activity: Activity,
   sessionMinutes: number,
 ): boolean {
-  return sessionOptionsFor(activity).includes(sessionMinutes);
+  return sessionOptionsFor(activity).includes(
+    sessionMinutes as SessionDuration,
+  );
 }
 
 export function formatSessionLabel(minutes: number): string {

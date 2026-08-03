@@ -8,6 +8,7 @@ import {
   type SessionDuration,
 } from "@/lib/types";
 import {
+  defaultSessionMinutesFor,
   isValidLaneCount,
   isValidSessionMinutes,
 } from "@/lib/booking";
@@ -43,7 +44,7 @@ const joinSchema = z.object({
   smsOptIn: z.boolean(),
   rewardsOptIn: z.boolean().optional(),
   laneCount: z.coerce.number().int().default(1),
-  sessionMinutes: z.coerce.number().int().default(30),
+  sessionMinutes: z.coerce.number().int().optional(),
 }).superRefine((data, ctx) => {
   if (!isValidLaneCount(data.activity, data.laneCount)) {
     ctx.addIssue({
@@ -52,7 +53,10 @@ const joinSchema = z.object({
       message: "Invalid lane count for this activity",
     });
   }
-  if (!isValidSessionMinutes(data.activity, data.sessionMinutes)) {
+  if (
+    data.sessionMinutes !== undefined &&
+    !isValidSessionMinutes(data.activity, data.sessionMinutes)
+  ) {
     ctx.addIssue({
       code: "custom",
       path: ["sessionMinutes"],
@@ -75,7 +79,7 @@ function joinValidationMessage(details: {
   const lane = details.fieldErrors.laneCount?.[0];
   if (lane) return "Please choose how many lanes (1–4).";
   const session = details.fieldErrors.sessionMinutes?.[0];
-  if (session) return "Please choose half hour or full hour.";
+  if (session) return "Please choose a valid session length.";
   return "Please check your entries and try again.";
 }
 
@@ -105,6 +109,8 @@ export async function POST(request: Request) {
       sessionMinutes,
     } = parsed.data;
     const name = combineName(firstName, lastName);
+    const selectedSessionMinutes =
+      sessionMinutes ?? defaultSessionMinutesFor(activity);
 
     if (smsOptIn && (await isSmsOptedOut(phone))) {
       return NextResponse.json(
@@ -132,7 +138,7 @@ export async function POST(request: Request) {
         smsOptIn,
         rewardsOptIn: rewardsOptIn ?? false,
         laneCount: laneCount as LaneCount,
-        sessionMinutes: sessionMinutes as SessionDuration,
+        sessionMinutes: selectedSessionMinutes as SessionDuration,
       });
     } catch (e) {
       if (e instanceof Error && e.message === "INVALID_PHONE") {

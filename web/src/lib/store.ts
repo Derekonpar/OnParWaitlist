@@ -7,6 +7,7 @@ import {
   waitlistInsertSnake,
 } from "./db-mapper";
 import { getSupabaseAdmin, hasSupabaseConfigured } from "./supabase";
+import { defaultSessionMinutesFor } from "./booking";
 import {
   activityQueueWait,
   waitMinutesAhead,
@@ -483,7 +484,8 @@ export async function joinWaitlist(input: {
       phone: normalizedPhone,
       smsOptIn: input.smsOptIn,
       laneCount: input.laneCount ?? 1,
-      sessionMinutes: input.sessionMinutes ?? 30,
+      sessionMinutes:
+        input.sessionMinutes ?? defaultSessionMinutesFor(input.activity),
       status: "waiting",
       createdAt: new Date().toISOString(),
     };

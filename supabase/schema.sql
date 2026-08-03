@@ -150,10 +150,12 @@ do $$ begin
 exception when duplicate_object then null;
 end $$;
 
+alter table waitlist_entries drop constraint if exists waitlist_entries_status_check;
+
 do $$ begin
   alter table waitlist_entries
     add constraint waitlist_entries_status_check
-    check (status in ('waiting', 'notified', 'served', 'cancelled'));
+    check (status in ('waiting', 'notified', 'served', 'cancelled', 'archived'));
 exception when duplicate_object then null;
 end $$;
 
@@ -166,3 +168,21 @@ create index if not exists idx_waitlist_created
 
 create index if not exists idx_customers_phone
   on customers (phone);
+
+-- ── live Brunswick bowling lane snapshot ───────────────────
+create table if not exists bowling_lane_state (
+  id text primary key default 'current',
+  lanes jsonb not null,
+  source text,
+  captured_at timestamptz not null,
+  updated_at timestamptz not null default now()
+);
+
+alter table bowling_lane_state disable row level security;
+
+do $$ begin
+  alter table bowling_lane_state
+    add constraint bowling_lane_state_current_check
+    check (id = 'current');
+exception when duplicate_object then null;
+end $$;

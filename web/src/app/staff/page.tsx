@@ -3,11 +3,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIcon } from "@/components/ActivityIcon";
 import { BookingOptions } from "@/components/BookingOptions";
+import { BowlingPlanner } from "@/components/BowlingPlanner";
 import {
+  defaultSessionMinutesFor,
   formatBookingSummary,
   normalizeLaneCount,
-  normalizeSessionMinutes,
 } from "@/lib/booking";
+import type { BowlingLaneSnapshot } from "@/lib/bowling-lanes";
 import {
   ACTIVITIES,
   ACTIVITY_LABELS,
@@ -19,6 +21,8 @@ import {
 } from "@/lib/types";
 
 const SOUND_STORAGE_KEY = "onpar-staff-sound";
+const STAFF_SECRET_STORAGE_KEY = "onpar-staff-secret";
+type StaffTab = "queue" | "bowling";
 
 function activeEntryIds(
   queues: { activity: Activity; queue: WaitlistEntry[] }[],
@@ -40,10 +44,13 @@ export default function StaffPage() {
   const [queues, setQueues] = useState<
     { activity: Activity; queue: WaitlistEntry[] }[]
   >([]);
+  const [bowlingSnapshot, setBowlingSnapshot] =
+    useState<BowlingLaneSnapshot | null>(null);
   const [loading, setLoading] = useState(false);
   const [actionId, setActionId] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [soundOn, setSoundOn] = useState(false);
+  const [staffTab, setStaffTab] = useState<StaffTab>("queue");
 
   const knownIdsRef = useRef<Set<string> | null>(null);
   const chimeRef = useRef<HTMLAudioElement | null>(null);
@@ -56,7 +63,7 @@ export default function StaffPage() {
   const [addRewards, setAddRewards] = useState(false);
   const [addLaneCount, setAddLaneCount] = useState<LaneCount>(1);
   const [addSessionMinutes, setAddSessionMinutes] =
-    useState<SessionDuration>(30);
+    useState<SessionDuration>(defaultSessionMinutesFor("bowling"));
   const [addStatus, setAddStatus] = useState<string | null>(null);
   const [addLoading, setAddLoading] = useState(false);
   const [servedOpen, setServedOpen] = useState(true);
@@ -71,43 +78,54 @@ export default function StaffPage() {
     [secret],
   );
 
-  const fetchQueues = useCallback(async () => {
+  const fetchQueues = useCallback(async (showLoading = true) => {
     if (!secret) return;
-    setLoading(true);
+    await Promise.resolve();
+    if (showLoading) setLoading(true);
     try {
       const res = await fetch("/api/staff/queue", { headers: headers() });
       if (res.status === 401) {
         setAuthenticated(false);
-        sessionStorage.removeItem("onpar-staff-secret");
+        sessionStorage.removeItem(STAFF_SECRET_STORAGE_KEY);
         return;
       }
       const data = await res.json();
       setQueues(data.queues ?? []);
+      const laneRes = await fetch("/api/staff/bowling-lanes", {
+        headers: headers(),
+      });
+      if (laneRes.ok) {
+        const laneData = await laneRes.json();
+        setBowlingSnapshot(laneData.snapshot ?? null);
+      }
       setAuthenticated(true);
-      sessionStorage.setItem("onpar-staff-secret", secret);
+      sessionStorage.setItem(STAFF_SECRET_STORAGE_KEY, secret);
     } finally {
-      setLoading(false);
+      if (showLoading) setLoading(false);
     }
   }, [secret, headers]);
 
   useEffect(() => {
-    setSoundOn(sessionStorage.getItem(SOUND_STORAGE_KEY) === "1");
+    const soundTimeout = window.setTimeout(() => {
+      setSoundOn(sessionStorage.getItem(SOUND_STORAGE_KEY) === "1");
+    }, 0);
     const audio = new Audio("/sounds/new-guest.wav");
     audio.preload = "auto";
     chimeRef.current = audio;
     return () => {
+      window.clearTimeout(soundTimeout);
       audio.pause();
       chimeRef.current = null;
     };
   }, []);
 
   useEffect(() => {
-    const saved = sessionStorage.getItem("onpar-staff-secret");
+    const saved = sessionStorage.getItem(STAFF_SECRET_STORAGE_KEY);
     if (!saved) return;
-    setSecret(saved);
-    void (async () => {
-      setLoading(true);
-      try {
+
+    const authTimeout = window.setTimeout(() => {
+      setSecret(saved);
+      void (async () => {
         const res = await fetch("/api/staff/queue", {
           headers: {
             "Content-Type": "application/json",
@@ -117,14 +135,24 @@ export default function StaffPage() {
         if (res.ok) {
           const data = await res.json();
           setQueues(data.queues ?? []);
+          const laneRes = await fetch("/api/staff/bowling-lanes", {
+            headers: {
+              "Content-Type": "application/json",
+              "x-staff-secret": saved,
+            },
+          });
+          if (laneRes.ok) {
+            const laneData = await laneRes.json();
+            setBowlingSnapshot(laneData.snapshot ?? null);
+          }
           setAuthenticated(true);
         } else {
-          sessionStorage.removeItem("onpar-staff-secret");
+          sessionStorage.removeItem(STAFF_SECRET_STORAGE_KEY);
         }
-      } finally {
-        setLoading(false);
-      }
-    })();
+      })();
+    }, 0);
+
+    return () => window.clearTimeout(authTimeout);
   }, []);
 
   useEffect(() => {
@@ -132,8 +160,9 @@ export default function StaffPage() {
       knownIdsRef.current = null;
       return;
     }
-    fetchQueues();
-    const interval = setInterval(fetchQueues, 6000);
+    const interval = setInterval(() => {
+      void fetchQueues(false);
+    }, 6000);
     return () => clearInterval(interval);
   }, [authenticated, fetchQueues]);
 
@@ -239,7 +268,7 @@ export default function StaffPage() {
       setAddSms(false);
       setAddRewards(false);
       setAddLaneCount(1);
-      setAddSessionMinutes(30);
+      setAddSessionMinutes(defaultSessionMinutesFor(addActivity));
       await fetchQueues();
     } catch {
       setAddStatus("Network error");
@@ -253,12 +282,10 @@ export default function StaffPage() {
     .find((e) => e.id === selectedId);
 
   const allEntries = queues.flatMap((q) => q.queue);
-  const servedCutoff = Date.now() - 48 * 60 * 60 * 1000;
   const servedRemoved = allEntries
     .filter(
       (e) =>
-        (e.status === "served" || e.status === "cancelled") &&
-        new Date(e.createdAt).getTime() >= servedCutoff,
+        e.status === "served" || e.status === "cancelled",
     )
     .sort(
       (a, b) =>
@@ -292,7 +319,7 @@ export default function StaffPage() {
         />
         <button
           type="button"
-          onClick={fetchQueues}
+          onClick={() => void fetchQueues()}
           className="mt-4 w-full rounded-xl bg-white py-3 text-sm font-semibold text-neutral-900"
         >
           Sign in
@@ -302,7 +329,7 @@ export default function StaffPage() {
   }
 
   return (
-    <main className="mx-auto min-h-screen max-w-2xl px-4 py-6 pb-24 sm:px-5">
+    <main className="mx-auto min-h-screen max-w-5xl px-4 py-6 pb-24 sm:px-5">
       <div className="mb-6 flex items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold text-white">Staff console</h1>
@@ -324,7 +351,7 @@ export default function StaffPage() {
           </button>
           <button
             type="button"
-            onClick={fetchQueues}
+            onClick={() => void fetchQueues()}
             disabled={loading}
             className="rounded-full border border-white/10 px-3 py-1.5 text-xs text-neutral-300 hover:bg-white/5"
           >
@@ -333,6 +360,37 @@ export default function StaffPage() {
         </div>
       </div>
 
+      <div className="mb-6 grid grid-cols-2 rounded-xl border border-white/10 bg-neutral-950 p-1">
+        <button
+          type="button"
+          onClick={() => setStaffTab("queue")}
+          className={`rounded-lg px-3 py-2 text-sm font-semibold ${
+            staffTab === "queue"
+              ? "bg-white text-neutral-950"
+              : "text-neutral-400 hover:text-white"
+          }`}
+        >
+          Queue
+        </button>
+        <button
+          type="button"
+          onClick={() => setStaffTab("bowling")}
+          className={`rounded-lg px-3 py-2 text-sm font-semibold ${
+            staffTab === "bowling"
+              ? "bg-white text-neutral-950"
+              : "text-neutral-400 hover:text-white"
+          }`}
+        >
+          Bowling lanes
+        </button>
+      </div>
+
+      {staffTab === "bowling" && (
+        <BowlingPlanner snapshot={bowlingSnapshot} entries={allEntries} />
+      )}
+
+      {staffTab === "queue" && (
+        <>
       <section className="mb-8 rounded-2xl border border-white/10 bg-[#141414] p-5">
         <h2 className="text-sm font-semibold text-white">Add to waitlist</h2>
         <form onSubmit={addGuest} className="mt-4 space-y-3">
@@ -344,9 +402,7 @@ export default function StaffPage() {
               setAddLaneCount((prev) =>
                 normalizeLaneCount(activity, prev) as LaneCount,
               );
-              setAddSessionMinutes((prev) =>
-                normalizeSessionMinutes(activity, prev) as SessionDuration,
-              );
+              setAddSessionMinutes(defaultSessionMinutesFor(activity));
             }}
             className="w-full rounded-xl border border-neutral-700 bg-neutral-900 px-4 py-3 text-sm text-white"
           >
@@ -748,6 +804,8 @@ export default function StaffPage() {
             </button>
           )}
         </div>
+      )}
+        </>
       )}
     </main>
   );

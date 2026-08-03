@@ -10,6 +10,7 @@ import {
 } from "@/lib/types";
 import { ActivityIcon } from "./ActivityIcon";
 import { BookingOptions } from "./BookingOptions";
+import { defaultSessionMinutesFor } from "@/lib/booking";
 
 interface JoinModalProps {
   activity: Activity;
@@ -23,7 +24,9 @@ export function JoinModal({ activity, onClose }: JoinModalProps) {
   const [phone, setPhone] = useState("");
   const [smsOptIn, setSmsOptIn] = useState(false);
   const [laneCount, setLaneCount] = useState<LaneCount>(1);
-  const [sessionMinutes, setSessionMinutes] = useState<SessionDuration>(30);
+  const [sessionMinutes, setSessionMinutes] = useState<SessionDuration>(
+    defaultSessionMinutesFor(activity),
+  );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 

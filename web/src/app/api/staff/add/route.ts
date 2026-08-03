@@ -4,6 +4,7 @@ import { verifyStaffSecret } from "@/lib/auth";
 import { joinWaitlist } from "@/lib/store";
 import { ACTIVITIES, type LaneCount, type SessionDuration } from "@/lib/types";
 import {
+  defaultSessionMinutesFor,
   isValidLaneCount,
   isValidSessionMinutes,
 } from "@/lib/booking";
@@ -29,7 +30,7 @@ const schema = z
     smsOptIn: z.boolean().default(false),
     rewardsOptIn: z.boolean().default(false),
     laneCount: z.coerce.number().int().default(1),
-    sessionMinutes: z.coerce.number().int().default(30),
+    sessionMinutes: z.coerce.number().int().optional(),
   })
   .superRefine((data, ctx) => {
     if (!isValidLaneCount(data.activity, data.laneCount)) {
@@ -39,7 +40,10 @@ const schema = z
         message: "Invalid lane count",
       });
     }
-    if (!isValidSessionMinutes(data.activity, data.sessionMinutes)) {
+    if (
+      data.sessionMinutes !== undefined &&
+      !isValidSessionMinutes(data.activity, data.sessionMinutes)
+    ) {
       ctx.addIssue({
         code: "custom",
         path: ["sessionMinutes"],
@@ -62,12 +66,14 @@ export async function POST(request: Request) {
 
     const { activity, firstName, lastName, laneCount, sessionMinutes, ...rest } =
       parsed.data;
+    const selectedSessionMinutes =
+      sessionMinutes ?? defaultSessionMinutesFor(activity);
     const entry = await joinWaitlist({
       ...rest,
       activity,
       name: combineName(firstName, lastName),
       laneCount: laneCount as LaneCount,
-      sessionMinutes: sessionMinutes as SessionDuration,
+      sessionMinutes: selectedSessionMinutes as SessionDuration,
     });
     return NextResponse.json({ entry });
   } catch (err) {

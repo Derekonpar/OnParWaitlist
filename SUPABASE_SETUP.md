@@ -10,12 +10,17 @@ In [Supabase](https://supabase.com) → your project → **SQL Editor**, paste a
 
 If join/board still fail after that, also run `supabase/fix-500.sql` — it handles duplicate camelCase/snake_case columns and legacy required fields like `publicToken`, `displayName`, and `updatedAt`.
 
+For the staff hidden archive feature, run `supabase/add_archived_status.sql` once as well. Without it, the staff **Delete — hide in archive** action will fail because Supabase still rejects the `archived` status.
+
+For the live Brunswick bowling lane screen, run `supabase/add_bowling_lane_state.sql` once as well. It creates the single-row table used by the local watcher that reads the open Brunswick Remote Desktop session.
+
 If you still get type errors and have no real data yet, run the reset block at the top of `schema.sql` first, then run the full script again.
 
 That creates:
 
 - **customers** — phone (unique), name, visit count, rewards opt-in, SMS opt-out flag
 - **waitlist_entries** — each line in the queue, linked to a customer
+- **bowling_lane_state** — latest OCR snapshot from the Brunswick lane screen
 
 ## 2. Environment variables
 
