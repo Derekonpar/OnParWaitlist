@@ -175,7 +175,10 @@ create table if not exists bowling_lane_state (
   lanes jsonb not null,
   source text,
   captured_at timestamptz not null,
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  health_status text not null default 'ok',
+  health_message text,
+  health_updated_at timestamptz not null default now()
 );
 
 alter table bowling_lane_state disable row level security;
@@ -186,3 +189,32 @@ do $$ begin
     check (id = 'current');
 exception when duplicate_object then null;
 end $$;
+
+do $$ begin
+  alter table bowling_lane_state
+    add constraint bowling_lane_state_health_status_check
+    check (health_status in ('ok', 'recovering', 'login-required', 'remote-offline', 'error'));
+exception when duplicate_object then null;
+end $$;
+
+-- ── pool and shuffleboard timed checkouts ─────────────────
+create table if not exists activity_resource_sessions (
+  resource_type text not null
+    check (resource_type in ('pool', 'shuffleboard')),
+  resource_id text not null,
+  guest_name text not null,
+  starts_at timestamptz not null,
+  ends_at timestamptz not null,
+  duration_minutes integer not null
+    check (duration_minutes in (60, 120)),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  primary key (resource_type, resource_id),
+  check (ends_at > starts_at),
+  check (
+    (resource_type = 'pool' and resource_id in ('red', 'green', 'blue')) or
+    (resource_type = 'shuffleboard' and resource_id in ('1', '2'))
+  )
+);
+
+alter table activity_resource_sessions disable row level security;

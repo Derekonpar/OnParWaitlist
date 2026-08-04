@@ -7,6 +7,10 @@ import {
   getDartseeLaneSnapshot,
 } from "./dartsee-lanes";
 import type { ResourceLaneAvailability } from "./resource-scheduler";
+import {
+  getTimedResourceSessions,
+  timedSessionsToAvailability,
+} from "./resource-sessions";
 import type { Activity } from "./types";
 
 export type LiveLaneAvailability = Partial<
@@ -39,9 +43,10 @@ export function bowlingSnapshotToAvailability(
 }
 
 export async function getLiveLaneAvailability(): Promise<LiveLaneAvailability> {
-  const [bowlingResult, dartseeResult] = await Promise.allSettled([
+  const [bowlingResult, dartseeResult, timedResult] = await Promise.allSettled([
     getBowlingLaneSnapshot(),
     getDartseeLaneSnapshot(),
+    getTimedResourceSessions(),
   ]);
 
   return {
@@ -52,6 +57,14 @@ export async function getLiveLaneAvailability(): Promise<LiveLaneAvailability> {
     darts:
       dartseeResult.status === "fulfilled"
         ? dartseeSnapshotToAvailability(dartseeResult.value)
+        : undefined,
+    pool:
+      timedResult.status === "fulfilled"
+        ? timedSessionsToAvailability("pool", timedResult.value)
+        : undefined,
+    shuffleboard:
+      timedResult.status === "fulfilled"
+        ? timedSessionsToAvailability("shuffleboard", timedResult.value)
         : undefined,
   };
 }

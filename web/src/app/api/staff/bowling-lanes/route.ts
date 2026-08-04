@@ -5,6 +5,7 @@ import {
   getBowlingLaneSnapshot,
   normalizeBowlingLaneSnapshot,
   saveBowlingLaneSnapshot,
+  saveBowlingLaneHealth,
 } from "@/lib/bowling-lanes";
 
 export const dynamic = "force-dynamic";
@@ -19,10 +20,18 @@ const laneSchema = z.object({
 });
 
 const postSchema = z.object({
-  lanes: z.array(laneSchema).min(1).max(12),
+  lanes: z.array(laneSchema).min(1).max(12).optional(),
   capturedAt: z.string().datetime().optional(),
   source: z.string().max(80).optional(),
-});
+  healthStatus: z
+    .enum(["recovering", "login-required", "remote-offline", "error"])
+    .optional(),
+  healthMessage: z.string().trim().min(1).max(300).optional(),
+}).refine(
+  (data) =>
+    Boolean(data.lanes) || Boolean(data.healthStatus && data.healthMessage),
+  { message: "Snapshot lanes or health status required" },
+);
 
 export async function GET(request: Request) {
   if (!verifyStaffSecret(request)) {
@@ -48,8 +57,18 @@ export async function POST(request: Request) {
       );
     }
 
-    const snapshot = normalizeBowlingLaneSnapshot(parsed.data);
-    const saved = await saveBowlingLaneSnapshot(snapshot);
+    const saved = parsed.data.lanes
+      ? await saveBowlingLaneSnapshot(
+          normalizeBowlingLaneSnapshot({
+            lanes: parsed.data.lanes,
+            capturedAt: parsed.data.capturedAt,
+            source: parsed.data.source,
+          }),
+        )
+      : await saveBowlingLaneHealth({
+          healthStatus: parsed.data.healthStatus!,
+          healthMessage: parsed.data.healthMessage!,
+        });
     return NextResponse.json({ snapshot: saved });
   } catch (err) {
     console.error("[bowling lanes]", err);

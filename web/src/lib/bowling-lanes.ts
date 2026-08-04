@@ -1,6 +1,12 @@
 import { getSupabaseAdmin } from "./supabase";
 
 export type BowlingLaneStatus = "open" | "occupied" | "unknown";
+export type BowlingFeedHealth =
+  | "ok"
+  | "recovering"
+  | "login-required"
+  | "remote-offline"
+  | "error";
 
 export interface BowlingLaneReading {
   lane: number;
@@ -15,6 +21,9 @@ export interface BowlingLaneSnapshot {
   capturedAt: string;
   receivedAt: string;
   source: string;
+  healthStatus: BowlingFeedHealth;
+  healthMessage?: string;
+  healthUpdatedAt: string;
 }
 
 const SNAPSHOT_ID = "current";
@@ -47,6 +56,9 @@ export function normalizeBowlingLaneSnapshot(input: {
   lanes: BowlingLaneReading[];
   capturedAt?: string;
   source?: string;
+  healthStatus?: BowlingFeedHealth;
+  healthMessage?: string;
+  healthUpdatedAt?: string;
 }): BowlingLaneSnapshot {
   const byLane = new Map<number, BowlingLaneReading>();
   for (const lane of input.lanes) {
@@ -71,6 +83,9 @@ export function normalizeBowlingLaneSnapshot(input: {
     capturedAt: input.capturedAt ?? now,
     receivedAt: now,
     source: input.source ?? "brunswick-ocr",
+    healthStatus: input.healthStatus ?? "ok",
+    healthMessage: input.healthMessage,
+    healthUpdatedAt: input.healthUpdatedAt ?? now,
   };
 }
 
@@ -86,6 +101,12 @@ function rowToSnapshot(row: Record<string, unknown>): BowlingLaneSnapshot {
     capturedAt: String(row.captured_at ?? row.capturedAt ?? new Date().toISOString()),
     receivedAt: String(row.updated_at ?? row.updatedAt ?? new Date().toISOString()),
     source: String(row.source ?? "brunswick-ocr"),
+    healthStatus: String(row.health_status ?? "ok") as BowlingFeedHealth,
+    healthMessage:
+      typeof row.health_message === "string" ? row.health_message : undefined,
+    healthUpdatedAt: String(
+      row.health_updated_at ?? row.updated_at ?? new Date().toISOString(),
+    ),
   };
 }
 
@@ -191,6 +212,9 @@ export async function saveBowlingLaneSnapshot(
       source: snapshot.source,
       captured_at: snapshot.capturedAt,
       updated_at: snapshot.receivedAt,
+      health_status: "ok",
+      health_message: null,
+      health_updated_at: snapshot.receivedAt,
     })
     .select("*")
     .single();
@@ -204,4 +228,24 @@ export async function saveBowlingLaneSnapshot(
   }
 
   return rowToSnapshot(data as Record<string, unknown>);
+}
+
+export async function saveBowlingLaneHealth(input: {
+  healthStatus: Exclude<BowlingFeedHealth, "ok">;
+  healthMessage: string;
+}): Promise<BowlingLaneSnapshot | null> {
+  const supabase = getSupabaseAdmin();
+  if (!supabase) throw new Error("STORAGE_NOT_CONFIGURED");
+  const { data, error } = await supabase
+    .from("bowling_lane_state")
+    .update({
+      health_status: input.healthStatus,
+      health_message: input.healthMessage,
+      health_updated_at: new Date().toISOString(),
+    })
+    .eq("id", SNAPSHOT_ID)
+    .select("*")
+    .maybeSingle();
+  if (error) throw error;
+  return data ? rowToSnapshot(data as Record<string, unknown>) : null;
 }

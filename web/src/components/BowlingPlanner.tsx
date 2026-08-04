@@ -62,6 +62,16 @@ export function BowlingPlanner({ snapshot, entries }: BowlingPlannerProps) {
 
   return (
     <section className="space-y-5">
+      {snapshot && snapshot.healthStatus !== "ok" && (
+        <div className="rounded-xl border border-red-400/70 bg-red-950/60 p-4">
+          <p className="text-sm font-semibold text-red-100">
+            Brunswick feed recovery needed
+          </p>
+          <p className="mt-1 text-sm text-red-200">
+            {snapshot.healthMessage ?? "Lane times may be stale."}
+          </p>
+        </div>
+      )}
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h2 className="text-base font-semibold text-white">

@@ -46,6 +46,7 @@ cloudflare-env.d.ts
 
 # local waitlist data
 /data/
+/.brunswick-helper/
 
 # typescript
 *.tsbuildinfo

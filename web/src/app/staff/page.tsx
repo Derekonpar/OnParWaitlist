@@ -5,6 +5,7 @@ import { ActivityIcon } from "@/components/ActivityIcon";
 import { BookingOptions } from "@/components/BookingOptions";
 import { BowlingPlanner } from "@/components/BowlingPlanner";
 import { DartsPlanner } from "@/components/DartsPlanner";
+import { TimedResourcePlanner } from "@/components/TimedResourcePlanner";
 import {
   defaultSessionMinutesFor,
   formatBookingSummary,
@@ -12,6 +13,11 @@ import {
 } from "@/lib/booking";
 import type { BowlingLaneSnapshot } from "@/lib/bowling-lanes";
 import type { DartseeLaneSnapshot } from "@/lib/dartsee-lanes";
+import {
+  TIMED_RESOURCES,
+  type TimedResourceSession,
+  type TimedResourceType,
+} from "@/lib/resource-sessions";
 import {
   ACTIVITIES,
   ACTIVITY_LABELS,
@@ -24,7 +30,8 @@ import {
 
 const SOUND_STORAGE_KEY = "onpar-staff-sound";
 const STAFF_SECRET_STORAGE_KEY = "onpar-staff-secret";
-type StaffTab = "queue" | "bowling" | "darts";
+const BOWLING_STALE_AFTER_MS = 2 * 60_000;
+type StaffTab = "queue" | "bowling" | "darts" | "pool" | "shuffleboard";
 
 function activeEntryIds(
   queues: { activity: Activity; queue: WaitlistEntry[] }[],
@@ -40,6 +47,17 @@ function activeEntryIds(
   return ids;
 }
 
+function sessionCountdown(endsAt: string, nowMs: number): string {
+  const seconds = Math.max(
+    0,
+    Math.ceil((new Date(endsAt).getTime() - nowMs) / 1000),
+  );
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const remainder = seconds % 60;
+  return `${hours}:${String(minutes).padStart(2, "0")}:${String(remainder).padStart(2, "0")}`;
+}
+
 export default function StaffPage() {
   const [secret, setSecret] = useState("");
   const [authenticated, setAuthenticated] = useState(false);
@@ -50,6 +68,11 @@ export default function StaffPage() {
     useState<BowlingLaneSnapshot | null>(null);
   const [dartseeSnapshot, setDartseeSnapshot] =
     useState<DartseeLaneSnapshot | null>(null);
+  const [resourceSessions, setResourceSessions] = useState<
+    TimedResourceSession[]
+  >([]);
+  const [resourceBusyKey, setResourceBusyKey] = useState<string | null>(null);
+  const [nowMs, setNowMs] = useState(() => Date.now());
   const [loading, setLoading] = useState(false);
   const [actionId, setActionId] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -95,9 +118,10 @@ export default function StaffPage() {
       }
       const data = await res.json();
       setQueues(data.queues ?? []);
-      const [laneRes, dartLaneRes] = await Promise.all([
+      const [laneRes, dartLaneRes, resourceRes] = await Promise.all([
         fetch("/api/staff/bowling-lanes", { headers: headers() }),
         fetch("/api/staff/dart-lanes", { headers: headers() }),
+        fetch("/api/staff/resource-sessions", { headers: headers() }),
       ]);
       if (laneRes.ok) {
         const laneData = await laneRes.json();
@@ -106,6 +130,10 @@ export default function StaffPage() {
       if (dartLaneRes.ok) {
         const dartLaneData = await dartLaneRes.json();
         setDartseeSnapshot(dartLaneData.snapshot ?? null);
+      }
+      if (resourceRes.ok) {
+        const resourceData = await resourceRes.json();
+        setResourceSessions(resourceData.sessions ?? []);
       }
       setAuthenticated(true);
       sessionStorage.setItem(STAFF_SECRET_STORAGE_KEY, secret);
@@ -148,11 +176,14 @@ export default function StaffPage() {
             "Content-Type": "application/json",
             "x-staff-secret": saved,
           };
-          const [laneRes, dartLaneRes] = await Promise.all([
+          const [laneRes, dartLaneRes, resourceRes] = await Promise.all([
             fetch("/api/staff/bowling-lanes", {
               headers: savedHeaders,
             }),
             fetch("/api/staff/dart-lanes", {
+              headers: savedHeaders,
+            }),
+            fetch("/api/staff/resource-sessions", {
               headers: savedHeaders,
             }),
           ]);
@@ -163,6 +194,10 @@ export default function StaffPage() {
           if (dartLaneRes.ok) {
             const dartLaneData = await dartLaneRes.json();
             setDartseeSnapshot(dartLaneData.snapshot ?? null);
+          }
+          if (resourceRes.ok) {
+            const resourceData = await resourceRes.json();
+            setResourceSessions(resourceData.sessions ?? []);
           }
           setAuthenticated(true);
         } else {
@@ -184,6 +219,11 @@ export default function StaffPage() {
     }, 6000);
     return () => clearInterval(interval);
   }, [authenticated, fetchQueues]);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => setNowMs(Date.now()), 1_000);
+    return () => window.clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     if (!authenticated) return;
@@ -296,6 +336,58 @@ export default function StaffPage() {
     }
   }
 
+  async function addResourceSession(input: {
+    resourceType: TimedResourceType;
+    resourceId: string;
+    guestName: string;
+    startsAt: string;
+    durationMinutes: 60 | 120;
+  }): Promise<boolean> {
+    const key = `${input.resourceType}:${input.resourceId}`;
+    setResourceBusyKey(key);
+    try {
+      const res = await fetch("/api/staff/resource-sessions", {
+        method: "POST",
+        headers: headers(),
+        body: JSON.stringify(input),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        alert(data.error ?? "Could not add session");
+        return false;
+      }
+      await fetchQueues(false);
+      setNowMs(Date.now());
+      return true;
+    } finally {
+      setResourceBusyKey(null);
+    }
+  }
+
+  async function clearResourceSession(
+    resourceType: TimedResourceType,
+    resourceId: string,
+  ) {
+    const key = `${resourceType}:${resourceId}`;
+    setResourceBusyKey(key);
+    try {
+      const res = await fetch("/api/staff/resource-sessions", {
+        method: "DELETE",
+        headers: headers(),
+        body: JSON.stringify({ resourceType, resourceId }),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        alert(data.error ?? "Could not clear session");
+        return;
+      }
+      await fetchQueues(false);
+      setNowMs(Date.now());
+    } finally {
+      setResourceBusyKey(null);
+    }
+  }
+
   const selectedEntry = queues
     .flatMap((q) => q.queue)
     .find((e) => e.id === selectedId);
@@ -322,6 +414,18 @@ export default function StaffPage() {
       (a, b) =>
         new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
     );
+  const resourceAlerts = resourceSessions.filter(
+    (session) => new Date(session.endsAt).getTime() - nowMs <= 5 * 60_000,
+  );
+  const bowlingSnapshotAgeMs = bowlingSnapshot
+    ? nowMs - new Date(bowlingSnapshot.capturedAt).getTime()
+    : Number.POSITIVE_INFINITY;
+  const bowlingFeedStale =
+    !Number.isFinite(bowlingSnapshotAgeMs) ||
+    bowlingSnapshotAgeMs > BOWLING_STALE_AFTER_MS;
+  const bowlingFeedNeedsAttention =
+    Boolean(bowlingSnapshot) &&
+    (bowlingSnapshot?.healthStatus !== "ok" || bowlingFeedStale);
 
   if (!authenticated) {
     return (
@@ -349,6 +453,45 @@ export default function StaffPage() {
 
   return (
     <main className="mx-auto min-h-screen max-w-5xl px-4 py-6 pb-24 sm:px-5">
+      {bowlingSnapshot && bowlingFeedNeedsAttention && (
+        <button
+          type="button"
+          onClick={() => setStaffTab("bowling")}
+          className="mb-5 w-full rounded-xl border border-red-400 bg-red-700 px-4 py-3 text-left text-sm font-semibold text-white shadow-lg shadow-red-950/30"
+          role="alert"
+        >
+          <span className="block">Brunswick feed needs attention</span>
+          <span className="mt-1 block text-xs font-normal text-red-100">
+            {bowlingSnapshot.healthStatus !== "ok"
+              ? (bowlingSnapshot.healthMessage ??
+                "Lane times may be stale. Check the Brunswick computer and Remote Desktop window.")
+              : "No Brunswick snapshot has arrived for over 2 minutes. Confirm the watcher is running and check the Brunswick Remote Desktop window."}
+          </span>
+        </button>
+      )}
+      {resourceAlerts.length > 0 && (
+        <div className="mb-5 space-y-2" role="alert" aria-live="assertive">
+          {resourceAlerts.map((session) => {
+            const resource = TIMED_RESOURCES[session.resourceType].find(
+              (item) => item.id === session.resourceId,
+            );
+            const ended = new Date(session.endsAt).getTime() <= nowMs;
+            const equipment = session.resourceType === "pool" ? "balls" : "pucks";
+            return (
+              <button
+                key={`${session.resourceType}:${session.resourceId}`}
+                type="button"
+                onClick={() => setStaffTab(session.resourceType)}
+                className="w-full rounded-xl border border-red-400 bg-red-600 px-4 py-3 text-left text-sm font-semibold text-white shadow-lg shadow-red-950/30"
+              >
+                {ended
+                  ? `${resource?.label}: time is up for ${session.guestName}. Collect the ${equipment}, then clear the session.`
+                  : `${resource?.label}: 5 minutes remaining for ${session.guestName}.`}
+              </button>
+            );
+          })}
+        </div>
+      )}
       <div className="mb-6 flex items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold text-white">Staff console</h1>
@@ -379,7 +522,7 @@ export default function StaffPage() {
         </div>
       </div>
 
-      <div className="mb-6 grid grid-cols-3 rounded-xl border border-white/10 bg-neutral-950 p-1">
+      <div className="mb-6 grid grid-cols-2 gap-1 rounded-xl border border-white/10 bg-neutral-950 p-1 sm:grid-cols-5">
         <button
           type="button"
           onClick={() => setStaffTab("queue")}
@@ -413,6 +556,28 @@ export default function StaffPage() {
         >
           Dart lanes
         </button>
+        <button
+          type="button"
+          onClick={() => setStaffTab("pool")}
+          className={`rounded-lg px-3 py-2 text-sm font-semibold ${
+            staffTab === "pool"
+              ? "bg-white text-neutral-950"
+              : "text-neutral-400 hover:text-white"
+          }`}
+        >
+          Pool tables
+        </button>
+        <button
+          type="button"
+          onClick={() => setStaffTab("shuffleboard")}
+          className={`rounded-lg px-3 py-2 text-sm font-semibold ${
+            staffTab === "shuffleboard"
+              ? "bg-white text-neutral-950"
+              : "text-neutral-400 hover:text-white"
+          }`}
+        >
+          Shuffleboards
+        </button>
       </div>
 
       {staffTab === "bowling" && (
@@ -421,6 +586,17 @@ export default function StaffPage() {
 
       {staffTab === "darts" && (
         <DartsPlanner snapshot={dartseeSnapshot} entries={allEntries} />
+      )}
+
+      {(staffTab === "pool" || staffTab === "shuffleboard") && (
+        <TimedResourcePlanner
+          resourceType={staffTab}
+          sessions={resourceSessions}
+          nowMs={nowMs}
+          busyKey={resourceBusyKey}
+          onAdd={addResourceSession}
+          onClear={clearResourceSession}
+        />
       )}
 
       {staffTab === "queue" && (
@@ -519,6 +695,18 @@ export default function StaffPage() {
               (e) => e.status === "waiting" || e.status === "notified",
             ) ?? [];
           const theme = ACTIVITY_THEME[activity];
+          const timedActivity =
+            activity === "pool" || activity === "shuffleboard";
+          const activeResourceSessions = timedActivity
+            ? resourceSessions
+                .filter((session) => session.resourceType === activity)
+                .sort(
+                  (a, b) =>
+                    new Date(a.endsAt).getTime() -
+                    new Date(b.endsAt).getTime(),
+                )
+            : [];
+          const nextResource = activeResourceSessions[0];
 
           return (
             <section key={activity}>
@@ -530,9 +718,9 @@ export default function StaffPage() {
                 </span>
               </h2>
 
-              {active.length === 0 ? (
+              {active.length === 0 && activeResourceSessions.length === 0 ? (
                 <p className="text-sm text-neutral-500">No one waiting</p>
-              ) : (
+              ) : active.length > 0 ? (
                 <ul className="space-y-2">
                   {active.map((entry, i) => {
                     const isSelected = selectedId === entry.id;
@@ -647,6 +835,56 @@ export default function StaffPage() {
                     );
                   })}
                 </ul>
+              ) : null}
+
+              {activeResourceSessions.length > 0 && (
+                <div className="mt-3 rounded-2xl border border-white/10 bg-neutral-950/70 p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-sm font-semibold text-white">
+                      {activeResourceSessions.length} in play
+                      {active.length > 0
+                        ? ` · ${active.length} waitlisted`
+                        : " · no waitlisted parties"}
+                    </p>
+                    <p className="text-sm font-semibold text-emerald-300">
+                      {new Date(nextResource.endsAt).getTime() <= nowMs
+                        ? "Next table awaiting pickup"
+                        : `Next available in ${sessionCountdown(nextResource.endsAt, nowMs)}`}
+                    </p>
+                  </div>
+                  <ul className="mt-3 space-y-2">
+                    {activeResourceSessions.map((session) => {
+                      const resource = TIMED_RESOURCES[session.resourceType].find(
+                        (item) => item.id === session.resourceId,
+                      );
+                      const ended = new Date(session.endsAt).getTime() <= nowMs;
+                      return (
+                        <li
+                          key={`${session.resourceType}:${session.resourceId}`}
+                          className="flex items-center justify-between gap-3 rounded-xl border border-white/5 bg-[#141414] px-3 py-2"
+                        >
+                          <div>
+                            <p className="text-sm font-medium text-white">
+                              {resource?.label}
+                            </p>
+                            <p className="text-xs text-neutral-500">
+                              {session.guestName}
+                            </p>
+                          </div>
+                          <p
+                            className={`font-mono text-sm font-semibold ${
+                              ended ? "text-red-300" : "text-neutral-200"
+                            }`}
+                          >
+                            {ended
+                              ? "Collect equipment"
+                              : sessionCountdown(session.endsAt, nowMs)}
+                          </p>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
               )}
             </section>
           );

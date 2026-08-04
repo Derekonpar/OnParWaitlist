@@ -8,6 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "watch:brunswick": "node scripts/watch-brunswick-lanes.mjs",
+    "build:brunswick-helper": "./scripts/build-brunswick-input.sh",
+    "install:brunswick-watcher": "./scripts/install-brunswick-watcher.sh",
     "preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
     "deploy": "opennextjs-cloudflare build && opennextjs-cloudflare deploy",
     "upload": "opennextjs-cloudflare build && opennextjs-cloudflare upload",
