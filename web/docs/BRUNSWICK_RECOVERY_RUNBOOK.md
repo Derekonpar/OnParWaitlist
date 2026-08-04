@@ -37,6 +37,11 @@ not the shortcut artwork.
   Terminal at login. Running the capture from Terminal is deliberate: macOS
   does not transfer Terminal's Screen Recording grant to a headless process.
   The loop restarts the watcher automatically if it exits.
+- Run the watcher under `caffeinate -di`. The Mac was already configured not to
+  idle-sleep on AC power, but macOS makes Chrome windows temporarily
+  uncapturable when the display sleeps. Screen-based Brunswick OCR therefore
+  requires an awake display session. Dim the monitor or turn it off using its
+  own hardware control instead of macOS display sleep.
 
 ## New-computer setup
 

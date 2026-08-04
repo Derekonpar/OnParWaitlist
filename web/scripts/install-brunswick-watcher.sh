@@ -22,7 +22,7 @@ cat > "$runner_path" <<RUNNER
 #!/bin/zsh
 while true; do
   cd "$web_dir"
-  "$node_bin" "$web_dir/scripts/watch-brunswick-lanes.mjs" --interval 10 >> "$log_path" 2>&1
+  /usr/bin/caffeinate -di "$node_bin" "$web_dir/scripts/watch-brunswick-lanes.mjs" --interval 10 >> "$log_path" 2>&1
   echo "\$(date '+%H:%M:%S') watcher exited; restarting in 10 seconds" >> "$log_path"
   sleep 10
 done

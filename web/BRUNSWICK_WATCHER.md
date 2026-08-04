@@ -49,6 +49,11 @@ native Apple Vision OCR, and posts the parsed lane timers to
 `/api/staff/bowling-lanes`. Capturing the window directly prevents other open
 staff or Codex windows from hiding lane cards or contributing unrelated text.
 
+The installed watcher uses `caffeinate -di`. macOS window capture stops working
+when the display session sleeps, even if the Mac itself remains awake. For an
+unattended watcher, keep macOS display sleep disabled and dim or power off the
+physical monitor instead.
+
 The watcher captures locally every 10 seconds by default, but writes only when
 lane data changes or once per minute as a health heartbeat. Override the
 heartbeat with `BRUNSWICK_HEARTBEAT_MS` if needed.
