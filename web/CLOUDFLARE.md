@@ -17,6 +17,11 @@ Vercel env secrets cannot be pulled locally (encrypted). Set them in Cloudflare:
 - `TWILIO_AUTH_TOKEN`
 - `TWILIO_PHONE_NUMBER`
 - `VENUE_NAME`
+- `DARTSEE_ADMIN_EMAIL`
+- `DARTSEE_ADMIN_PASSWORD`
+- `DARTSEE_BOARD_IDS`
+- `DARTSEE_VENUE_ID`
+- `NEXT_PUBLIC_VENUE_DART_LANES`
 
 3. In Cloudflare DNS for `onparwaitlist.com`, **delete** the A records for `@` and `www` that point to `76.76.21.21` (Vercel).
 4. Then either:

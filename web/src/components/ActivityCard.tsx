@@ -17,7 +17,7 @@ interface ActivityCardProps {
 export function ActivityCard({ board, onJoin }: ActivityCardProps) {
   const { stats, queue } = board;
   const theme = ACTIVITY_THEME[stats.activity];
-  const hasWait = stats.waitingCount > 0;
+  const hasWait = stats.estimatedWaitMinutes > 0;
 
   return (
     <article className="overflow-hidden rounded-3xl border border-white/10 bg-[#141414] shadow-xl shadow-black/20">
@@ -80,7 +80,7 @@ export function ActivityCard({ board, onJoin }: ActivityCardProps) {
           </p>
           {queue.length === 0 ? (
             <p className="rounded-xl border border-dashed border-neutral-700 bg-neutral-900/50 px-4 py-3 text-sm text-neutral-400">
-              No one in line — you&apos;ll be first!
+              No waitlist parties ahead.
             </p>
           ) : (
             <ol className="space-y-2">

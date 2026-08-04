@@ -4,12 +4,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIcon } from "@/components/ActivityIcon";
 import { BookingOptions } from "@/components/BookingOptions";
 import { BowlingPlanner } from "@/components/BowlingPlanner";
+import { DartsPlanner } from "@/components/DartsPlanner";
 import {
   defaultSessionMinutesFor,
   formatBookingSummary,
   normalizeLaneCount,
 } from "@/lib/booking";
 import type { BowlingLaneSnapshot } from "@/lib/bowling-lanes";
+import type { DartseeLaneSnapshot } from "@/lib/dartsee-lanes";
 import {
   ACTIVITIES,
   ACTIVITY_LABELS,
@@ -22,7 +24,7 @@ import {
 
 const SOUND_STORAGE_KEY = "onpar-staff-sound";
 const STAFF_SECRET_STORAGE_KEY = "onpar-staff-secret";
-type StaffTab = "queue" | "bowling";
+type StaffTab = "queue" | "bowling" | "darts";
 
 function activeEntryIds(
   queues: { activity: Activity; queue: WaitlistEntry[] }[],
@@ -46,6 +48,8 @@ export default function StaffPage() {
   >([]);
   const [bowlingSnapshot, setBowlingSnapshot] =
     useState<BowlingLaneSnapshot | null>(null);
+  const [dartseeSnapshot, setDartseeSnapshot] =
+    useState<DartseeLaneSnapshot | null>(null);
   const [loading, setLoading] = useState(false);
   const [actionId, setActionId] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -91,12 +95,17 @@ export default function StaffPage() {
       }
       const data = await res.json();
       setQueues(data.queues ?? []);
-      const laneRes = await fetch("/api/staff/bowling-lanes", {
-        headers: headers(),
-      });
+      const [laneRes, dartLaneRes] = await Promise.all([
+        fetch("/api/staff/bowling-lanes", { headers: headers() }),
+        fetch("/api/staff/dart-lanes", { headers: headers() }),
+      ]);
       if (laneRes.ok) {
         const laneData = await laneRes.json();
         setBowlingSnapshot(laneData.snapshot ?? null);
+      }
+      if (dartLaneRes.ok) {
+        const dartLaneData = await dartLaneRes.json();
+        setDartseeSnapshot(dartLaneData.snapshot ?? null);
       }
       setAuthenticated(true);
       sessionStorage.setItem(STAFF_SECRET_STORAGE_KEY, secret);
@@ -135,15 +144,25 @@ export default function StaffPage() {
         if (res.ok) {
           const data = await res.json();
           setQueues(data.queues ?? []);
-          const laneRes = await fetch("/api/staff/bowling-lanes", {
-            headers: {
-              "Content-Type": "application/json",
-              "x-staff-secret": saved,
-            },
-          });
+          const savedHeaders = {
+            "Content-Type": "application/json",
+            "x-staff-secret": saved,
+          };
+          const [laneRes, dartLaneRes] = await Promise.all([
+            fetch("/api/staff/bowling-lanes", {
+              headers: savedHeaders,
+            }),
+            fetch("/api/staff/dart-lanes", {
+              headers: savedHeaders,
+            }),
+          ]);
           if (laneRes.ok) {
             const laneData = await laneRes.json();
             setBowlingSnapshot(laneData.snapshot ?? null);
+          }
+          if (dartLaneRes.ok) {
+            const dartLaneData = await dartLaneRes.json();
+            setDartseeSnapshot(dartLaneData.snapshot ?? null);
           }
           setAuthenticated(true);
         } else {
@@ -360,7 +379,7 @@ export default function StaffPage() {
         </div>
       </div>
 
-      <div className="mb-6 grid grid-cols-2 rounded-xl border border-white/10 bg-neutral-950 p-1">
+      <div className="mb-6 grid grid-cols-3 rounded-xl border border-white/10 bg-neutral-950 p-1">
         <button
           type="button"
           onClick={() => setStaffTab("queue")}
@@ -383,10 +402,25 @@ export default function StaffPage() {
         >
           Bowling lanes
         </button>
+        <button
+          type="button"
+          onClick={() => setStaffTab("darts")}
+          className={`rounded-lg px-3 py-2 text-sm font-semibold ${
+            staffTab === "darts"
+              ? "bg-white text-neutral-950"
+              : "text-neutral-400 hover:text-white"
+          }`}
+        >
+          Dart lanes
+        </button>
       </div>
 
       {staffTab === "bowling" && (
         <BowlingPlanner snapshot={bowlingSnapshot} entries={allEntries} />
+      )}
+
+      {staffTab === "darts" && (
+        <DartsPlanner snapshot={dartseeSnapshot} entries={allEntries} />
       )}
 
       {staffTab === "queue" && (

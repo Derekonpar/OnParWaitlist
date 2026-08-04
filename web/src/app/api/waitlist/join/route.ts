@@ -77,7 +77,7 @@ function joinValidationMessage(details: {
   const lastName = details.fieldErrors.lastName?.[0];
   if (lastName) return "Please enter your last name.";
   const lane = details.fieldErrors.laneCount?.[0];
-  if (lane) return "Please choose how many lanes (1–4).";
+  if (lane) return "Please choose a valid quantity.";
   const session = details.fieldErrors.sessionMinutes?.[0];
   if (session) return "Please choose a valid session length.";
   return "Please check your entries and try again.";

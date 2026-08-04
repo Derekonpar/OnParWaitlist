@@ -14,7 +14,7 @@ export type WaitlistStatus =
   | "cancelled"
   | "archived";
 
-export type LaneCount = 1 | 2 | 3 | 4 | 5;
+export type LaneCount = 1 | 2 | 3 | 4 | 5 | 6;
 export type SessionDuration = 30 | 60 | 120;
 
 export interface WaitlistEntry {
@@ -78,4 +78,3 @@ export const ACTIVITY_THEME: Record<
     icon: "shuffle",
   },
 };
-

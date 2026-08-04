@@ -8,8 +8,10 @@ import {
 } from "./db-mapper";
 import { getSupabaseAdmin, hasSupabaseConfigured } from "./supabase";
 import { defaultSessionMinutesFor } from "./booking";
+import { getLiveLaneAvailability } from "./live-lane-availability";
 import {
   activityQueueWait,
+  type ResourceLaneAvailability,
   waitMinutesAhead,
 } from "./wait-estimate";
 import {
@@ -355,12 +357,16 @@ export async function getStorageStatus(): Promise<{
 
 export async function getStats(): Promise<ActivityStats[]> {
   const entries = await withStoreLock(readAllUnsafe);
-  return ACTIVITIES.map((activity) => buildStats(activity, entries));
+  const liveLanes = await getLiveLaneAvailability();
+  return ACTIVITIES.map((activity) =>
+    buildStats(activity, entries, liveLanes[activity]),
+  );
 }
 
 function buildStats(
   activity: Activity,
   entries: WaitlistEntry[],
+  lanes?: ResourceLaneAvailability[],
 ): ActivityStats {
   const waiting = entries.filter(
     (e) => e.activity === activity && e.status === "waiting",
@@ -369,12 +375,13 @@ function buildStats(
     activity,
     label: ACTIVITY_LABELS[activity],
     waitingCount: waiting.length,
-    estimatedWaitMinutes: activityQueueWait(activity, entries),
+    estimatedWaitMinutes: activityQueueWait(activity, entries, lanes),
   };
 }
 
 export async function getBoard(): Promise<ActivityBoard[]> {
   const entries = await withStoreLock(readAllUnsafe);
+  const liveLanes = await getLiveLaneAvailability();
   return ACTIVITIES.map((activity) => {
     const waiting = entries
       .filter(
@@ -388,7 +395,7 @@ export async function getBoard(): Promise<ActivityBoard[]> {
       );
 
     return {
-      stats: buildStats(activity, entries),
+      stats: buildStats(activity, entries, liveLanes[activity]),
       queue: waiting.map((e, i) => ({
         id: e.id,
         position: i + 1,
@@ -419,7 +426,8 @@ export async function getEstimatedWaitMinutes(id: string): Promise<number> {
   const entries = await withStoreLock(readAllUnsafe);
   const entry = entries.find((e) => e.id === id);
   if (!entry || entry.status !== "waiting") return 0;
-  return waitMinutesAhead(entries, entry);
+  const liveLanes = await getLiveLaneAvailability();
+  return waitMinutesAhead(entries, entry, liveLanes[entry.activity]);
 }
 
 export async function getPosition(
