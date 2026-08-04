@@ -1,7 +1,9 @@
 import { readEnv } from "./env";
+import { getSupabaseAdmin } from "./supabase";
 import type { ResourceLaneAvailability } from "./resource-scheduler";
 
 export type DartseeLaneStatus = "open" | "occupied" | "unknown";
+export type DartseeFeedHealth = "ok" | "partial" | "auth-error" | "connection-error" | "no-data";
 
 export interface DartseeLaneReading {
   lane: number;
@@ -19,6 +21,10 @@ export interface DartseeLaneSnapshot {
   capturedAt: string;
   receivedAt: string;
   source: string;
+  healthStatus: DartseeFeedHealth;
+  healthMessage?: string;
+  healthUpdatedAt: string;
+  knownLaneCount: number;
 }
 
 interface DartseeAuth {
@@ -29,6 +35,8 @@ interface DartseeAuth {
 type JsonRecord = Record<string, unknown>;
 
 const DEFAULT_BASE_URL = "https://central.dartsee.com";
+const STORAGE_BUCKET = "onpar-state";
+const STORAGE_PATH = "dartsee-lanes/current.json";
 const DEFAULT_BOARD_IDS = [
   "beavercreek01",
   "beavercreek02",
@@ -222,9 +230,11 @@ function applyDartseeEvent(
     }
 
     if (command === "refresh_game") {
-      lane.gameType = isRecord(event.game) && typeof event.game.gameType === "string"
+      const gameType = isRecord(event.game) && typeof event.game.gameType === "string"
         ? event.game.gameType
-        : lane.gameType;
+        : undefined;
+      if (gameType === "NO_GAME") setOpen(lane);
+      else lane.gameType = gameType ?? lane.gameType;
     }
   }
 }
@@ -265,19 +275,23 @@ async function readLiveSnapshot(
 ): Promise<DartseeLaneSnapshot | null> {
   if (typeof WebSocket === "undefined") return null;
 
-  const timeoutMs = envNumber("DARTSEE_WS_TIMEOUT_MS", 2500);
+  const timeoutMs = envNumber("DARTSEE_WS_TIMEOUT_MS", 8000);
   const now = new Date();
   const lanesByBoard = new Map(
     ids.map((id, index) => [id, laneFromBoardId(id, index)] as const),
   );
+  const venueId = readEnv("DARTSEE_VENUE_ID");
+  if (!venueId) return null;
   const url = `${baseUrl().replace(/^http/, "ws")}/ws/dashboard?boardIds=${ids.join(
     ",",
-  )}&token=${encodeURIComponent(token)}`;
+  )}&venueId=${encodeURIComponent(venueId)}&token=${encodeURIComponent(token)}`;
 
   return new Promise((resolve) => {
     let done = false;
     let pingTimer: ReturnType<typeof setTimeout> | null = null;
     let ws: WebSocket | null = null;
+    let connected = false;
+    let socketFailed = false;
 
     const finish = () => {
       if (done) return;
@@ -285,11 +299,34 @@ async function readLiveSnapshot(
       if (pingTimer) clearTimeout(pingTimer);
       clearTimeout(timeout);
       if (ws) closeSocket(ws);
+      const lanes = Array.from(lanesByBoard.values());
+      const knownLaneCount = lanes.filter((lane) => lane.status !== "unknown").length;
+      const healthStatus: DartseeFeedHealth = socketFailed
+        ? "connection-error"
+        : knownLaneCount === ids.length
+          ? "ok"
+          : knownLaneCount > 0
+            ? "partial"
+            : connected
+              ? "no-data"
+              : "connection-error";
+      const healthMessage = healthStatus === "ok"
+        ? undefined
+        : healthStatus === "partial"
+          ? `Dartsee answered for ${knownLaneCount} of ${ids.length} lanes. Check the Dartsee unit for any lane showing --.`
+          : healthStatus === "no-data"
+            ? "Dartsee connected but returned no lane status. Wait a few seconds, then check the Dartsee Central dashboard."
+            : "Dartsee did not accept or maintain the live dashboard connection. Check internet access and the Dartsee Central service.";
+      const receivedAt = new Date().toISOString();
       resolve({
-        lanes: Array.from(lanesByBoard.values()),
+        lanes,
         capturedAt: now.toISOString(),
-        receivedAt: new Date().toISOString(),
+        receivedAt,
         source: "dartsee-dashboard-ws",
+        healthStatus,
+        healthMessage,
+        healthUpdatedAt: receivedAt,
+        knownLaneCount,
       });
     };
 
@@ -311,6 +348,7 @@ async function readLiveSnapshot(
     };
 
     socket.addEventListener("open", () => {
+      connected = true;
       sendPing();
       pingTimer = setTimeout(sendPing, 1000);
     });
@@ -325,6 +363,7 @@ async function readLiveSnapshot(
     });
 
     socket.addEventListener("error", () => {
+      socketFailed = true;
       finish();
     });
 
@@ -334,8 +373,57 @@ async function readLiveSnapshot(
   });
 }
 
+async function getStoredSnapshot(): Promise<DartseeLaneSnapshot | null> {
+  const supabase = getSupabaseAdmin();
+  if (!supabase) return null;
+  const { data, error } = await supabase.storage.from(STORAGE_BUCKET).download(STORAGE_PATH);
+  if (error) return null;
+  try {
+    return JSON.parse(await data.text()) as DartseeLaneSnapshot;
+  } catch {
+    return null;
+  }
+}
+
+async function saveStoredSnapshot(snapshot: DartseeLaneSnapshot) {
+  const supabase = getSupabaseAdmin();
+  if (!supabase) return;
+  const { error } = await supabase.storage.from(STORAGE_BUCKET).upload(
+    STORAGE_PATH,
+    JSON.stringify(snapshot),
+    { contentType: "application/json", upsert: true },
+  );
+  if (error) console.error("[dartsee lanes:storage-write]", error.message);
+}
+
+function mergeLastKnown(
+  current: DartseeLaneSnapshot,
+  previous: DartseeLaneSnapshot | null,
+): DartseeLaneSnapshot {
+  if (!previous || current.healthStatus === "ok") return current;
+  const previousByBoard = new Map(previous.lanes.map((lane) => [lane.boardId, lane]));
+  const previousAgeSeconds = Math.max(
+    0,
+    Math.floor((Date.now() - new Date(previous.capturedAt).getTime()) / 1000),
+  );
+  return {
+    ...current,
+    lanes: current.lanes.map((lane) => {
+      if (lane.status !== "unknown") return lane;
+      const retained = previousByBoard.get(lane.boardId);
+      if (!retained) return lane;
+      if (retained.status !== "occupied") return retained;
+      const remainingSeconds = Math.max(0, retained.remainingSeconds - previousAgeSeconds);
+      return remainingSeconds > 0
+        ? { ...retained, remainingSeconds }
+        : { ...retained, status: "open", remainingSeconds: 0 };
+    }),
+    healthMessage: `${current.healthMessage ?? "Dartsee feed needs attention"} Last known status is retained for unreadable lanes.`,
+  };
+}
+
 export async function getDartseeLaneSnapshot(): Promise<DartseeLaneSnapshot | null> {
-  const cacheMs = envNumber("DARTSEE_CACHE_MS", 5000);
+  const cacheMs = envNumber("DARTSEE_CACHE_MS", 15000);
   if (snapshotCache && Date.now() < snapshotCache.expiresAt) {
     return snapshotCache.snapshot;
   }
@@ -346,13 +434,31 @@ export async function getDartseeLaneSnapshot(): Promise<DartseeLaneSnapshot | nu
     try {
       const token = await getAccessToken();
       if (!token) return null;
-      const snapshot = await readLiveSnapshot(boardIds(), token);
+      const liveSnapshot = await readLiveSnapshot(boardIds(), token);
+      if (!liveSnapshot) return null;
+      const previous = await getStoredSnapshot();
+      const snapshot = mergeLastKnown(liveSnapshot, previous);
+      await saveStoredSnapshot(snapshot);
       snapshotCache = { snapshot, expiresAt: Date.now() + cacheMs };
       return snapshot;
     } catch (err) {
       console.error("[dartsee lanes]", err);
-      snapshotCache = { snapshot: null, expiresAt: Date.now() + cacheMs };
-      return null;
+      authCache = null;
+      const previous = await getStoredSnapshot();
+      if (!previous) {
+        snapshotCache = { snapshot: null, expiresAt: Date.now() + cacheMs };
+        return null;
+      }
+      const now = new Date().toISOString();
+      const snapshot: DartseeLaneSnapshot = {
+        ...previous,
+        receivedAt: now,
+        healthStatus: "auth-error",
+        healthMessage: "Dartsee login or API access failed. Last known lane status is shown. Verify the Dartsee account and Central service.",
+        healthUpdatedAt: now,
+      };
+      snapshotCache = { snapshot, expiresAt: Date.now() + cacheMs };
+      return snapshot;
     } finally {
       snapshotRequest = null;
     }

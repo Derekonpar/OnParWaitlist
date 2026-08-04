@@ -426,6 +426,8 @@ export default function StaffPage() {
   const bowlingFeedNeedsAttention =
     Boolean(bowlingSnapshot) &&
     (bowlingSnapshot?.healthStatus !== "ok" || bowlingFeedStale);
+  const dartseeFeedNeedsAttention =
+    Boolean(dartseeSnapshot) && dartseeSnapshot?.healthStatus !== "ok";
 
   if (!authenticated) {
     return (
@@ -466,6 +468,20 @@ export default function StaffPage() {
               ? (bowlingSnapshot.healthMessage ??
                 "Lane times may be stale. Check the Brunswick computer and Remote Desktop window.")
               : "No Brunswick snapshot has arrived for over 2 minutes. Confirm the watcher is running and check the Brunswick Remote Desktop window."}
+          </span>
+        </button>
+      )}
+      {dartseeSnapshot && dartseeFeedNeedsAttention && (
+        <button
+          type="button"
+          onClick={() => setStaffTab("darts")}
+          className="mb-5 w-full rounded-xl border border-red-400 bg-red-700 px-4 py-3 text-left text-sm font-semibold text-white shadow-lg shadow-red-950/30"
+          role="alert"
+        >
+          <span className="block">Dartsee feed needs attention</span>
+          <span className="mt-1 block text-xs font-normal text-red-100">
+            {dartseeSnapshot.healthMessage ??
+              "Dart lane status is incomplete. Check the Dartsee Central dashboard and the affected lane units."}
           </span>
         </button>
       )}

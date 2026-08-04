@@ -14,6 +14,7 @@ interface DartsPlannerProps {
 
 function freshnessLabel(snapshot: DartseeLaneSnapshot | null, nowMs: number) {
   if (!snapshot || nowMs === 0) return "No feed";
+  if (snapshot.healthStatus !== "ok") return "Needs attention";
   const capturedAt = new Date(snapshot.capturedAt).getTime();
   if (!Number.isFinite(capturedAt)) return "No feed";
   const ageSeconds = Math.max(0, Math.floor((nowMs - capturedAt) / 1000));
@@ -122,6 +123,15 @@ export function DartsPlanner({ snapshot, entries }: DartsPlannerProps) {
           );
         })}
       </div>
+
+      {snapshot && snapshot.healthStatus !== "ok" && (
+        <div className="rounded-xl border border-red-400 bg-red-700 p-4 text-white" role="alert">
+          <p className="text-sm font-semibold">Dartsee feed needs attention</p>
+          <p className="mt-1 text-xs text-red-100">
+            {snapshot.healthMessage ?? "One or more dart lanes could not be read."}
+          </p>
+        </div>
+      )}
 
       <div className="space-y-2">
         <h3 className="text-sm font-semibold text-white">Placement order</h3>
