@@ -80,7 +80,7 @@ export function DartsPlanner({ snapshot, entries }: DartsPlannerProps) {
         </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
+      <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
         {plan.lanes.map((lane) => {
           const assignment = assignmentsByBoard.get(lane.boardId);
           return (

@@ -3,7 +3,7 @@ import type { Activity, SessionDuration } from "./types";
 /** Total lanes / tables available at the venue per activity. */
 export const ACTIVITY_CAPACITY: Record<Activity, number> = {
   bowling: Number(process.env.VENUE_BOWLING_LANES) || 12,
-  darts: Number(process.env.NEXT_PUBLIC_VENUE_DART_LANES) || 6,
+  darts: Number(process.env.NEXT_PUBLIC_VENUE_DART_LANES) || 5,
   pool: 3,
   shuffleboard: 2,
 };

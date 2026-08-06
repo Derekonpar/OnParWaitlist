@@ -2,7 +2,7 @@ import type { DartseeLaneReading, DartseeLaneSnapshot } from "./dartsee-lanes";
 import { planResourceQueue } from "./resource-scheduler";
 import type { WaitlistEntry } from "./types";
 
-const DARTSEE_LANE_COUNT = 6;
+const DARTSEE_LANE_COUNT = 5;
 
 export interface PlannedDartseeLane extends DartseeLaneReading {
   availableAtSeconds: number;
