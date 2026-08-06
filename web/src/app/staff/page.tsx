@@ -233,7 +233,7 @@ export default function StaffPage() {
     }
     const interval = setInterval(() => {
       void fetchQueues(false);
-    }, 6000);
+    }, 15000);
     return () => clearInterval(interval);
   }, [authenticated, fetchQueues]);
 

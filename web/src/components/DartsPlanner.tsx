@@ -33,7 +33,7 @@ function laneClass(status: string) {
     return "border-white/15 bg-zinc-200 text-zinc-950";
   }
   if (status === "reserved") {
-    return "border-violet-400/60 bg-violet-500/15 text-violet-50";
+    return "border-amber-400/40 bg-neutral-900 text-white";
   }
   return "border-dashed border-white/15 bg-neutral-900 text-neutral-400";
 }
@@ -115,7 +115,7 @@ export function DartsPlanner({ snapshot, entries, reservations = [] }: DartsPlan
             <div
               key={lane.boardId}
               className={`min-h-28 rounded-lg border p-3 shadow-sm ${laneClass(
-                activeReservation ? "reserved" : lane.status,
+                lane.status,
               )}`}
             >
               <div className="flex items-start justify-between gap-2">
@@ -123,8 +123,6 @@ export function DartsPlanner({ snapshot, entries, reservations = [] }: DartsPlan
                 <p className="text-sm font-bold">
                   {lane.status === "occupied"
                     ? formatClock(lane.remainingSeconds)
-                    : activeReservation
-                      ? "Reserved"
                     : lane.status === "open"
                       ? "Open"
                       : "--"}
@@ -134,11 +132,11 @@ export function DartsPlanner({ snapshot, entries, reservations = [] }: DartsPlan
                 {lane.boardId}
               </p>
               {nextReservation && (
-                <div className="mt-2 rounded-md border border-violet-400/30 bg-violet-500/15 px-2 py-1.5">
-                  <p className="truncate text-[10px] font-semibold text-violet-100">
+                <div className="mt-2 rounded-md border border-violet-300/70 bg-violet-950 px-2 py-1.5 text-white shadow-sm">
+                  <p className="truncate text-[10px] font-bold text-white">
                     {nextReservation.eventName}
                   </p>
-                  <p className="text-[9px] text-violet-200/80">
+                  <p className="text-[9px] font-medium text-violet-100">
                     {activeReservation
                       ? `Reserved until ${reservationTime(nextReservation.endAt)}`
                       : `Upcoming ${reservationTime(nextReservation.startAt)}`}

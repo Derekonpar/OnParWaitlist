@@ -125,6 +125,7 @@ function detectScreenState(observations) {
   if (/remote desktop/i.test(text) && /access code|enter.*code|\bpin\b/i.test(text)) {
     return "remote-code";
   }
+  if (findObservation(observations, [/Brunswick\s*HQ/i])) return "remote-host-list";
   if (findObservation(observations, [/^Desk$/i])) return "remote-desktop";
   return "unknown";
 }
@@ -300,7 +301,7 @@ tell application "Google Chrome"
   repeat with w in windows
     set tabIndex to 1
     repeat with t in tabs of w
-      if (title of t contains "Brunswick") or (URL of t contains "remotedesktop.google.com/access/session") then
+      if (title of t contains "Brunswick") or (URL of t contains "remotedesktop.google.com/access") then
         set active tab index of w to tabIndex
         set minimized of w to false
         set bounds of w to {0, 25, 1400, 950}
@@ -310,12 +311,18 @@ tell application "Google Chrome"
       set tabIndex to tabIndex + 1
     end repeat
   end repeat
+  set newTab to make new tab at end of tabs of front window with properties {URL:"https://remotedesktop.google.com/access"}
+  set active tab index of front window to (count tabs of front window)
+  set minimized of front window to false
+  set bounds of front window to {0, 25, 1400, 950}
+  set index of front window to 1
+  return "OPENED_BRUNSWICK"
 end tell
 return "NOT_FOUND"
 `;
   const { stdout } = await execFileAsync("osascript", ["-e", script]);
   const result = stdout.trim();
-  if (result !== "SELECTED_BRUNSWICK") {
+  if (result !== "SELECTED_BRUNSWICK" && result !== "OPENED_BRUNSWICK") {
     throw new Error("Could not find the open Brunswick Remote Desktop tab.");
   }
 }
@@ -416,6 +423,15 @@ async function recoverScreen(state, observations, options) {
     return {
       healthStatus: "recovering",
       healthMessage: "Remote Desktop code was submitted. Waiting for the Brunswick desktop.",
+    };
+  }
+
+  if (state === "remote-host-list") {
+    const host = findObservation(observations, [/Brunswick\s*HQ/i]);
+    if (host) await clickObservation(host);
+    return {
+      healthStatus: "recovering",
+      healthMessage: "BrunswickHQ was selected. Waiting for the Remote Desktop access code prompt.",
     };
   }
 

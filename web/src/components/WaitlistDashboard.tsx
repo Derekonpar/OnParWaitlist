@@ -42,7 +42,10 @@ export function WaitlistDashboard({ initialBoard }: WaitlistDashboardProps) {
   }, []);
 
   useEffect(() => {
-    const interval = setInterval(fetchBoard, 5000);
+    void fetchBoard();
+    // Live integrations are shared-cached for 15 seconds. Polling faster adds
+    // load during busy periods without producing fresher lane information.
+    const interval = setInterval(fetchBoard, 15000);
     return () => clearInterval(interval);
   }, [fetchBoard]);
 
@@ -86,7 +89,7 @@ export function WaitlistDashboard({ initialBoard }: WaitlistDashboardProps) {
 
         <p className="mt-8 text-center text-xs text-neutral-500">
           {loading ? "Updating…" : lastUpdated ? "Updated just now" : "Live"}{" "}
-          · refreshes every 5s
+          · refreshes every 15s
         </p>
       </main>
 
