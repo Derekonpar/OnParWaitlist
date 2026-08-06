@@ -138,13 +138,39 @@ function parseDateMs(value: unknown): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function parseWallClockMs(value: unknown): number | null {
+function parseVenueDateMs(value: unknown): number | null {
   if (typeof value !== "string") return null;
   const normalized = value.trim().replace(" ", "T");
-  const parsed = Date.parse(
-    /(?:Z|[+-]\d{2}:?\d{2})$/.test(normalized) ? normalized : `${normalized}Z`,
+  if (/(?:Z|[+-]\d{2}:?\d{2})$/.test(normalized)) {
+    return parseDateMs(normalized);
+  }
+  const match = normalized.match(
+    /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})/,
   );
-  return Number.isFinite(parsed) ? parsed : null;
+  if (!match) return null;
+  const [, year, month, day, hour, minute, second] = match.map(Number);
+  const wallClockUtc = Date.UTC(year, month - 1, day, hour, minute, second);
+  const timeZone = readEnv("VENUE_TIME_ZONE") ?? "America/New_York";
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(new Date(wallClockUtc));
+  const byType = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  const representedUtc = Date.UTC(
+    Number(byType.year),
+    Number(byType.month) - 1,
+    Number(byType.day),
+    Number(byType.hour),
+    Number(byType.minute),
+    Number(byType.second),
+  );
+  return wallClockUtc - (representedUtc - wallClockUtc);
 }
 
 function laneFromBoardId(boardId: string, index: number): DartseeLaneReading {
@@ -171,12 +197,8 @@ function setOccupied(
   nowMs: number,
 ) {
   const sessionEnd = event.sessionEnd;
-  const endWallClockMs = parseWallClockMs(sessionEnd);
-  const currentWallClockMs = parseWallClockMs(event.currentTime);
-  const endMs = currentWallClockMs && endWallClockMs
-    ? nowMs + (endWallClockMs - currentWallClockMs)
-    : parseDateMs(sessionEnd);
-  if (!endMs || !endWallClockMs) {
+  const endMs = parseVenueDateMs(sessionEnd);
+  if (!endMs) {
     lane.status = "unknown";
     lane.remainingSeconds = 0;
     return;
