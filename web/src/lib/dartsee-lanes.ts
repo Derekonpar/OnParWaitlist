@@ -38,6 +38,7 @@ const DEFAULT_BASE_URL = "https://central.dartsee.com";
 const STORAGE_BUCKET = "onpar-state";
 const STORAGE_PATH = "dartsee-lanes/current.json";
 const STORAGE_LOCK_PREFIX = "dartsee-lanes/refresh-lock";
+const REFRESH_LEASE_WINDOW_MS = 15_000;
 const DEFAULT_BOARD_IDS = [
   "beavercreek01",
   "beavercreek02",
@@ -420,10 +421,10 @@ async function saveStoredSnapshot(snapshot: DartseeLaneSnapshot) {
   if (error) console.error("[dartsee lanes:storage-write]", error.message);
 }
 
-async function acquireRefreshLease(cacheMs: number): Promise<boolean> {
+async function acquireRefreshLease(): Promise<boolean> {
   const supabase = getSupabaseAdmin();
   if (!supabase) return true;
-  const bucket = Math.floor(Date.now() / cacheMs);
+  const bucket = Math.floor(Date.now() / REFRESH_LEASE_WINDOW_MS);
   const lockPath = `${STORAGE_LOCK_PREFIX}-${bucket}.json`;
   const { error } = await supabase.storage.from(STORAGE_BUCKET).upload(
     lockPath,
@@ -494,19 +495,21 @@ export async function getDartseeLaneSnapshot(): Promise<DartseeLaneSnapshot | nu
         return stored;
       }
 
-      const ownsRefresh = await acquireRefreshLease(cacheMs);
+      const ownsRefresh = await acquireRefreshLease();
       if (!ownsRefresh) {
-        if (stored) {
+        // Give the lease owner time to publish its fresh snapshot. Returning
+        // immediately caused separate isolates to display different old
+        // capture times during a traffic burst.
+        await new Promise((resolve) => setTimeout(resolve, 2_000));
+        const refreshed = await getStoredSnapshot();
+        if (refreshed) {
           snapshotCache = {
-            snapshot: stored,
+            snapshot: refreshed,
             expiresAt: Date.now() + Math.min(cacheMs, 5_000),
           };
-          return stored;
+          return refreshed;
         }
-        await new Promise((resolve) => setTimeout(resolve, 750));
-        const refreshed = await getStoredSnapshot();
-        if (refreshed) return refreshed;
-        return null;
+        return stored;
       }
 
       const token = await getAccessToken();
