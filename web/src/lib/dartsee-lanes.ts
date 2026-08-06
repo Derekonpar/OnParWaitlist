@@ -42,7 +42,7 @@ const DEFAULT_BOARD_IDS = [
   "beavercreek02",
   "beavercreek02b",
   "beavercreek03",
-  "beavercreek04",
+  "beavercreek04b",
   "beavercreek05",
 ];
 const HEARTBEAT = {
