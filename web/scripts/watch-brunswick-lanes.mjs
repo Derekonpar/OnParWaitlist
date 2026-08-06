@@ -203,7 +203,16 @@ function extractLanes(observations) {
   for (const obs of observations) {
     const text = String(obs.text ?? "").trim();
     const lane = reservationLaneFromCardPosition(obs);
-    if (!lane || !text || /^Lane\s*\d+$/i.test(text) || parseTimer(text) !== null) {
+    // Score fragments and game numbers (for example "23 #1" or "20") can
+    // occupy the same OCR band as Brunswick reservation names. A real hold
+    // label contains a name/word, so ignore number-only fragments here.
+    if (
+      !lane ||
+      !text ||
+      !/[a-z]/i.test(text) ||
+      /^Lane\s*\d+$/i.test(text) ||
+      parseTimer(text) !== null
+    ) {
       continue;
     }
     lanes[lane - 1] = {

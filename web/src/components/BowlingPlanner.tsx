@@ -35,7 +35,7 @@ function laneClass(status: string) {
     return "border-white/15 bg-slate-200 text-slate-950";
   }
   if (status === "reserved") {
-    return "border-fuchsia-400/60 bg-fuchsia-500/15 text-fuchsia-50";
+    return "border-amber-400/40 bg-neutral-900 text-white";
   }
   return "border-dashed border-white/15 bg-neutral-900 text-neutral-400";
 }
@@ -128,7 +128,7 @@ export function BowlingPlanner({ snapshot, entries, reservations = [] }: Bowling
             <div
               key={lane.lane}
               className={`min-h-28 rounded-lg border p-3 shadow-sm ${laneClass(
-                activeReservation ? "reserved" : lane.status,
+                lane.status,
               )}`}
             >
               <div className="flex items-start justify-between gap-2">
@@ -136,8 +136,6 @@ export function BowlingPlanner({ snapshot, entries, reservations = [] }: Bowling
                 <p className="text-sm font-bold">
                   {lane.status === "occupied"
                     ? formatClock(lane.remainingSeconds)
-                    : activeReservation
-                      ? "Reserved"
                     : lane.status === "reserved"
                       ? "Reserved"
                     : lane.status === "open"
@@ -151,11 +149,11 @@ export function BowlingPlanner({ snapshot, entries, reservations = [] }: Bowling
                 </p>
               )}
               {nextReservation && (
-                <div className="mt-2 rounded-md border border-violet-400/30 bg-violet-500/15 px-2 py-1.5">
-                  <p className="truncate text-[10px] font-semibold text-violet-100">
+                <div className="mt-2 rounded-md border border-violet-300/70 bg-violet-950 px-2 py-1.5 text-white shadow-sm">
+                  <p className="truncate text-[10px] font-bold text-white">
                     {nextReservation.eventName}
                   </p>
-                  <p className="text-[9px] text-violet-200/80">
+                  <p className="text-[9px] font-medium text-violet-100">
                     {activeReservation
                       ? `Reserved until ${reservationTime(nextReservation.endAt)}`
                       : `Upcoming ${reservationTime(nextReservation.startAt)}`}
