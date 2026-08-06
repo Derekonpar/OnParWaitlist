@@ -136,6 +136,15 @@ function parseDateMs(value: unknown): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function parseWallClockMs(value: unknown): number | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().replace(" ", "T");
+  const parsed = Date.parse(
+    /(?:Z|[+-]\d{2}:?\d{2})$/.test(normalized) ? normalized : `${normalized}Z`,
+  );
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 function laneFromBoardId(boardId: string, index: number): DartseeLaneReading {
   return {
     lane: index + 1,
@@ -160,8 +169,12 @@ function setOccupied(
   nowMs: number,
 ) {
   const sessionEnd = event.sessionEnd;
-  const endMs = parseDateMs(sessionEnd);
-  if (!endMs) {
+  const endWallClockMs = parseWallClockMs(sessionEnd);
+  const currentWallClockMs = parseWallClockMs(event.currentTime);
+  const endMs = currentWallClockMs && endWallClockMs
+    ? nowMs + (endWallClockMs - currentWallClockMs)
+    : parseDateMs(sessionEnd);
+  if (!endMs || !endWallClockMs) {
     lane.status = "unknown";
     lane.remainingSeconds = 0;
     return;
@@ -177,7 +190,7 @@ function setOccupied(
   lane.remainingSeconds = remainingSeconds;
   lane.sessionId =
     typeof event.sessionId === "string" ? event.sessionId : lane.sessionId;
-  lane.sessionEnd = typeof sessionEnd === "string" ? sessionEnd : undefined;
+  lane.sessionEnd = new Date(endMs).toISOString();
   lane.gameType = isRecord(event.game) && typeof event.game.gameType === "string"
     ? event.game.gameType
     : lane.gameType;
@@ -232,8 +245,7 @@ function applyDartseeEvent(
       const gameType = isRecord(event.game) && typeof event.game.gameType === "string"
         ? event.game.gameType
         : undefined;
-      if (gameType === "NO_GAME") setOpen(lane);
-      else lane.gameType = gameType ?? lane.gameType;
+      lane.gameType = gameType ?? lane.gameType;
     }
   }
 }
