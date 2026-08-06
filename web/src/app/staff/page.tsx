@@ -615,21 +615,24 @@ export default function StaffPage() {
 
       {staffTab === "bowling" && (
         <>
-          <EntertainmentReservations activity="bowling" reservations={entertainmentReservations} />
           <BowlingPlanner snapshot={bowlingSnapshot} entries={allEntries} reservations={entertainmentReservations} />
+          <div className="mt-5">
+            <EntertainmentReservations activity="bowling" reservations={entertainmentReservations} />
+          </div>
         </>
       )}
 
       {staffTab === "darts" && (
         <>
-          <EntertainmentReservations activity="darts" reservations={entertainmentReservations} />
           <DartsPlanner snapshot={dartseeSnapshot} entries={allEntries} reservations={entertainmentReservations} />
+          <div className="mt-5">
+            <EntertainmentReservations activity="darts" reservations={entertainmentReservations} />
+          </div>
         </>
       )}
 
       {(staffTab === "pool" || staffTab === "shuffleboard") && (
         <>
-          <EntertainmentReservations activity={staffTab} reservations={entertainmentReservations} />
           <TimedResourcePlanner
             resourceType={staffTab}
             sessions={resourceSessions}
@@ -638,6 +641,9 @@ export default function StaffPage() {
             onAdd={addResourceSession}
             onClear={clearResourceSession}
           />
+          <div className="mt-5">
+            <EntertainmentReservations activity={staffTab} reservations={entertainmentReservations} />
+          </div>
         </>
       )}
 

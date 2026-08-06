@@ -40,6 +40,14 @@ function laneClass(status: string) {
   return "border-dashed border-white/15 bg-neutral-900 text-neutral-400";
 }
 
+function reservationTime(value: string) {
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(value));
+}
+
 export function BowlingPlanner({ snapshot, entries, reservations = [] }: BowlingPlannerProps) {
   const [nowMs, setNowMs] = useState(() => Date.now());
 
@@ -102,11 +110,25 @@ export function BowlingPlanner({ snapshot, entries, reservations = [] }: Bowling
       <div className="grid grid-cols-4 gap-2 sm:grid-cols-8">
         {plan.lanes.map((lane) => {
           const assignment = assignmentsByLane.get(lane.lane);
+          const laneReservations = reservations
+            .filter(
+              (reservation) =>
+                reservation.resourceId.toLowerCase() === `bowling-${lane.lane}` &&
+                new Date(reservation.endAt).getTime() > nowMs,
+            )
+            .sort(
+              (a, b) =>
+                new Date(a.startAt).getTime() - new Date(b.startAt).getTime(),
+            );
+          const activeReservation = laneReservations.find(
+            (reservation) => new Date(reservation.startAt).getTime() <= nowMs,
+          );
+          const nextReservation = activeReservation ?? laneReservations[0];
           return (
             <div
               key={lane.lane}
               className={`min-h-28 rounded-lg border p-3 shadow-sm ${laneClass(
-                lane.status,
+                activeReservation ? "reserved" : lane.status,
               )}`}
             >
               <div className="flex items-start justify-between gap-2">
@@ -114,6 +136,8 @@ export function BowlingPlanner({ snapshot, entries, reservations = [] }: Bowling
                 <p className="text-sm font-bold">
                   {lane.status === "occupied"
                     ? formatClock(lane.remainingSeconds)
+                    : activeReservation
+                      ? "Reserved"
                     : lane.status === "reserved"
                       ? "Reserved"
                     : lane.status === "open"
@@ -125,6 +149,18 @@ export function BowlingPlanner({ snapshot, entries, reservations = [] }: Bowling
                 <p className="mt-1 truncate text-[10px] opacity-70">
                   {lane.reservationLabel}
                 </p>
+              )}
+              {nextReservation && (
+                <div className="mt-2 rounded-md border border-violet-400/30 bg-violet-500/15 px-2 py-1.5">
+                  <p className="truncate text-[10px] font-semibold text-violet-100">
+                    {nextReservation.eventName}
+                  </p>
+                  <p className="text-[9px] text-violet-200/80">
+                    {activeReservation
+                      ? `Reserved until ${reservationTime(nextReservation.endAt)}`
+                      : `Upcoming ${reservationTime(nextReservation.startAt)}`}
+                  </p>
+                </div>
               )}
               <div className="mt-5">
                 {assignment ? (

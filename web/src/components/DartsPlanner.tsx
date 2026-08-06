@@ -32,7 +32,18 @@ function laneClass(status: string) {
   if (status === "occupied") {
     return "border-white/15 bg-zinc-200 text-zinc-950";
   }
+  if (status === "reserved") {
+    return "border-violet-400/60 bg-violet-500/15 text-violet-50";
+  }
   return "border-dashed border-white/15 bg-neutral-900 text-neutral-400";
+}
+
+function reservationTime(value: string) {
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(value));
 }
 
 export function DartsPlanner({ snapshot, entries, reservations = [] }: DartsPlannerProps) {
@@ -85,11 +96,26 @@ export function DartsPlanner({ snapshot, entries, reservations = [] }: DartsPlan
       <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
         {plan.lanes.map((lane) => {
           const assignment = assignmentsByBoard.get(lane.boardId);
+          const ids = [`darts-${lane.lane}`, `dart-${lane.lane}`];
+          const laneReservations = reservations
+            .filter(
+              (reservation) =>
+                ids.includes(reservation.resourceId.toLowerCase()) &&
+                new Date(reservation.endAt).getTime() > nowMs,
+            )
+            .sort(
+              (a, b) =>
+                new Date(a.startAt).getTime() - new Date(b.startAt).getTime(),
+            );
+          const activeReservation = laneReservations.find(
+            (reservation) => new Date(reservation.startAt).getTime() <= nowMs,
+          );
+          const nextReservation = activeReservation ?? laneReservations[0];
           return (
             <div
               key={lane.boardId}
               className={`min-h-28 rounded-lg border p-3 shadow-sm ${laneClass(
-                lane.status,
+                activeReservation ? "reserved" : lane.status,
               )}`}
             >
               <div className="flex items-start justify-between gap-2">
@@ -97,6 +123,8 @@ export function DartsPlanner({ snapshot, entries, reservations = [] }: DartsPlan
                 <p className="text-sm font-bold">
                   {lane.status === "occupied"
                     ? formatClock(lane.remainingSeconds)
+                    : activeReservation
+                      ? "Reserved"
                     : lane.status === "open"
                       ? "Open"
                       : "--"}
@@ -105,6 +133,18 @@ export function DartsPlanner({ snapshot, entries, reservations = [] }: DartsPlan
               <p className="mt-1 truncate text-[10px] opacity-60">
                 {lane.boardId}
               </p>
+              {nextReservation && (
+                <div className="mt-2 rounded-md border border-violet-400/30 bg-violet-500/15 px-2 py-1.5">
+                  <p className="truncate text-[10px] font-semibold text-violet-100">
+                    {nextReservation.eventName}
+                  </p>
+                  <p className="text-[9px] text-violet-200/80">
+                    {activeReservation
+                      ? `Reserved until ${reservationTime(nextReservation.endAt)}`
+                      : `Upcoming ${reservationTime(nextReservation.startAt)}`}
+                  </p>
+                </div>
+              )}
               <div className="mt-4">
                 {assignment ? (
                   <div className="rounded-md bg-black/70 px-2 py-1.5 text-white">
