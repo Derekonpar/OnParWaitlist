@@ -13,10 +13,11 @@ export const runtime = "nodejs";
 
 const laneSchema = z.object({
   lane: z.number().int().min(1).max(12),
-  status: z.enum(["open", "occupied", "unknown"]),
+  status: z.enum(["open", "occupied", "reserved", "unknown"]),
   remainingSeconds: z.number().int().min(0).max(12 * 60 * 60).default(0),
   rawText: z.string().max(100).optional(),
   confidence: z.number().min(0).max(1).optional(),
+  reservationLabel: z.string().max(100).optional(),
 });
 
 const postSchema = z.object({

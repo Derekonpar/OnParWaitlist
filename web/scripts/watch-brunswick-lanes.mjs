@@ -168,6 +168,17 @@ function laneFromCardPosition(obs) {
   return null;
 }
 
+function reservationLaneFromCardPosition(obs) {
+  const firstColumnX = 0.19;
+  const columnWidth = 0.064;
+  const column = Math.round((obs.x - firstColumnX) / columnWidth);
+  if (column < 0 || column > 7) return null;
+  if (Math.abs(obs.x - (firstColumnX + column * columnWidth)) > 0.035) return null;
+  if (obs.y >= 0.72 && obs.y < 0.765) return column + 1;
+  if (obs.y >= 0.625 && obs.y < 0.69 && column <= 3) return column + 9;
+  return null;
+}
+
 function extractLanes(observations) {
   const lanes = Array.from({ length: 12 }, (_, i) => ({
     lane: i + 1,
@@ -188,6 +199,22 @@ function extractLanes(observations) {
       };
     })
     .filter((obs) => obs.remainingSeconds !== null);
+
+  for (const obs of observations) {
+    const text = String(obs.text ?? "").trim();
+    const lane = reservationLaneFromCardPosition(obs);
+    if (!lane || !text || /^Lane\s*\d+$/i.test(text) || parseTimer(text) !== null) {
+      continue;
+    }
+    lanes[lane - 1] = {
+      lane,
+      status: "reserved",
+      remainingSeconds: 0,
+      reservationLabel: text.slice(0, 100),
+      rawText: text.slice(0, 100),
+      confidence: Number(obs.confidence ?? 0),
+    };
+  }
 
   for (const obs of timed) {
     const text = String(obs.text ?? "");
@@ -217,7 +244,10 @@ function summarizeLanes(lanes) {
     .filter((lane) => lane.status === "occupied")
     .map((lane) => `L${lane.lane} ${formatClock(lane.remainingSeconds)}`);
   const openCount = lanes.filter((lane) => lane.status === "open").length;
-  return `${occupied.length ? occupied.join(", ") : "no timers"}; ${openCount} open`;
+  const reserved = lanes
+    .filter((lane) => lane.status === "reserved")
+    .map((lane) => `L${lane.lane} reserved${lane.reservationLabel ? ` (${lane.reservationLabel})` : ""}`);
+  return `${occupied.length ? occupied.join(", ") : "no timers"}; ${reserved.length ? `${reserved.join(", ")}; ` : ""}${openCount} open`;
 }
 
 function stabilizeLaneOpenings(lanes) {

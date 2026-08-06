@@ -32,6 +32,9 @@ function laneClass(status: string) {
   if (status === "occupied") {
     return "border-white/15 bg-slate-200 text-slate-950";
   }
+  if (status === "reserved") {
+    return "border-fuchsia-400/60 bg-fuchsia-500/15 text-fuchsia-50";
+  }
   return "border-dashed border-white/15 bg-neutral-900 text-neutral-400";
 }
 
@@ -109,11 +112,18 @@ export function BowlingPlanner({ snapshot, entries }: BowlingPlannerProps) {
                 <p className="text-sm font-bold">
                   {lane.status === "occupied"
                     ? formatClock(lane.remainingSeconds)
+                    : lane.status === "reserved"
+                      ? "Reserved"
                     : lane.status === "open"
                       ? "Open"
                       : "--"}
                 </p>
               </div>
+              {lane.status === "reserved" && lane.reservationLabel && (
+                <p className="mt-1 truncate text-[10px] opacity-70">
+                  {lane.reservationLabel}
+                </p>
+              )}
               <div className="mt-5">
                 {assignment ? (
                   <div className="rounded-md bg-black/70 px-2 py-1.5 text-white">

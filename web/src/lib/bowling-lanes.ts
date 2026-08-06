@@ -1,6 +1,6 @@
 import { getSupabaseAdmin } from "./supabase";
 
-export type BowlingLaneStatus = "open" | "occupied" | "unknown";
+export type BowlingLaneStatus = "open" | "occupied" | "reserved" | "unknown";
 export type BowlingFeedHealth =
   | "ok"
   | "recovering"
@@ -14,6 +14,7 @@ export interface BowlingLaneReading {
   remainingSeconds: number;
   rawText?: string;
   confidence?: number;
+  reservationLabel?: string;
 }
 
 export interface BowlingLaneSnapshot {
@@ -49,6 +50,7 @@ function normalizeLane(reading: BowlingLaneReading): BowlingLaneReading {
         : 0,
     rawText: reading.rawText,
     confidence: reading.confidence,
+    reservationLabel: reading.reservationLabel,
   };
 }
 
