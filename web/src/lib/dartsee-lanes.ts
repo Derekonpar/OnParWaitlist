@@ -300,6 +300,7 @@ async function readLiveSnapshot(
   return new Promise((resolve) => {
     let done = false;
     let pingTimer: ReturnType<typeof setTimeout> | null = null;
+    let settleTimer: ReturnType<typeof setTimeout> | null = null;
     let ws: WebSocket | null = null;
     let connected = false;
     let socketFailed = false;
@@ -308,6 +309,7 @@ async function readLiveSnapshot(
       if (done) return;
       done = true;
       if (pingTimer) clearTimeout(pingTimer);
+      if (settleTimer) clearTimeout(settleTimer);
       clearTimeout(timeout);
       if (ws) closeSocket(ws);
       const lanes = Array.from(lanesByBoard.values());
@@ -368,6 +370,16 @@ async function readLiveSnapshot(
       try {
         const raw = typeof event.data === "string" ? event.data : "";
         applyDartseePayload(lanesByBoard, JSON.parse(raw), Date.now());
+        if (
+          !settleTimer &&
+          Array.from(lanesByBoard.values()).every(
+            (lane) => lane.status !== "unknown",
+          )
+        ) {
+          // Allow closely-following game metadata to arrive, then release the
+          // socket instead of holding every refresh open for the full timeout.
+          settleTimer = setTimeout(finish, 250);
+        }
       } catch (err) {
         console.error("[dartsee lanes:ws-parse]", err);
       }
@@ -443,12 +455,27 @@ export async function getDartseeLaneSnapshot(): Promise<DartseeLaneSnapshot | nu
 
   snapshotRequest = (async () => {
     try {
+      // The storage snapshot is shared across Worker isolates. Reading it
+      // before connecting prevents every customer/staff poll from opening a
+      // separate Dartsee login and WebSocket during busy periods.
+      const stored = await getStoredSnapshot();
+      const storedCapturedAt = stored
+        ? new Date(stored.capturedAt).getTime()
+        : Number.NaN;
+      if (
+        stored &&
+        Number.isFinite(storedCapturedAt) &&
+        Date.now() - storedCapturedAt < cacheMs
+      ) {
+        snapshotCache = { snapshot: stored, expiresAt: Date.now() + cacheMs };
+        return stored;
+      }
+
       const token = await getAccessToken();
       if (!token) return null;
       const liveSnapshot = await readLiveSnapshot(boardIds(), token);
       if (!liveSnapshot) return null;
-      const previous = await getStoredSnapshot();
-      const snapshot = mergeLastKnown(liveSnapshot, previous);
+      const snapshot = mergeLastKnown(liveSnapshot, stored);
       await saveStoredSnapshot(snapshot);
       snapshotCache = { snapshot, expiresAt: Date.now() + cacheMs };
       return snapshot;
