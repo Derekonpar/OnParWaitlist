@@ -28,7 +28,11 @@ locally signed helper sends the physical mouse and keyboard events required by
 Google Remote Desktop; passwords are passed over standard input rather than in
 process arguments. Terminal still needs Screen Recording and Automation access.
 
-Keep the Brunswick Remote Desktop tab open in Google Chrome, then run:
+The watcher owns a dedicated one-tab Chrome window for Brunswick Remote
+Desktop. If it finds an older Remote Access tab mixed into a normal browsing
+window, it moves recovery to the dedicated window and removes the duplicate.
+Normal OCR captures do not activate Chrome, raise its window, or change the
+tab where staff are working. Then run:
 
 ```bash
 cd web
@@ -60,11 +64,15 @@ heartbeat with `BRUNSWICK_HEARTBEAT_MS` if needed.
 
 ## Automatic recovery
 
-The watcher recognizes the Brunswick login screen and signs back in using
+If Remote Desktop is closed, the watcher reopens its dedicated window, selects
+`BrunswickHQ`, enters `BRUNSWICK_REMOTE_CODE` (default `446464`), opens the
+desktop `Desk` app, and then recognizes the Brunswick login screen and signs
+back in using
 `BRUNSWICK_USERNAME` and `BRUNSWICK_PASSWORD` (both default to `bowling`). It
-also recognizes the Google Remote Desktop access-code screen, enters
-`BRUNSWICK_REMOTE_CODE` (default `446464`), and opens the desktop `Desk` app.
-Recovery attempts are limited to once every 30 seconds.
+briefly focuses the dedicated window only for a required click or keystroke and
+then restores the app, Chrome window, and tab the user was using. Failed host
+clicks retry on the next scan; a transition to a new recovery screen proceeds
+immediately instead of inheriting the previous step's cooldown.
 
 For the incident history, recovery decisions, new-computer checklist, and
 verification commands, see `docs/BRUNSWICK_RECOVERY_RUNBOOK.md`.

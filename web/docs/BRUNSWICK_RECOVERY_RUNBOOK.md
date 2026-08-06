@@ -26,8 +26,15 @@ not the shortcut artwork.
   availability.
 - Persist watcher health in Supabase and show a global staff warning for an
   explicit error or any snapshot older than two minutes.
-- Detect DESK LOGIN, Remote Desktop access-code, offline, Windows desktop, and
-  live-feed states. Recovery retries are limited to once every 30 seconds.
+- Detect the Remote Access host list, `BrunswickHQ`, access-code, offline,
+  Windows desktop, DESK LOGIN, and live-feed states. Each state has its own
+  retry cooldown, and a transition advances immediately.
+- Keep Remote Desktop in a dedicated one-tab Chrome window. Background OCR
+  never activates Chrome or changes the user's tab. Recovery briefly focuses
+  only that window for GUI input and restores the previously focused app,
+  Chrome window, and tab afterward.
+- Clear stale mouse-button state before and after recovery clicks. This avoids
+  an intermittent held-click/drag state when selecting `BrunswickHQ`.
 - Use the locally signed `Brunswick Input.app` helper for GUI events. It emits
   physical keycodes that Google Remote Desktop accepts and receives secrets on
   standard input, not command-line arguments.
@@ -55,7 +62,8 @@ From `web/`:
 
 Grant Terminal Screen Recording and Automation access. Grant `Brunswick Input`
 Accessibility access. Keep Google Chrome installed and leave the Brunswick
-Remote Desktop tab available.
+Remote Desktop account signed in. The watcher creates and maintains its own
+dedicated Remote Access window.
 
 If Node is not on Terminal's PATH, install with:
 
@@ -71,9 +79,11 @@ tail -f ~/Library/Logs/OnParBrunswickWatcher.log
 ```
 
 A healthy log alternates between `posted` when lane data changes and
-`unchanged` between changes. Force a safe recovery test by leaving the existing
-Brunswick login screen visible; do not intentionally shut down the venue's main
-server during operating hours.
+`unchanged` between changes. A complete safe recovery test closes only the
+dedicated Remote Access window. The watcher should reopen it, select
+`BrunswickHQ`, complete the code/Desktop/login flow, return to `posted`, and
+leave the user's foreground app/tab unchanged. Do not intentionally shut down
+the venue's main server during operating hours.
 
 The staff dashboard must show a red Brunswick warning within two minutes if the
 watcher stops, loses the feed, cannot log in, or cannot reach the main computer.

@@ -22,12 +22,13 @@ const inputHelper = path.join(
   "Brunswick Input",
 );
 const DEFAULT_POST_HEARTBEAT_MS = 60_000;
-const RECOVERY_COOLDOWN_MS = 30_000;
+const DEFAULT_RECOVERY_COOLDOWN_MS = 20_000;
 let lastPostedSignature = "";
 let lastPostedAt = 0;
 let lastHealthSignature = "";
 let lastHealthPostedAt = 0;
 let lastRecoveryAttemptAt = 0;
+let lastRecoveryState = "";
 let currentCaptureBounds = null;
 let previousObservedLanes = null;
 const consecutiveOpenScans = new Map();
@@ -297,34 +298,148 @@ function formatClock(seconds) {
 async function selectBrunswickTab() {
   const script = `
 tell application "Google Chrome"
-  activate
+  -- Prefer the isolated one-tab watcher window. Merely capturing it must not
+  -- activate Chrome, raise the window, or change the user's current tab.
+  set dedicatedWindowId to ""
   repeat with w in windows
-    set tabIndex to 1
-    repeat with t in tabs of w
+    if (count tabs of w) is 1 then
+      set t to active tab of w
       if (title of t contains "Brunswick") or (URL of t contains "remotedesktop.google.com/access") then
-        set active tab index of w to tabIndex
+        set dedicatedWindowId to (id of w) as text
+        exit repeat
+      end if
+    end if
+  end repeat
+
+  if dedicatedWindowId is not "" then
+    -- Old watcher versions could leave another Remote Access tab mixed into
+    -- the user's normal Chrome window. Remove only those exact duplicates.
+    repeat with w in windows
+      if (id of w as text) is not dedicatedWindowId then
+        repeat with tabIndex from (count tabs of w) to 1 by -1
+          set t to tab tabIndex of w
+          if (title of t contains "Brunswick") or (URL of t contains "remotedesktop.google.com/access") then
+            close t
+          end if
+        end repeat
+      else
         set minimized of w to false
         set bounds of w to {0, 25, 1400, 950}
-        set index of w to 1
-        return "SELECTED_BRUNSWICK"
       end if
-      set tabIndex to tabIndex + 1
     end repeat
+    return "SELECTED_DEDICATED_BRUNSWICK"
+  end if
+
+  -- If an older watcher tab lives alongside the user's tabs, move recovery to
+  -- a dedicated window once. Future scans then leave the user's window alone.
+  set targetURL to ""
+  set oldTab to missing value
+  repeat with w in windows
+    repeat with t in tabs of w
+      if (title of t contains "Brunswick") or (URL of t contains "remotedesktop.google.com/access") then
+        set targetURL to URL of t
+        set oldTab to t
+        exit repeat
+      end if
+    end repeat
+    if targetURL is not "" then exit repeat
   end repeat
-  set newTab to make new tab at end of tabs of front window with properties {URL:"https://remotedesktop.google.com/access"}
-  set active tab index of front window to (count tabs of front window)
-  set minimized of front window to false
-  set bounds of front window to {0, 25, 1400, 950}
-  set index of front window to 1
-  return "OPENED_BRUNSWICK"
+
+  set newWindow to make new window
+  set bounds of newWindow to {0, 25, 1400, 950}
+  set minimized of newWindow to false
+  if targetURL is "" then
+    set URL of active tab of newWindow to "https://remotedesktop.google.com/access"
+  else
+    set URL of active tab of newWindow to targetURL
+    try
+      close oldTab
+    end try
+  end if
+  return "OPENED_DEDICATED_BRUNSWICK"
 end tell
 return "NOT_FOUND"
 `;
   const { stdout } = await execFileAsync("osascript", ["-e", script]);
   const result = stdout.trim();
-  if (result !== "SELECTED_BRUNSWICK" && result !== "OPENED_BRUNSWICK") {
+  if (
+    result !== "SELECTED_DEDICATED_BRUNSWICK" &&
+    result !== "OPENED_DEDICATED_BRUNSWICK"
+  ) {
     throw new Error("Could not find the open Brunswick Remote Desktop tab.");
   }
+  return result;
+}
+
+async function frontmostContext() {
+  const script = `
+tell application "System Events"
+  set frontApp to name of first application process whose frontmost is true
+end tell
+set chromeWindowId to ""
+set chromeTabIndex to ""
+if frontApp is "Google Chrome" then
+  tell application "Google Chrome"
+    set chromeWindowId to (id of front window) as text
+    set chromeTabIndex to (active tab index of front window) as text
+  end tell
+end if
+return frontApp & "|||" & chromeWindowId & "|||" & chromeTabIndex
+`;
+  const { stdout } = await execFileAsync("osascript", ["-e", script]);
+  const [appName, chromeWindowId, chromeTabIndex] = stdout.trim().split("|||");
+  return { appName, chromeWindowId, chromeTabIndex };
+}
+
+async function focusBrunswickWindow() {
+  const script = `
+tell application "Google Chrome"
+  repeat with w in windows
+    if (count tabs of w) is 1 then
+      set t to active tab of w
+      if (title of t contains "Brunswick") or (URL of t contains "remotedesktop.google.com/access") then
+        set index of w to 1
+        activate
+        return
+      end if
+    end if
+  end repeat
+end tell
+`;
+  await execFileAsync("osascript", ["-e", script]);
+  await new Promise((resolve) => setTimeout(resolve, 250));
+}
+
+async function restoreFrontmostContext(context) {
+  if (!context?.appName) return;
+  const script = `on run argv
+set appName to item 1 of argv
+set chromeWindowId to item 2 of argv
+set chromeTabIndex to item 3 of argv
+if appName is "Google Chrome" and chromeWindowId is not "" then
+  tell application "Google Chrome"
+    repeat with w in windows
+      if (id of w as text) is chromeWindowId then
+        set active tab index of w to chromeTabIndex as integer
+        set index of w to 1
+        activate
+        return
+      end if
+    end repeat
+  end tell
+else
+  tell application "System Events"
+    if exists application process appName then set frontmost of application process appName to true
+  end tell
+end if
+end run`;
+  await execFileAsync("osascript", [
+    "-e",
+    script,
+    context.appName,
+    context.chromeWindowId ?? "",
+    context.chromeTabIndex ?? "",
+  ]);
 }
 
 async function desktopSize() {
@@ -380,15 +495,31 @@ end run`;
   await execFileAsync("osascript", ["-e", script, value]);
 }
 
+function recoveryCooldownMs(state) {
+  // Host selection is safe to retry on the next scan when a click does not
+  // take. Login typing is intentionally slower to avoid duplicate submits.
+  if (state === "remote-host-list") return 8_000;
+  if (state === "remote-code" || state === "remote-desktop") return 12_000;
+  return DEFAULT_RECOVERY_COOLDOWN_MS;
+}
+
+function recoveryAttemptDue(state) {
+  return (
+    state !== lastRecoveryState ||
+    Date.now() - lastRecoveryAttemptAt >= recoveryCooldownMs(state)
+  );
+}
+
+function waitingRecoveryHealth(state) {
+  return {
+    healthStatus: state === "brunswick-login" ? "login-required" : "recovering",
+    healthMessage: "Brunswick recovery is waiting before another safe retry. Lane times may be stale.",
+  };
+}
+
 async function recoverScreen(state, observations, options) {
-  const now = Date.now();
-  if (now - lastRecoveryAttemptAt < RECOVERY_COOLDOWN_MS) {
-    return {
-      healthStatus: state === "brunswick-login" ? "login-required" : "recovering",
-      healthMessage: "Brunswick recovery is waiting before another safe retry. Lane times may be stale.",
-    };
-  }
-  lastRecoveryAttemptAt = now;
+  lastRecoveryAttemptAt = Date.now();
+  lastRecoveryState = state;
 
   if (state === "brunswick-login") {
     const username = findObservation(observations, [/user\s*name|username/i, /^User$/i]);
@@ -465,7 +596,13 @@ async function recoverScreen(state, observations, options) {
 }
 
 async function captureScreenshot() {
-  await selectBrunswickTab();
+  const priorContext = await frontmostContext();
+  const selection = await selectBrunswickTab();
+  if (selection === "OPENED_DEDICATED_BRUNSWICK") {
+    // Creating the isolated window may briefly raise Chrome. Put the user
+    // straight back where they were; normal captures never take focus.
+    await restoreFrontmostContext(priorContext);
+  }
   await new Promise((resolve) => setTimeout(resolve, 800));
   const dir = await mkdtemp(path.join(tmpdir(), "brunswick-lanes-"));
   const screenshotPath = path.join(dir, "screen.png");
@@ -545,7 +682,20 @@ async function captureAndPost(options) {
   const observations = await runOcr(screenshotPath);
   const screenState = detectScreenState(observations);
   if (screenState !== "feed") {
-    const health = await recoverScreen(screenState, observations, options);
+    let health;
+    if (recoveryAttemptDue(screenState)) {
+      const priorContext = await frontmostContext();
+      await focusBrunswickWindow();
+      try {
+        health = await recoverScreen(screenState, observations, options);
+      } finally {
+        await restoreFrontmostContext(priorContext);
+      }
+    } else {
+      // Do not bring Chrome forward just to discover that a retry is still on
+      // cooldown. Normal recovery observation remains fully backgrounded.
+      health = waitingRecoveryHealth(screenState);
+    }
     const signature = `${health.healthStatus}:${health.healthMessage}`;
     const shouldPostHealth =
       signature !== lastHealthSignature ||
