@@ -6,6 +6,8 @@ import { BookingOptions } from "@/components/BookingOptions";
 import { BowlingPlanner } from "@/components/BowlingPlanner";
 import { DartsPlanner } from "@/components/DartsPlanner";
 import { TimedResourcePlanner } from "@/components/TimedResourcePlanner";
+import { EntertainmentReservations } from "@/components/EntertainmentReservations";
+import type { EntertainmentReservation } from "@/lib/entertainment-schedule";
 import {
   defaultSessionMinutesFor,
   formatBookingSummary,
@@ -71,6 +73,9 @@ export default function StaffPage() {
   const [resourceSessions, setResourceSessions] = useState<
     TimedResourceSession[]
   >([]);
+  const [entertainmentReservations, setEntertainmentReservations] = useState<
+    EntertainmentReservation[]
+  >([]);
   const [resourceBusyKey, setResourceBusyKey] = useState<string | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [loading, setLoading] = useState(false);
@@ -118,10 +123,11 @@ export default function StaffPage() {
       }
       const data = await res.json();
       setQueues(data.queues ?? []);
-      const [laneRes, dartLaneRes, resourceRes] = await Promise.all([
+      const [laneRes, dartLaneRes, resourceRes, scheduleRes] = await Promise.all([
         fetch("/api/staff/bowling-lanes", { headers: headers() }),
         fetch("/api/staff/dart-lanes", { headers: headers() }),
         fetch("/api/staff/resource-sessions", { headers: headers() }),
+        fetch("/api/staff/entertainment-schedule", { headers: headers() }),
       ]);
       if (laneRes.ok) {
         const laneData = await laneRes.json();
@@ -134,6 +140,10 @@ export default function StaffPage() {
       if (resourceRes.ok) {
         const resourceData = await resourceRes.json();
         setResourceSessions(resourceData.sessions ?? []);
+      }
+      if (scheduleRes.ok) {
+        const scheduleData = await scheduleRes.json();
+        setEntertainmentReservations(scheduleData.schedule?.reservations ?? []);
       }
       setAuthenticated(true);
       sessionStorage.setItem(STAFF_SECRET_STORAGE_KEY, secret);
@@ -176,7 +186,7 @@ export default function StaffPage() {
             "Content-Type": "application/json",
             "x-staff-secret": saved,
           };
-          const [laneRes, dartLaneRes, resourceRes] = await Promise.all([
+          const [laneRes, dartLaneRes, resourceRes, scheduleRes] = await Promise.all([
             fetch("/api/staff/bowling-lanes", {
               headers: savedHeaders,
             }),
@@ -184,6 +194,9 @@ export default function StaffPage() {
               headers: savedHeaders,
             }),
             fetch("/api/staff/resource-sessions", {
+              headers: savedHeaders,
+            }),
+            fetch("/api/staff/entertainment-schedule", {
               headers: savedHeaders,
             }),
           ]);
@@ -198,6 +211,10 @@ export default function StaffPage() {
           if (resourceRes.ok) {
             const resourceData = await resourceRes.json();
             setResourceSessions(resourceData.sessions ?? []);
+          }
+          if (scheduleRes.ok) {
+            const scheduleData = await scheduleRes.json();
+            setEntertainmentReservations(scheduleData.schedule?.reservations ?? []);
           }
           setAuthenticated(true);
         } else {
@@ -597,22 +614,31 @@ export default function StaffPage() {
       </div>
 
       {staffTab === "bowling" && (
-        <BowlingPlanner snapshot={bowlingSnapshot} entries={allEntries} />
+        <>
+          <EntertainmentReservations activity="bowling" reservations={entertainmentReservations} />
+          <BowlingPlanner snapshot={bowlingSnapshot} entries={allEntries} reservations={entertainmentReservations} />
+        </>
       )}
 
       {staffTab === "darts" && (
-        <DartsPlanner snapshot={dartseeSnapshot} entries={allEntries} />
+        <>
+          <EntertainmentReservations activity="darts" reservations={entertainmentReservations} />
+          <DartsPlanner snapshot={dartseeSnapshot} entries={allEntries} reservations={entertainmentReservations} />
+        </>
       )}
 
       {(staffTab === "pool" || staffTab === "shuffleboard") && (
-        <TimedResourcePlanner
-          resourceType={staffTab}
-          sessions={resourceSessions}
-          nowMs={nowMs}
-          busyKey={resourceBusyKey}
-          onAdd={addResourceSession}
-          onClear={clearResourceSession}
-        />
+        <>
+          <EntertainmentReservations activity={staffTab} reservations={entertainmentReservations} />
+          <TimedResourcePlanner
+            resourceType={staffTab}
+            sessions={resourceSessions}
+            nowMs={nowMs}
+            busyKey={resourceBusyKey}
+            onAdd={addResourceSession}
+            onClear={clearResourceSession}
+          />
+        </>
       )}
 
       {staffTab === "queue" && (

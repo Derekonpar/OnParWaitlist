@@ -12,6 +12,7 @@ import {
   timedSessionsToAvailability,
 } from "./resource-sessions";
 import type { Activity } from "./types";
+import { addScheduleWindows, getEntertainmentSchedule } from "./entertainment-schedule";
 
 export type LiveLaneAvailability = Partial<
   Record<Activity, ResourceLaneAvailability[]>
@@ -43,28 +44,35 @@ export function bowlingSnapshotToAvailability(
 }
 
 export async function getLiveLaneAvailability(): Promise<LiveLaneAvailability> {
-  const [bowlingResult, dartseeResult, timedResult] = await Promise.allSettled([
+  const [bowlingResult, dartseeResult, timedResult, scheduleResult] = await Promise.allSettled([
     getBowlingLaneSnapshot(),
     getDartseeLaneSnapshot(),
     getTimedResourceSessions(),
+    getEntertainmentSchedule(),
   ]);
 
+  const reservations = scheduleResult.status === "fulfilled"
+    ? (scheduleResult.value?.reservations ?? [])
+    : [];
+  const bowling = bowlingResult.status === "fulfilled"
+    ? bowlingSnapshotToAvailability(bowlingResult.value)
+    : undefined;
+  const darts = dartseeResult.status === "fulfilled"
+    ? dartseeSnapshotToAvailability(dartseeResult.value)
+    : undefined;
+  const pool = timedResult.status === "fulfilled"
+    ? timedSessionsToAvailability("pool", timedResult.value)
+    : undefined;
+  const shuffleboard = timedResult.status === "fulfilled"
+    ? timedSessionsToAvailability("shuffleboard", timedResult.value)
+    : undefined;
+
   return {
-    bowling:
-      bowlingResult.status === "fulfilled"
-        ? bowlingSnapshotToAvailability(bowlingResult.value)
-        : undefined,
-    darts:
-      dartseeResult.status === "fulfilled"
-        ? dartseeSnapshotToAvailability(dartseeResult.value)
-        : undefined,
-    pool:
-      timedResult.status === "fulfilled"
-        ? timedSessionsToAvailability("pool", timedResult.value)
-        : undefined,
-    shuffleboard:
-      timedResult.status === "fulfilled"
-        ? timedSessionsToAvailability("shuffleboard", timedResult.value)
-        : undefined,
+    bowling: bowling ? addScheduleWindows("bowling", bowling, reservations) : undefined,
+    darts: darts ? addScheduleWindows("darts", darts, reservations) : undefined,
+    pool: pool ? addScheduleWindows("pool", pool, reservations) : undefined,
+    shuffleboard: shuffleboard
+      ? addScheduleWindows("shuffleboard", shuffleboard, reservations)
+      : undefined,
   };
 }

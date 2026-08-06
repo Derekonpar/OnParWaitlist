@@ -9,10 +9,12 @@ import {
 } from "@/lib/bowling-planner";
 import { formatBookingSummary } from "@/lib/booking";
 import type { WaitlistEntry } from "@/lib/types";
+import type { EntertainmentReservation } from "@/lib/entertainment-schedule";
 
 interface BowlingPlannerProps {
   snapshot: BowlingLaneSnapshot | null;
   entries: WaitlistEntry[];
+  reservations?: EntertainmentReservation[];
 }
 
 function freshnessLabel(snapshot: BowlingLaneSnapshot | null, nowMs: number) {
@@ -38,7 +40,7 @@ function laneClass(status: string) {
   return "border-dashed border-white/15 bg-neutral-900 text-neutral-400";
 }
 
-export function BowlingPlanner({ snapshot, entries }: BowlingPlannerProps) {
+export function BowlingPlanner({ snapshot, entries, reservations = [] }: BowlingPlannerProps) {
   const [nowMs, setNowMs] = useState(() => Date.now());
 
   useEffect(() => {
@@ -47,8 +49,8 @@ export function BowlingPlanner({ snapshot, entries }: BowlingPlannerProps) {
   }, []);
 
   const plan = useMemo(
-    () => planBowlingAssignments(snapshot, entries, nowMs || undefined),
-    [entries, nowMs, snapshot],
+    () => planBowlingAssignments(snapshot, entries, nowMs || undefined, reservations),
+    [entries, nowMs, reservations, snapshot],
   );
 
   const assignmentsByLane = new Map(

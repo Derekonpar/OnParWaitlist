@@ -1,5 +1,8 @@
 import type { BowlingLaneReading, BowlingLaneSnapshot } from "./bowling-lanes";
 import type { WaitlistEntry } from "./types";
+import type { EntertainmentReservation } from "./entertainment-schedule";
+import { addScheduleWindows } from "./entertainment-schedule";
+import { planResourceQueue } from "./resource-scheduler";
 
 const LANE_COUNT = 12;
 
@@ -62,6 +65,7 @@ export function planBowlingAssignments(
   snapshot: BowlingLaneSnapshot | null,
   entries: WaitlistEntry[],
   nowMs = Date.now(),
+  reservations: EntertainmentReservation[] = [],
 ): BowlingPlan {
   const elapsedSeconds = secondsSince(snapshot?.capturedAt, nowMs);
   const queue = activeBowlingQueue(entries);
@@ -81,55 +85,22 @@ export function planBowlingAssignments(
     availableAtSeconds: laneAvailability(lane, elapsedSeconds),
   }));
 
-  const working = lanes.map((lane) => ({
-    laneNumber: lane.lane,
+  const availability = addScheduleWindows("bowling", lanes.map((lane) => ({
+    id: String(lane.lane),
+    label: `Lane ${lane.lane}`,
     availableAtSeconds: lane.availableAtSeconds,
+  })), reservations, nowMs);
+  const resourcePlan = planResourceQueue(queue, availability);
+  const assignments: BowlingAssignment[] = resourcePlan.assignments.map((assignment) => ({
+    entryId: assignment.entryId,
+    name: assignment.name,
+    laneCount: assignment.laneCount,
+    sessionMinutes: assignment.sessionMinutes,
+    order: assignment.order,
+    laneNumbers: assignment.laneIds.map(Number).sort((a, b) => a - b),
+    startInSeconds: assignment.startInSeconds,
+    endInSeconds: assignment.endInSeconds,
   }));
-  const assignments: BowlingAssignment[] = [];
-  const unassigned: WaitlistEntry[] = [];
-
-  for (const entry of queue) {
-    const usable = working
-      .filter((lane) => Number.isFinite(lane.availableAtSeconds))
-      .sort((a, b) => {
-        if (a.availableAtSeconds !== b.availableAtSeconds) {
-          return a.availableAtSeconds - b.availableAtSeconds;
-        }
-        return a.laneNumber - b.laneNumber;
-      });
-
-    if (usable.length < entry.laneCount) {
-      unassigned.push(entry);
-      continue;
-    }
-
-    const selected = usable.slice(0, entry.laneCount);
-    const startInSeconds = Math.max(
-      ...selected.map((lane) => lane.availableAtSeconds),
-    );
-    const endInSeconds = startInSeconds + entry.sessionMinutes * 60;
-    const laneNumbers = selected
-      .map((lane) => lane.laneNumber)
-      .sort((a, b) => a - b);
-
-    assignments.push({
-      entryId: entry.id,
-      name: entry.name,
-      laneCount: entry.laneCount,
-      sessionMinutes: entry.sessionMinutes,
-      order: assignments.length + 1,
-      laneNumbers,
-      startInSeconds,
-      endInSeconds,
-    });
-
-    for (const lane of selected) {
-      const workLane = working.find(
-        (item) => item.laneNumber === lane.laneNumber,
-      );
-      if (workLane) workLane.availableAtSeconds = endInSeconds;
-    }
-  }
 
   const lanesWithNext = lanes.map((lane) => ({
     ...lane,
@@ -141,7 +112,7 @@ export function planBowlingAssignments(
   return {
     lanes: lanesWithNext,
     assignments,
-    unassigned,
+    unassigned: resourcePlan.unassigned,
     updatedAt: snapshot?.receivedAt,
     source: snapshot?.source,
   };

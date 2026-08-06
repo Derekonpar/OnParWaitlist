@@ -1,5 +1,6 @@
 import type { DartseeLaneReading, DartseeLaneSnapshot } from "./dartsee-lanes";
 import { planResourceQueue } from "./resource-scheduler";
+import { addScheduleWindows, type EntertainmentReservation } from "./entertainment-schedule";
 import type { WaitlistEntry } from "./types";
 
 const DARTSEE_LANE_COUNT = 5;
@@ -74,6 +75,7 @@ export function planDartseeAssignments(
   snapshot: DartseeLaneSnapshot | null,
   entries: WaitlistEntry[],
   nowMs = Date.now(),
+  reservations: EntertainmentReservation[] = [],
 ): DartseePlan {
   const elapsedSeconds = secondsSince(snapshot?.capturedAt, nowMs);
   const queue = activeDartsQueue(entries);
@@ -87,18 +89,21 @@ export function planDartseeAssignments(
     availableAtSeconds: laneAvailability(lane, elapsedSeconds),
   }));
 
-  const plan = planResourceQueue(
-    queue,
+  const scheduledAvailability = addScheduleWindows(
+    "darts",
     lanes.map((lane) => ({
-      id: lane.boardId,
+      id: String(lane.lane),
       label: `Dart ${lane.lane}`,
       availableAtSeconds: lane.availableAtSeconds,
     })),
+    reservations,
+    nowMs,
   );
+  const plan = planResourceQueue(queue, scheduledAvailability);
 
   const assignments = plan.assignments.map((assignment) => {
     const assignedLanes = assignment.laneIds
-      .map((id) => lanes.find((lane) => lane.boardId === id))
+      .map((id) => lanes.find((lane) => String(lane.lane) === id))
       .filter((lane): lane is PlannedDartseeLane => Boolean(lane));
 
     return {
@@ -107,7 +112,7 @@ export function planDartseeAssignments(
       laneCount: assignment.laneCount,
       sessionMinutes: assignment.sessionMinutes,
       order: assignment.order,
-      boardIds: assignment.laneIds,
+      boardIds: assignedLanes.map((lane) => lane.boardId),
       laneNumbers: assignedLanes
         .map((lane) => lane.lane)
         .sort((a, b) => a - b),

@@ -1,10 +1,19 @@
 import { defaultSessionMinutesFor } from "./booking";
 import type { Activity, WaitlistEntry } from "./types";
 
+export interface ResourceUnavailableWindow {
+  startAtSeconds: number;
+  endAtSeconds: number;
+  reservationId: string;
+  label: string;
+  needsReview?: boolean;
+}
+
 export interface ResourceLaneAvailability {
   id: string;
   label: string;
   availableAtSeconds: number;
+  unavailableWindows?: ResourceUnavailableWindow[];
 }
 
 export interface ResourceAssignment {
@@ -57,7 +66,40 @@ function makeWorkingLanes(lanes: ResourceLaneAvailability[]) {
     id: lane.id,
     label: lane.label,
     availableAtSeconds: Math.max(0, lane.availableAtSeconds),
+    unavailableWindows: lane.unavailableWindows ?? [],
   }));
+}
+
+function combinations<T>(items: T[], count: number): T[][] {
+  if (count === 0) return [[]];
+  if (items.length < count) return [];
+  const result: T[][] = [];
+  for (let i = 0; i <= items.length - count; i += 1) {
+    for (const rest of combinations(items.slice(i + 1), count - 1)) {
+      result.push([items[i], ...rest]);
+    }
+  }
+  return result;
+}
+
+function earliestCommonStart(
+  lanes: ReturnType<typeof makeWorkingLanes>,
+  durationSeconds: number,
+): number {
+  let start = Math.max(...lanes.map((lane) => lane.availableAtSeconds));
+  for (let guard = 0; guard < 100; guard += 1) {
+    let nextStart = start;
+    for (const lane of lanes) {
+      for (const window of lane.unavailableWindows) {
+        if (start < window.endAtSeconds && start + durationSeconds > window.startAtSeconds) {
+          nextStart = Math.max(nextStart, window.endAtSeconds);
+        }
+      }
+    }
+    if (nextStart === start) return start;
+    start = nextStart;
+  }
+  return Number.POSITIVE_INFINITY;
 }
 
 export function hasUsableLaneAvailability(
@@ -97,11 +139,18 @@ export function planResourceQueue(
       continue;
     }
 
-    const selected = usable.slice(0, entry.laneCount);
-    const startInSeconds = Math.max(
-      ...selected.map((lane) => lane.availableAtSeconds),
-    );
-    const endInSeconds = startInSeconds + entry.sessionMinutes * 60;
+    const durationSeconds = entry.sessionMinutes * 60;
+    const candidates = combinations(usable, entry.laneCount)
+      .map((lanes) => ({ lanes, start: earliestCommonStart(lanes, durationSeconds) }))
+      .sort((a, b) => a.start - b.start);
+    const best = candidates[0];
+    if (!best || !Number.isFinite(best.start)) {
+      unassigned.push(entry);
+      continue;
+    }
+    const selected = best.lanes;
+    const startInSeconds = best.start;
+    const endInSeconds = startInSeconds + durationSeconds;
 
     assignments.push({
       entryId: entry.id,

@@ -6,10 +6,12 @@ import { planDartseeAssignments } from "@/lib/dartsee-planner";
 import { formatBookingSummary } from "@/lib/booking";
 import { formatClock, formatDuration } from "@/lib/bowling-planner";
 import type { WaitlistEntry } from "@/lib/types";
+import type { EntertainmentReservation } from "@/lib/entertainment-schedule";
 
 interface DartsPlannerProps {
   snapshot: DartseeLaneSnapshot | null;
   entries: WaitlistEntry[];
+  reservations?: EntertainmentReservation[];
 }
 
 function freshnessLabel(snapshot: DartseeLaneSnapshot | null, nowMs: number) {
@@ -33,7 +35,7 @@ function laneClass(status: string) {
   return "border-dashed border-white/15 bg-neutral-900 text-neutral-400";
 }
 
-export function DartsPlanner({ snapshot, entries }: DartsPlannerProps) {
+export function DartsPlanner({ snapshot, entries, reservations = [] }: DartsPlannerProps) {
   const [nowMs, setNowMs] = useState(() => Date.now());
 
   useEffect(() => {
@@ -42,8 +44,8 @@ export function DartsPlanner({ snapshot, entries }: DartsPlannerProps) {
   }, []);
 
   const plan = useMemo(
-    () => planDartseeAssignments(snapshot, entries, nowMs || undefined),
-    [entries, nowMs, snapshot],
+    () => planDartseeAssignments(snapshot, entries, nowMs || undefined, reservations),
+    [entries, nowMs, reservations, snapshot],
   );
 
   const assignmentsByBoard = new Map(
