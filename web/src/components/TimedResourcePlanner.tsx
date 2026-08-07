@@ -207,6 +207,9 @@ export function TimedResourcePlanner({
             );
             const nextReservation =
               activeReservation ?? protectedReservation ?? upcomingReservations[0];
+            const reservationWarning = Boolean(
+              activeReservation || protectedReservation,
+            );
             return (
               <article
                 key={resource.id}
@@ -219,16 +222,16 @@ export function TimedResourcePlanner({
                 <p className="font-semibold text-white">{resource.label}</p>
                 {nextReservation && (
                   <div className={`mt-3 rounded-lg border px-3 py-2 text-white shadow-sm ${
-                    protectedReservation
+                    reservationWarning
                       ? "border-red-300 bg-red-700"
                       : "border-violet-300/70 bg-violet-950"
                   }`}>
                     <p className="truncate text-xs font-bold text-white">
                       {nextReservation.eventName}
                     </p>
-                    <p className={`mt-0.5 text-[11px] font-medium ${protectedReservation ? "text-white" : "text-violet-100"}`}>
+                    <p className={`mt-0.5 text-[11px] font-medium ${reservationWarning ? "text-white" : "text-violet-100"}`}>
                       {activeReservation
-                        ? `Reserved until ${formatTime(nextReservation.endAt)}`
+                        ? `DO NOT USE · Reserved until ${formatTime(nextReservation.endAt)}`
                         : protectedReservation
                           ? `DO NOT USE · Reserved at ${formatTime(nextReservation.startAt)}`
                         : `Upcoming ${formatTime(nextReservation.startAt)}–${formatTime(nextReservation.endAt)}`}

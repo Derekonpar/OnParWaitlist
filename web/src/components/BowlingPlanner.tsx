@@ -133,6 +133,9 @@ export function BowlingPlanner({ snapshot, entries, reservations = [] }: Bowling
           );
           const nextReservation =
             activeReservation ?? protectedReservation ?? laneReservations[0];
+          const reservationWarning = Boolean(
+            activeReservation || protectedReservation,
+          );
           return (
             <div
               key={lane.lane}
@@ -159,16 +162,16 @@ export function BowlingPlanner({ snapshot, entries, reservations = [] }: Bowling
               )}
               {nextReservation && (
                 <div className={`mt-2 rounded-md border px-2 py-1.5 text-white shadow-sm ${
-                  protectedReservation
+                  reservationWarning
                     ? "border-red-300 bg-red-700"
                     : "border-violet-300/70 bg-violet-950"
                 }`}>
                   <p className="truncate text-[10px] font-bold text-white">
                     {nextReservation.eventName}
                   </p>
-                  <p className={`text-[9px] font-medium ${protectedReservation ? "text-white" : "text-violet-100"}`}>
+                  <p className={`text-[9px] font-medium ${reservationWarning ? "text-white" : "text-violet-100"}`}>
                     {activeReservation
-                      ? `Reserved until ${reservationTime(nextReservation.endAt)}`
+                      ? `DO NOT USE · Reserved until ${reservationTime(nextReservation.endAt)}`
                       : protectedReservation
                         ? `DO NOT USE · Reserved at ${reservationTime(nextReservation.startAt)}`
                       : `Upcoming ${reservationTime(nextReservation.startAt)}`}
