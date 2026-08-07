@@ -64,6 +64,10 @@ export function DartsPlanner({ snapshot, entries, reservations = [] }: DartsPlan
       assignment.boardIds.map((boardId) => [boardId, assignment] as const),
     ),
   );
+  const unresponsiveBoards = new Set(snapshot?.unresponsiveBoardIds ?? []);
+  const unresponsiveLaneNumbers = snapshot?.lanes
+    .filter((lane) => unresponsiveBoards.has(lane.boardId))
+    .map((lane) => lane.lane) ?? [];
 
   const activeQueueCount = entries.filter(
     (entry) =>
@@ -95,6 +99,7 @@ export function DartsPlanner({ snapshot, entries, reservations = [] }: DartsPlan
 
       <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
         {plan.lanes.map((lane) => {
+          const machineOffline = unresponsiveBoards.has(lane.boardId);
           const assignment = assignmentsByBoard.get(lane.boardId);
           const ids = [`darts-${lane.lane}`, `dart-${lane.lane}`];
           const laneReservations = reservations
@@ -114,14 +119,18 @@ export function DartsPlanner({ snapshot, entries, reservations = [] }: DartsPlan
           return (
             <div
               key={lane.boardId}
-              className={`min-h-28 rounded-lg border p-3 shadow-sm ${laneClass(
-                lane.status,
-              )}`}
+              className={`min-h-28 rounded-lg border p-3 shadow-sm ${
+                machineOffline
+                  ? "border-red-400 bg-red-950/60 text-red-50"
+                  : laneClass(lane.status)
+              }`}
             >
               <div className="flex items-start justify-between gap-2">
                 <p className="text-xs font-semibold">Dart {lane.lane}</p>
                 <p className="text-sm font-bold">
-                  {lane.status === "occupied"
+                  {machineOffline
+                    ? "Check unit"
+                    : lane.status === "occupied"
                     ? formatClock(lane.remainingSeconds)
                     : lane.status === "open"
                       ? "Open"
@@ -131,6 +140,16 @@ export function DartsPlanner({ snapshot, entries, reservations = [] }: DartsPlan
               <p className="mt-1 truncate text-[10px] opacity-60">
                 {lane.boardId}
               </p>
+              {machineOffline && (
+                <div className="mt-2 rounded-md border border-red-300/60 bg-red-700 px-2 py-1.5 text-white">
+                  <p className="text-[10px] font-bold uppercase tracking-wide">
+                    Machine offline
+                  </p>
+                  <p className="mt-0.5 text-[10px] text-red-100">
+                    Staff: go check this Dartsee unit
+                  </p>
+                </div>
+              )}
               {nextReservation && (
                 <div className="mt-2 rounded-md border border-violet-300/70 bg-violet-950 px-2 py-1.5 text-white shadow-sm">
                   <p className="truncate text-[10px] font-bold text-white">
@@ -168,7 +187,9 @@ export function DartsPlanner({ snapshot, entries, reservations = [] }: DartsPlan
         <div className="rounded-xl border border-red-400 bg-red-700 p-4 text-white" role="alert">
           <p className="text-sm font-semibold">Dartsee feed needs attention</p>
           <p className="mt-1 text-xs text-red-100">
-            {snapshot.healthMessage ?? "One or more dart lanes could not be read."}
+            {unresponsiveLaneNumbers.length
+              ? `Dart lane${unresponsiveLaneNumbers.length === 1 ? "" : "s"} ${unresponsiveLaneNumbers.join(", ")} ${unresponsiveLaneNumbers.length === 1 ? "is" : "are"} not responding. Go check the machine.`
+              : snapshot.healthMessage ?? "One or more dart lanes could not be read."}
           </p>
         </div>
       )}

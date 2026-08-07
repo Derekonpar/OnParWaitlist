@@ -26,6 +26,7 @@ export interface DartseeLaneSnapshot {
   healthUpdatedAt: string;
   knownLaneCount: number;
   consecutiveIncompleteRefreshes?: number;
+  unresponsiveBoardIds?: string[];
 }
 
 interface DartseeAuth {
@@ -340,6 +341,9 @@ async function readLiveSnapshot(
       if (ws) closeSocket(ws);
       const lanes = Array.from(lanesByBoard.values());
       const knownLaneCount = lanes.filter((lane) => lane.status !== "unknown").length;
+      const unresponsiveBoardIds = lanes
+        .filter((lane) => lane.status === "unknown")
+        .map((lane) => lane.boardId);
       const healthStatus: DartseeFeedHealth = socketFailed
         ? "connection-error"
         : knownLaneCount === ids.length
@@ -366,6 +370,7 @@ async function readLiveSnapshot(
         healthMessage,
         healthUpdatedAt: receivedAt,
         knownLaneCount,
+        unresponsiveBoardIds,
       });
     };
 
@@ -455,9 +460,17 @@ async function retryMissingBoards(
       healthUpdatedAt: retry.receivedAt,
       knownLaneCount,
       consecutiveIncompleteRefreshes: 0,
+      unresponsiveBoardIds: [],
     };
   }
-  return { ...snapshot, lanes, knownLaneCount };
+  return {
+    ...snapshot,
+    lanes,
+    knownLaneCount,
+    unresponsiveBoardIds: lanes
+      .filter((lane) => lane.status === "unknown")
+      .map((lane) => lane.boardId),
+  };
 }
 
 async function getStoredSnapshot(): Promise<DartseeLaneSnapshot | null> {
@@ -531,6 +544,12 @@ function mergeLastKnown(
     (previous.consecutiveIncompleteRefreshes ?? 0) + 1;
   const transientPartial =
     current.healthStatus === "partial" && consecutiveIncompleteRefreshes < 20;
+  const unresponsiveLaneNumbers = current.lanes
+    .filter((lane) => current.unresponsiveBoardIds?.includes(lane.boardId))
+    .map((lane) => lane.lane);
+  const machineMessage = unresponsiveLaneNumbers.length
+    ? `Dart lane${unresponsiveLaneNumbers.length === 1 ? "" : "s"} ${unresponsiveLaneNumbers.join(", ")} ${unresponsiveLaneNumbers.length === 1 ? "is" : "are"} not responding. Staff should go check the Dartsee machine.`
+    : current.healthMessage ?? "Dartsee feed needs attention";
   return {
     ...current,
     lanes: current.lanes.map((lane) => {
@@ -550,7 +569,7 @@ function mergeLastKnown(
     healthStatus: transientPartial ? "ok" : current.healthStatus,
     healthMessage: transientPartial
       ? undefined
-      : `${current.healthMessage ?? "Dartsee feed needs attention"} Last known status is retained for unreadable lanes.`,
+      : `${machineMessage} Last known status is retained for unreadable lanes.`,
     consecutiveIncompleteRefreshes,
   };
 }
