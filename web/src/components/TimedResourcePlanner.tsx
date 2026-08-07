@@ -7,6 +7,8 @@ import {
   type TimedResourceType,
 } from "@/lib/resource-sessions";
 
+const WALK_TO_RESOURCE_BUFFER_MS = 3 * 60_000;
+
 function localDateTimeValue(date = new Date()) {
   const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
   return local.toISOString().slice(0, 16);
@@ -50,7 +52,9 @@ export function TimedResourcePlanner({
   const resources = TIMED_RESOURCES[resourceType];
   const [resourceId, setResourceId] = useState(resources[0].id);
   const [guestName, setGuestName] = useState("");
-  const [startsAt, setStartsAt] = useState(() => localDateTimeValue());
+  const [startsAt, setStartsAt] = useState(() =>
+    localDateTimeValue(new Date(Date.now() + WALK_TO_RESOURCE_BUFFER_MS)),
+  );
   const [durationMinutes, setDurationMinutes] = useState<60 | 120>(60);
   const title = resourceType === "pool" ? "Pool tables" : "Shuffleboards";
   const equipment = resourceType === "pool" ? "balls" : "pucks";
@@ -73,7 +77,9 @@ export function TimedResourcePlanner({
     });
     if (ok) {
       setGuestName("");
-      setStartsAt(localDateTimeValue());
+      setStartsAt(
+        localDateTimeValue(new Date(Date.now() + WALK_TO_RESOURCE_BUFFER_MS)),
+      );
     }
   }
 
@@ -82,7 +88,7 @@ export function TimedResourcePlanner({
       <section className="rounded-2xl border border-white/10 bg-[#141414] p-5">
         <h2 className="text-lg font-semibold text-white">Start {title.toLowerCase()} time</h2>
         <p className="mt-1 text-sm text-neutral-500">
-          Start time defaults to now. End time updates from the selected duration.
+          Start time defaults to 3 minutes from now for the walk back. End time updates from the selected duration.
         </p>
         <form onSubmit={submit} className="mt-5 grid gap-3 md:grid-cols-2">
           <select

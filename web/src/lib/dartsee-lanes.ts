@@ -579,7 +579,10 @@ export function dartseeSnapshotToAvailability(
     : 0;
 
   return snapshot.lanes.map((lane) => ({
-    id: lane.boardId,
+    // Schedule resources use venue-facing lane numbers, not Dartsee hardware
+    // board IDs. Keep board IDs on the snapshot, but schedule and queue math
+    // must share the canonical numbered resource ID.
+    id: String(lane.lane),
     label: `Dart ${lane.lane}`,
     availableAtSeconds:
       lane.status === "open"

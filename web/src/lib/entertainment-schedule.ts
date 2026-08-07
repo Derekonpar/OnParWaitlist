@@ -132,6 +132,14 @@ export function addScheduleWindows(
   return lanes.map((lane) => {
     const ids = canonicalResourceIds(activity, lane.id);
     const windows: ResourceUnavailableWindow[] = reservations
+      // A manually entered Event Host row that still needs review is
+      // informational, not confirmed capacity. Keep it visible in staff UI,
+      // but do not create a false customer wait until it is reviewed.
+      .filter(
+        (reservation) =>
+          reservation.source.toLowerCase() !== "manual" ||
+          !reservation.needsReview,
+      )
       .filter((reservation) => ids.includes(reservation.resourceId.toLowerCase()))
       .map((reservation) => ({
         startAtSeconds: Math.max(0, Math.floor((new Date(reservation.startAt).getTime() - nowMs) / 1000)),
