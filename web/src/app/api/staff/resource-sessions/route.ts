@@ -7,6 +7,11 @@ import {
   saveTimedResourceSession,
   TIMED_RESOURCES,
 } from "@/lib/resource-sessions";
+import { getEntertainmentSchedule } from "@/lib/entertainment-schedule";
+import {
+  reservationConflictsWithSession,
+  timedResourceReservationIds,
+} from "@/lib/reservation-policy";
 
 export const dynamic = "force-dynamic";
 
@@ -55,6 +60,26 @@ export async function POST(request: Request) {
     const parsed = saveSchema.safeParse(await request.json());
     if (!parsed.success) {
       return NextResponse.json({ error: "Invalid session" }, { status: 400 });
+    }
+    const startMs = new Date(parsed.data.startsAt).getTime();
+    const endMs = startMs + parsed.data.durationMinutes * 60_000;
+    const resourceIds = timedResourceReservationIds(
+      parsed.data.resourceType,
+      parsed.data.resourceId,
+    );
+    const schedule = await getEntertainmentSchedule();
+    const conflict = schedule?.reservations.find(
+      (reservation) =>
+        resourceIds.includes(reservation.resourceId.toLowerCase()) &&
+        reservationConflictsWithSession(reservation, startMs, endMs),
+    );
+    if (conflict) {
+      return NextResponse.json(
+        {
+          error: `This resource is protected starting one hour before the ${conflict.eventName} reservation.`,
+        },
+        { status: 409 },
+      );
     }
     return NextResponse.json({
       session: await saveTimedResourceSession(parsed.data),

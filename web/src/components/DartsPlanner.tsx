@@ -7,6 +7,10 @@ import { formatBookingSummary } from "@/lib/booking";
 import { formatClock, formatDuration } from "@/lib/bowling-planner";
 import type { WaitlistEntry } from "@/lib/types";
 import type { EntertainmentReservation } from "@/lib/entertainment-schedule";
+import {
+  reservationBlocksAvailability,
+  reservationProtectionActive,
+} from "@/lib/reservation-policy";
 
 interface DartsPlannerProps {
   snapshot: DartseeLaneSnapshot | null;
@@ -106,6 +110,7 @@ export function DartsPlanner({ snapshot, entries, reservations = [] }: DartsPlan
             .filter(
               (reservation) =>
                 ids.includes(reservation.resourceId.toLowerCase()) &&
+                reservationBlocksAvailability(reservation) &&
                 new Date(reservation.endAt).getTime() > nowMs,
             )
             .sort(
@@ -115,7 +120,11 @@ export function DartsPlanner({ snapshot, entries, reservations = [] }: DartsPlan
           const activeReservation = laneReservations.find(
             (reservation) => new Date(reservation.startAt).getTime() <= nowMs,
           );
-          const nextReservation = activeReservation ?? laneReservations[0];
+          const protectedReservation = laneReservations.find((reservation) =>
+            reservationProtectionActive(reservation, nowMs),
+          );
+          const nextReservation =
+            activeReservation ?? protectedReservation ?? laneReservations[0];
           return (
             <div
               key={lane.boardId}
@@ -151,13 +160,19 @@ export function DartsPlanner({ snapshot, entries, reservations = [] }: DartsPlan
                 </div>
               )}
               {nextReservation && (
-                <div className="mt-2 rounded-md border border-violet-300/70 bg-violet-950 px-2 py-1.5 text-white shadow-sm">
+                <div className={`mt-2 rounded-md border px-2 py-1.5 text-white shadow-sm ${
+                  protectedReservation
+                    ? "border-red-300 bg-red-700"
+                    : "border-violet-300/70 bg-violet-950"
+                }`}>
                   <p className="truncate text-[10px] font-bold text-white">
                     {nextReservation.eventName}
                   </p>
-                  <p className="text-[9px] font-medium text-violet-100">
+                  <p className={`text-[9px] font-medium ${protectedReservation ? "text-white" : "text-violet-100"}`}>
                     {activeReservation
                       ? `Reserved until ${reservationTime(nextReservation.endAt)}`
+                      : protectedReservation
+                        ? `DO NOT USE · Reserved at ${reservationTime(nextReservation.startAt)}`
                       : `Upcoming ${reservationTime(nextReservation.startAt)}`}
                   </p>
                 </div>

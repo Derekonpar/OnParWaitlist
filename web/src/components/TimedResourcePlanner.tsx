@@ -7,6 +7,12 @@ import {
   type TimedResourceType,
 } from "@/lib/resource-sessions";
 import type { EntertainmentReservation } from "@/lib/entertainment-schedule";
+import {
+  reservationBlocksAvailability,
+  reservationConflictsWithSession,
+  reservationProtectionActive,
+  timedResourceReservationIds,
+} from "@/lib/reservation-policy";
 
 const WALK_TO_RESOURCE_BUFFER_MS = 3 * 60_000;
 
@@ -20,12 +26,6 @@ function formatTime(iso: string) {
     hour: "numeric",
     minute: "2-digit",
   });
-}
-
-function reservationIds(resourceType: TimedResourceType, resourceId: string) {
-  if (resourceType === "shuffleboard") return [`shuffleboard-${resourceId}`];
-  const number = ({ red: "1", green: "2", blue: "3" } as Record<string, string>)[resourceId] ?? resourceId;
-  return [`pool-${number}`, `pool-${resourceId}`];
 }
 
 function remainingLabel(endsAt: string, nowMs: number) {
@@ -74,6 +74,17 @@ export function TimedResourcePlanner({
       new Date(start.getTime() + durationMinutes * 60_000).toISOString(),
     );
   }, [startsAt, durationMinutes]);
+  const selectedConflict = useMemo(() => {
+    const startMs = new Date(startsAt).getTime();
+    if (!Number.isFinite(startMs)) return undefined;
+    const endMs = startMs + durationMinutes * 60_000;
+    const ids = timedResourceReservationIds(resourceType, resourceId);
+    return reservations.find(
+      (reservation) =>
+        ids.includes(reservation.resourceId.toLowerCase()) &&
+        reservationConflictsWithSession(reservation, startMs, endMs),
+    );
+  }, [durationMinutes, reservations, resourceId, resourceType, startsAt]);
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -150,9 +161,14 @@ export function TimedResourcePlanner({
           <div className="rounded-xl border border-white/10 bg-neutral-950 px-4 py-3 text-sm text-neutral-300">
             Scheduled end: <strong className="text-white">{selectedEnd}</strong>
           </div>
+          {selectedConflict && (
+            <div className="rounded-xl border border-red-400 bg-red-700 px-4 py-3 text-sm font-semibold text-white" role="alert">
+              Cannot book: protect this table starting one hour before {formatTime(selectedConflict.startAt)} for {selectedConflict.eventName}.
+            </div>
+          )}
           <button
             type="submit"
-            disabled={busyKey !== null}
+            disabled={busyKey !== null || Boolean(selectedConflict)}
             className="rounded-xl bg-white px-4 py-3 text-sm font-semibold text-neutral-950 disabled:opacity-60"
           >
             Add session
@@ -171,11 +187,12 @@ export function TimedResourcePlanner({
             );
             const warning =
               session && new Date(session.endsAt).getTime() - nowMs <= 5 * 60_000;
-            const ids = reservationIds(resourceType, resource.id);
+            const ids = timedResourceReservationIds(resourceType, resource.id);
             const upcomingReservations = reservations
               .filter(
                 (reservation) =>
                   ids.includes(reservation.resourceId.toLowerCase()) &&
+                  reservationBlocksAvailability(reservation) &&
                   new Date(reservation.endAt).getTime() > nowMs,
               )
               .sort(
@@ -185,7 +202,11 @@ export function TimedResourcePlanner({
             const activeReservation = upcomingReservations.find(
               (reservation) => new Date(reservation.startAt).getTime() <= nowMs,
             );
-            const nextReservation = activeReservation ?? upcomingReservations[0];
+            const protectedReservation = upcomingReservations.find((reservation) =>
+              reservationProtectionActive(reservation, nowMs),
+            );
+            const nextReservation =
+              activeReservation ?? protectedReservation ?? upcomingReservations[0];
             return (
               <article
                 key={resource.id}
@@ -197,13 +218,19 @@ export function TimedResourcePlanner({
               >
                 <p className="font-semibold text-white">{resource.label}</p>
                 {nextReservation && (
-                  <div className="mt-3 rounded-lg border border-violet-300/70 bg-violet-950 px-3 py-2 text-white shadow-sm">
+                  <div className={`mt-3 rounded-lg border px-3 py-2 text-white shadow-sm ${
+                    protectedReservation
+                      ? "border-red-300 bg-red-700"
+                      : "border-violet-300/70 bg-violet-950"
+                  }`}>
                     <p className="truncate text-xs font-bold text-white">
                       {nextReservation.eventName}
                     </p>
-                    <p className="mt-0.5 text-[11px] font-medium text-violet-100">
+                    <p className={`mt-0.5 text-[11px] font-medium ${protectedReservation ? "text-white" : "text-violet-100"}`}>
                       {activeReservation
                         ? `Reserved until ${formatTime(nextReservation.endAt)}`
+                        : protectedReservation
+                          ? `DO NOT USE · Reserved at ${formatTime(nextReservation.startAt)}`
                         : `Upcoming ${formatTime(nextReservation.startAt)}–${formatTime(nextReservation.endAt)}`}
                     </p>
                     {nextReservation.needsReview && (
