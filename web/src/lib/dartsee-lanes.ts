@@ -308,10 +308,11 @@ function closeSocket(ws: WebSocket) {
 async function readLiveSnapshot(
   ids: string[],
   token: string,
+  timeoutOverrideMs?: number,
 ): Promise<DartseeLaneSnapshot | null> {
   if (typeof WebSocket === "undefined") return null;
 
-  const timeoutMs = envNumber("DARTSEE_WS_TIMEOUT_MS", 8000);
+  const timeoutMs = timeoutOverrideMs ?? envNumber("DARTSEE_WS_TIMEOUT_MS", 8000);
   const now = new Date();
   const lanesByBoard = new Map(
     ids.map((id, index) => [id, laneFromBoardId(id, index)] as const),
@@ -419,6 +420,44 @@ async function readLiveSnapshot(
       finish();
     });
   });
+}
+
+async function retryMissingBoards(
+  snapshot: DartseeLaneSnapshot,
+  token: string,
+): Promise<DartseeLaneSnapshot> {
+  if (snapshot.healthStatus !== "partial") return snapshot;
+  const missingIds = snapshot.lanes
+    .filter((lane) => lane.status === "unknown")
+    .map((lane) => lane.boardId);
+  if (!missingIds.length) return snapshot;
+
+  // A busy Dartsee dashboard frequently omits one board from the venue-wide
+  // response. Retry only those boards so one late unit does not poison the
+  // entire five-lane snapshot or double the normal connection load.
+  const retry = await readLiveSnapshot(missingIds, token, 4_000);
+  if (!retry) return snapshot;
+  const retryByBoard = new Map(retry.lanes.map((lane) => [lane.boardId, lane]));
+  const lanes = snapshot.lanes.map((lane) => {
+    const recovered = retryByBoard.get(lane.boardId);
+    return recovered && recovered.status !== "unknown"
+      ? { ...recovered, lane: lane.lane, name: lane.name }
+      : lane;
+  });
+  const knownLaneCount = lanes.filter((lane) => lane.status !== "unknown").length;
+  if (knownLaneCount === snapshot.lanes.length) {
+    return {
+      ...snapshot,
+      lanes,
+      receivedAt: retry.receivedAt,
+      healthStatus: "ok",
+      healthMessage: undefined,
+      healthUpdatedAt: retry.receivedAt,
+      knownLaneCount,
+      consecutiveIncompleteRefreshes: 0,
+    };
+  }
+  return { ...snapshot, lanes, knownLaneCount };
 }
 
 async function getStoredSnapshot(): Promise<DartseeLaneSnapshot | null> {
@@ -561,7 +600,10 @@ export async function getDartseeLaneSnapshot(): Promise<DartseeLaneSnapshot | nu
 
       const token = await getAccessToken();
       if (!token) return null;
-      const liveSnapshot = await readLiveSnapshot(boardIds(), token);
+      const initialSnapshot = await readLiveSnapshot(boardIds(), token);
+      const liveSnapshot = initialSnapshot
+        ? await retryMissingBoards(initialSnapshot, token)
+        : null;
       if (!liveSnapshot) return null;
       const snapshot = mergeLastKnown(liveSnapshot, stored);
       await saveStoredSnapshot(snapshot);
