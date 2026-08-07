@@ -190,14 +190,36 @@ function laneFromCardPosition(obs) {
   return null;
 }
 
-function reservationLaneFromCardPosition(obs) {
-  const firstColumnX = 0.19;
-  const columnWidth = 0.064;
+function reservationLaneFromCardPosition(obs, observations) {
+  const isTopRow = obs.y >= 0.72 && obs.y < 0.765;
+  const isBottomRow = obs.y >= 0.625 && obs.y < 0.69;
+  if (!isTopRow && !isBottomRow) return null;
+
+  // Match reservation text to the nearest visible Lane N header. This is more
+  // reliable than fixed columns because Remote Desktop scaling and the split
+  // Brunswick layout move the cards slightly between sessions.
+  const nearestHeader = observations
+    .map((candidate) => {
+      const match = String(candidate.text ?? "").trim().match(/^Lane\s*(1[0-2]|[1-9])$/i);
+      if (!match) return null;
+      const lane = Number(match[1]);
+      if (isTopRow && lane > 8) return null;
+      if (isBottomRow && lane < 9) return null;
+      return { lane, distance: Math.abs(Number(candidate.x) - Number(obs.x)) };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.distance - b.distance)[0];
+  if (nearestHeader && nearestHeader.distance <= 0.045) return nearestHeader.lane;
+
+  // Fallback for a scan where OCR misses the lane header as well as nearby
+  // labels. These values reflect the current normalized card geometry.
+  const firstColumnX = 0.151;
+  const columnWidth = 0.068;
   const column = Math.round((obs.x - firstColumnX) / columnWidth);
   if (column < 0 || column > 7) return null;
-  if (Math.abs(obs.x - (firstColumnX + column * columnWidth)) > 0.035) return null;
-  if (obs.y >= 0.72 && obs.y < 0.765) return column + 1;
-  if (obs.y >= 0.625 && obs.y < 0.69 && column <= 3) return column + 9;
+  if (Math.abs(obs.x - (firstColumnX + column * columnWidth)) > 0.04) return null;
+  if (isTopRow) return column + 1;
+  if (isBottomRow && column <= 3) return column + 9;
   return null;
 }
 
@@ -224,7 +246,7 @@ function extractLanes(observations) {
 
   for (const obs of observations) {
     const text = String(obs.text ?? "").trim();
-    const lane = reservationLaneFromCardPosition(obs);
+    const lane = reservationLaneFromCardPosition(obs, observations);
     // Score fragments and game numbers (for example "23 #1" or "20") can
     // occupy the same OCR band as Brunswick reservation names. A real hold
     // label contains a name/word, so ignore number-only fragments here.
