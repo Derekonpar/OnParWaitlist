@@ -37,16 +37,25 @@ export function EntertainmentReservations({
   reservations: EntertainmentReservation[];
 }) {
   const today = venueDate();
+  const nowMs = Date.now();
   const relevant = reservations.filter(
     (reservation) =>
       reservation.operatingDate === today &&
+      new Date(reservation.endAt).getTime() > nowMs &&
       categoryMatches(activity, reservation.resourceCategory),
   );
   if (!relevant.length) return null;
   return (
-    <section className="mb-5 rounded-xl border border-violet-400/30 bg-violet-500/10 p-4">
-      <h2 className="text-sm font-semibold text-violet-100">Entertainment schedule</h2>
-      <div className="mt-3 space-y-2">
+    <details className="mb-5 rounded-xl border border-violet-400/30 bg-violet-500/10">
+      <summary className="cursor-pointer list-none px-4 py-3 text-sm font-semibold text-violet-100 marker:hidden">
+        <span className="flex items-center justify-between gap-3">
+          <span>Entertainment schedule</span>
+          <span className="rounded-full bg-violet-950 px-2 py-0.5 text-xs text-violet-100">
+            {relevant.length} reservation{relevant.length === 1 ? "" : "s"} · expand
+          </span>
+        </span>
+      </summary>
+      <div className="space-y-2 border-t border-violet-300/20 px-4 py-3">
         {relevant.map((reservation) => (
           <div key={reservation.id} className="rounded-lg border border-white/10 bg-black/25 px-3 py-2">
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -64,6 +73,6 @@ export function EntertainmentReservations({
           </div>
         ))}
       </div>
-    </section>
+    </details>
   );
 }

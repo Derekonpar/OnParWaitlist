@@ -3,14 +3,13 @@ import type { EntertainmentReservation } from "./entertainment-schedule";
 export const RESERVATION_PROTECTION_MS = 60 * 60 * 1000;
 
 export function reservationBlocksAvailability(
-  reservation: EntertainmentReservation,
+  _reservation: EntertainmentReservation,
 ): boolean {
-  // Tentative manual Event Host rows remain informational until reviewed.
-  // Confirmed Tripleseat rows and reviewed manual overrides protect capacity.
-  return (
-    reservation.source.trim().toLowerCase() !== "manual" ||
-    !reservation.needsReview
-  );
+  // The producer returns only saved, normalized entertainment assignments for
+  // definite events. Manual resource rows complete assignments that may not be
+  // present in structured Tripleseat selections, so they protect capacity too.
+  // needsReview remains a visible staff warning; it does not discard the lane.
+  return true;
 }
 
 export function reservationProtectionActive(
