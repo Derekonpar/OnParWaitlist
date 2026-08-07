@@ -31,6 +31,8 @@ let lastRecoveryAttemptAt = 0;
 let lastRecoveryState = "";
 let currentCaptureBounds = null;
 let previousObservedLanes = null;
+let windowsBootExpectedUntil = 0;
+let deskLaunchExpectedUntil = 0;
 const consecutiveOpenScans = new Map();
 
 function loadEnvFile(filePath) {
@@ -113,6 +115,16 @@ function detectScreenState(observations) {
   const text = observationText(observations);
   const laneLabels = observations.filter((obs) => /\bLane\s*\d{1,2}\b/i.test(String(obs.text ?? "")));
   if (/\bBowling\b/i.test(text) && laneLabels.length >= 2) return "feed";
+  if (/ctrl\s*\+?\s*alt\s*\+?\s*delete|ctrl\s*-\s*alt\s*-\s*del/i.test(text)) {
+    return "windows-lock";
+  }
+  if (/\bOwner\b/i.test(text) && /password|sign\s*in/i.test(text)) {
+    return "windows-owner-login";
+  }
+  if (/\bOwner\b/i.test(text)) return "windows-owner-select";
+  if (/welcome|please wait|preparing windows|just a moment|getting windows ready/i.test(text)) {
+    return "windows-booting";
+  }
   if (
     /password/i.test(text) &&
     ((/user\s*name|username/i.test(text) && /log\s*in|sign\s*in/i.test(text)) ||
@@ -126,8 +138,16 @@ function detectScreenState(observations) {
   if (/remote desktop/i.test(text) && /access code|enter.*code|\bpin\b/i.test(text)) {
     return "remote-code";
   }
-  if (findObservation(observations, [/Brunswick\s*HQ/i])) return "remote-host-list";
   if (findObservation(observations, [/^Desk$/i])) return "remote-desktop";
+  // The connected Chrome tab is also titled BrunswickHQ. Only text inside the
+  // Remote Access page body is a selectable host; ignore the browser chrome.
+  if (
+    observations.some(
+      (obs) => /Brunswick\s*HQ/i.test(String(obs.text ?? "")) && Number(obs.y) < 0.9,
+    )
+  ) return "remote-host-list";
+  if (Date.now() < windowsBootExpectedUntil) return "windows-booting";
+  if (Date.now() < deskLaunchExpectedUntil) return "desk-starting";
   return "unknown";
 }
 
@@ -495,11 +515,24 @@ end run`;
   await execFileAsync("osascript", ["-e", script, value]);
 }
 
+async function sendCtrlAltDelete() {
+  if (existsSync(inputHelper)) {
+    await execFileAsync(inputHelper, ["ctrl-alt-delete"]);
+    return;
+  }
+  const script = `tell application "System Events"
+key code 117 using {control down, option down}
+end tell`;
+  await execFileAsync("osascript", ["-e", script]);
+}
+
 function recoveryCooldownMs(state) {
   // Host selection is safe to retry on the next scan when a click does not
   // take. Login typing is intentionally slower to avoid duplicate submits.
   if (state === "remote-host-list") return 8_000;
   if (state === "remote-code" || state === "remote-desktop") return 12_000;
+  if (state === "windows-lock" || state === "windows-owner-select") return 12_000;
+  if (state === "windows-owner-login") return 30_000;
   return DEFAULT_RECOVERY_COOLDOWN_MS;
 }
 
@@ -520,6 +553,50 @@ function waitingRecoveryHealth(state) {
 async function recoverScreen(state, observations, options) {
   lastRecoveryAttemptAt = Date.now();
   lastRecoveryState = state;
+
+  if (state === "windows-lock") {
+    await sendCtrlAltDelete();
+    return {
+      healthStatus: "recovering",
+      healthMessage: "Windows was locked. Ctrl+Alt+Delete was sent; waiting for the Owner sign-in screen.",
+    };
+  }
+
+  if (state === "windows-owner-select") {
+    const owner = findObservation(observations, [/^Owner$/i]);
+    if (owner) await clickObservation(owner);
+    return {
+      healthStatus: "recovering",
+      healthMessage: "The Windows Owner profile was selected. Waiting for its password field.",
+    };
+  }
+
+  if (state === "windows-owner-login") {
+    const password = findObservation(observations, [/password/i]);
+    if (password) {
+      await clickObservation(password);
+      await replaceFocusedText(options.windowsOwnerPassword, true);
+      windowsBootExpectedUntil = Date.now() + 90_000;
+    }
+    return {
+      healthStatus: "recovering",
+      healthMessage: "The Windows Owner password was submitted. Startup can take up to one minute.",
+    };
+  }
+
+  if (state === "windows-booting") {
+    return {
+      healthStatus: "recovering",
+      healthMessage: "The Brunswick computer is starting Windows. Waiting up to one minute for the desktop.",
+    };
+  }
+
+  if (state === "desk-starting") {
+    return {
+      healthStatus: "recovering",
+      healthMessage: "Desk is starting. Waiting up to one minute for the Brunswick login or lane feed.",
+    };
+  }
 
   if (state === "brunswick-login") {
     const username = findObservation(observations, [/user\s*name|username/i, /^User$/i]);
@@ -558,7 +635,9 @@ async function recoverScreen(state, observations, options) {
   }
 
   if (state === "remote-host-list") {
-    const host = findObservation(observations, [/Brunswick\s*HQ/i]);
+    const host = observations.find(
+      (obs) => /Brunswick\s*HQ/i.test(String(obs.text ?? "")) && Number(obs.y) < 0.9,
+    );
     if (host) await clickObservation(host);
     return {
       healthStatus: "recovering",
@@ -567,6 +646,7 @@ async function recoverScreen(state, observations, options) {
   }
 
   if (state === "remote-desktop") {
+    windowsBootExpectedUntil = 0;
     const desk = findObservation(observations, [/^Desk$/i]);
     if (desk) {
       // OCR targets the filename below the Windows shortcut. Move upward to
@@ -575,6 +655,7 @@ async function recoverScreen(state, observations, options) {
       await clickObservation(deskIcon);
       await new Promise((resolve) => setTimeout(resolve, 120));
       await clickObservation(deskIcon);
+      deskLaunchExpectedUntil = Date.now() + 60_000;
     }
     return {
       healthStatus: "recovering",
@@ -681,9 +762,15 @@ async function captureAndPost(options) {
     : new Date().toISOString();
   const observations = await runOcr(screenshotPath);
   const screenState = detectScreenState(observations);
+  if (screenState === "feed") {
+    windowsBootExpectedUntil = 0;
+    deskLaunchExpectedUntil = 0;
+  }
   if (screenState !== "feed") {
     let health;
-    if (recoveryAttemptDue(screenState)) {
+    if (screenState === "windows-booting" || screenState === "desk-starting") {
+      health = await recoverScreen(screenState, observations, options);
+    } else if (recoveryAttemptDue(screenState)) {
       const priorContext = await frontmostContext();
       await focusBrunswickWindow();
       try {
@@ -756,6 +843,7 @@ const options = {
   heartbeatMs: Number(process.env.BRUNSWICK_HEARTBEAT_MS) || DEFAULT_POST_HEARTBEAT_MS,
   brunswickUsername: process.env.BRUNSWICK_USERNAME ?? "bowling",
   brunswickPassword: process.env.BRUNSWICK_PASSWORD ?? "bowling",
+  windowsOwnerPassword: process.env.BRUNSWICK_WINDOWS_OWNER_PASSWORD ?? "owner",
   remoteCode: process.env.BRUNSWICK_REMOTE_CODE ?? "446464",
 };
 

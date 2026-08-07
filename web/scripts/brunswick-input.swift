@@ -16,6 +16,19 @@ func postKey(_ keyCode: CGKeyCode, down: Bool, flags: CGEventFlags = []) {
   event.post(tap: .cghidEventTap)
 }
 
+func sendCtrlAltDelete() {
+  let control: CGKeyCode = 59
+  let option: CGKeyCode = 58
+  let forwardDelete: CGKeyCode = 117
+  postKey(control, down: true, flags: [.maskControl])
+  postKey(option, down: true, flags: [.maskControl, .maskAlternate])
+  postKey(forwardDelete, down: true, flags: [.maskControl, .maskAlternate])
+  usleep(120_000)
+  postKey(forwardDelete, down: false, flags: [.maskControl, .maskAlternate])
+  postKey(option, down: false, flags: [.maskControl])
+  postKey(control, down: false)
+}
+
 func replaceText(_ value: String, submit: Bool) {
   let keyCodes: [Character: CGKeyCode] = [
     "a": 0, "s": 1, "d": 2, "f": 3, "h": 4, "g": 5, "z": 6,
@@ -78,6 +91,8 @@ case "click":
 case "replace":
   let value = String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8) ?? ""
   replaceText(value.trimmingCharacters(in: .newlines), submit: args.contains("--submit"))
+case "ctrl-alt-delete":
+  sendCtrlAltDelete()
 default:
   fputs("Unknown command\n", stderr)
   exit(2)

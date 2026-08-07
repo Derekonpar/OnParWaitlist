@@ -26,15 +26,22 @@ not the shortcut artwork.
   availability.
 - Persist watcher health in Supabase and show a global staff warning for an
   explicit error or any snapshot older than two minutes.
-- Detect the Remote Access host list, `BrunswickHQ`, access-code, offline,
-  Windows desktop, DESK LOGIN, and live-feed states. Each state has its own
-  retry cooldown, and a transition advances immediately.
+- Detect the Remote Access host list, `BrunswickHQ`, access-code, Windows
+  Ctrl+Alt+Delete lock screen, Owner selection/password, Windows startup,
+  Windows desktop, Desk startup, DESK LOGIN, and live-feed states. Each state
+  has its own retry cooldown, and a transition advances immediately.
+- Distinguish the clickable `BrunswickHQ` host tile from the connected Chrome
+  tab title by its OCR screen position. Without this check, a connected Windows
+  lock screen can be mistaken for the Remote Access computer list forever.
 - Keep Remote Desktop in a dedicated one-tab Chrome window. Background OCR
   never activates Chrome or changes the user's tab. Recovery briefly focuses
   only that window for GUI input and restores the previously focused app,
   Chrome window, and tab afterward.
 - Clear stale mouse-button state before and after recovery clicks. This avoids
   an intermittent held-click/drag state when selecting `BrunswickHQ`.
+- Send physical Ctrl+Alt+Forward-Delete through the signed input helper, enter
+  the Windows Owner password, allow a 90-second boot grace period, then allow a
+  separate 60-second Desk launch grace period before raising a hard error.
 - Use the locally signed `Brunswick Input.app` helper for GUI events. It emits
   physical keycodes that Google Remote Desktop accepts and receives secrets on
   standard input, not command-line arguments.

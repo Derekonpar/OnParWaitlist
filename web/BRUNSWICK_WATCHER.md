@@ -66,8 +66,12 @@ heartbeat with `BRUNSWICK_HEARTBEAT_MS` if needed.
 
 If Remote Desktop is closed, the watcher reopens its dedicated window, selects
 `BrunswickHQ`, enters `BRUNSWICK_REMOTE_CODE` (default `446464`), opens the
-desktop `Desk` app, and then recognizes the Brunswick login screen and signs
-back in using
+remote computer, and handles a newly booted or locked Windows instance. On the
+Windows lock screen it sends Ctrl+Alt+Delete, selects Owner, and enters
+`BRUNSWICK_WINDOWS_OWNER_PASSWORD` (default `owner`). It allows up to 90
+seconds for Windows to finish starting, opens the desktop `Desk` app, allows up
+to another minute for Desk to load, and then recognizes the Brunswick login
+screen and signs back in using
 `BRUNSWICK_USERNAME` and `BRUNSWICK_PASSWORD` (both default to `bowling`). It
 briefly focuses the dedicated window only for a required click or keystroke and
 then restores the app, Chrome window, and tab the user was using. Failed host
