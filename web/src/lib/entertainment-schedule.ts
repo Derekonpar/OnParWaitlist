@@ -50,6 +50,23 @@ function venueDate(offsetDays = 0): string {
   return `${values.year}-${values.month}-${values.day}`;
 }
 
+function currentOperatingDayOnly(
+  value: EntertainmentScheduleResponse | null,
+): EntertainmentScheduleResponse | null {
+  if (!value) return null;
+  const today = venueDate();
+  const reservations = value.reservations.filter(
+    (reservation) => reservation.operatingDate === today,
+  );
+  return {
+    ...value,
+    from: today,
+    to: today,
+    reservationCount: reservations.length,
+    reservations,
+  };
+}
+
 async function readStored(): Promise<EntertainmentScheduleResponse | null> {
   const supabase = getSupabaseAdmin();
   if (!supabase) return null;
@@ -74,19 +91,25 @@ async function saveStored(value: EntertainmentScheduleResponse) {
 }
 
 export async function getEntertainmentSchedule(): Promise<EntertainmentScheduleResponse | null> {
-  if (memoryCache && Date.now() < memoryCache.expiresAt) return memoryCache.value;
+  if (memoryCache && Date.now() < memoryCache.expiresAt) {
+    return currentOperatingDayOnly(memoryCache.value);
+  }
   const stored = await readStored();
   const storedAt = stored ? new Date(stored.fetchedAt).getTime() : Number.NaN;
   if (stored && Number.isFinite(storedAt) && Date.now() - storedAt < CACHE_MS) {
-    memoryCache = { value: stored, expiresAt: Date.now() + CACHE_MS };
-    return stored;
+    const current = currentOperatingDayOnly(stored);
+    if (!current) return null;
+    memoryCache = { value: current, expiresAt: Date.now() + CACHE_MS };
+    return current;
   }
 
   const token = readEnv("ENTERTAINMENT_SCHEDULE_API_TOKEN");
-  if (!token) return stored;
+  if (!token) return currentOperatingDayOnly(stored);
   const url = new URL(readEnv("ENTERTAINMENT_SCHEDULE_API_URL") ?? DEFAULT_URL);
   url.searchParams.set("from", venueDate());
-  url.searchParams.set("to", venueDate(1));
+  // Staff operations and wait calculations only need the current operating
+  // day. Reservations crossing midnight remain included by operatingDate.
+  url.searchParams.set("to", venueDate());
   try {
     const response = await fetch(url, {
       headers: { authorization: `Bearer ${token}` },
@@ -95,13 +118,17 @@ export async function getEntertainmentSchedule(): Promise<EntertainmentScheduleR
     });
     if (!response.ok) throw new Error(`HTTP_${response.status}`);
     const payload = (await response.json()) as Omit<EntertainmentScheduleResponse, "fetchedAt">;
-    const value = { ...payload, fetchedAt: new Date().toISOString() };
+    const value = currentOperatingDayOnly({
+      ...payload,
+      fetchedAt: new Date().toISOString(),
+    });
+    if (!value) return currentOperatingDayOnly(stored);
     await saveStored(value);
     memoryCache = { value, expiresAt: Date.now() + CACHE_MS };
     return value;
   } catch (error) {
     console.error("[entertainment schedule]", error);
-    return stored;
+    return currentOperatingDayOnly(stored);
   }
 }
 

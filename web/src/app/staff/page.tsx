@@ -636,6 +636,7 @@ export default function StaffPage() {
           <TimedResourcePlanner
             resourceType={staffTab}
             sessions={resourceSessions}
+            reservations={entertainmentReservations}
             nowMs={nowMs}
             busyKey={resourceBusyKey}
             onAdd={addResourceSession}

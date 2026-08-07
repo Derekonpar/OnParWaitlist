@@ -6,6 +6,7 @@ import {
   type TimedResourceSession,
   type TimedResourceType,
 } from "@/lib/resource-sessions";
+import type { EntertainmentReservation } from "@/lib/entertainment-schedule";
 
 const WALK_TO_RESOURCE_BUFFER_MS = 3 * 60_000;
 
@@ -21,6 +22,12 @@ function formatTime(iso: string) {
   });
 }
 
+function reservationIds(resourceType: TimedResourceType, resourceId: string) {
+  if (resourceType === "shuffleboard") return [`shuffleboard-${resourceId}`];
+  const number = ({ red: "1", green: "2", blue: "3" } as Record<string, string>)[resourceId] ?? resourceId;
+  return [`pool-${number}`, `pool-${resourceId}`];
+}
+
 function remainingLabel(endsAt: string, nowMs: number) {
   const seconds = Math.ceil((new Date(endsAt).getTime() - nowMs) / 1000);
   if (seconds <= 0) return "Time ended — collect equipment";
@@ -31,6 +38,7 @@ function remainingLabel(endsAt: string, nowMs: number) {
 export function TimedResourcePlanner({
   resourceType,
   sessions,
+  reservations,
   nowMs,
   busyKey,
   onAdd,
@@ -38,6 +46,7 @@ export function TimedResourcePlanner({
 }: {
   resourceType: TimedResourceType;
   sessions: TimedResourceSession[];
+  reservations: EntertainmentReservation[];
   nowMs: number;
   busyKey: string | null;
   onAdd: (input: {
@@ -162,6 +171,21 @@ export function TimedResourcePlanner({
             );
             const warning =
               session && new Date(session.endsAt).getTime() - nowMs <= 5 * 60_000;
+            const ids = reservationIds(resourceType, resource.id);
+            const upcomingReservations = reservations
+              .filter(
+                (reservation) =>
+                  ids.includes(reservation.resourceId.toLowerCase()) &&
+                  new Date(reservation.endAt).getTime() > nowMs,
+              )
+              .sort(
+                (a, b) =>
+                  new Date(a.startAt).getTime() - new Date(b.startAt).getTime(),
+              );
+            const activeReservation = upcomingReservations.find(
+              (reservation) => new Date(reservation.startAt).getTime() <= nowMs,
+            );
+            const nextReservation = activeReservation ?? upcomingReservations[0];
             return (
               <article
                 key={resource.id}
@@ -172,6 +196,23 @@ export function TimedResourcePlanner({
                 }`}
               >
                 <p className="font-semibold text-white">{resource.label}</p>
+                {nextReservation && (
+                  <div className="mt-3 rounded-lg border border-violet-300/70 bg-violet-950 px-3 py-2 text-white shadow-sm">
+                    <p className="truncate text-xs font-bold text-white">
+                      {nextReservation.eventName}
+                    </p>
+                    <p className="mt-0.5 text-[11px] font-medium text-violet-100">
+                      {activeReservation
+                        ? `Reserved until ${formatTime(nextReservation.endAt)}`
+                        : `Upcoming ${formatTime(nextReservation.startAt)}–${formatTime(nextReservation.endAt)}`}
+                    </p>
+                    {nextReservation.needsReview && (
+                      <p className="mt-1 text-[10px] font-semibold uppercase tracking-wide text-amber-300">
+                        Needs review
+                      </p>
+                    )}
+                  </div>
+                )}
                 {!session ? (
                   <p className="mt-3 text-sm font-medium text-emerald-300">Available</p>
                 ) : (

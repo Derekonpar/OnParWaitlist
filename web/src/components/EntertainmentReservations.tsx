@@ -18,6 +18,17 @@ function time(value: string) {
   }).format(new Date(value));
 }
 
+function venueDate() {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
+}
+
 export function EntertainmentReservations({
   activity,
   reservations,
@@ -25,8 +36,11 @@ export function EntertainmentReservations({
   activity: Activity;
   reservations: EntertainmentReservation[];
 }) {
-  const relevant = reservations.filter((reservation) =>
-    categoryMatches(activity, reservation.resourceCategory),
+  const today = venueDate();
+  const relevant = reservations.filter(
+    (reservation) =>
+      reservation.operatingDate === today &&
+      categoryMatches(activity, reservation.resourceCategory),
   );
   if (!relevant.length) return null;
   return (

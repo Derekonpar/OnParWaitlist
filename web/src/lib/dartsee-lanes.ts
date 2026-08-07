@@ -481,7 +481,7 @@ function mergeLastKnown(
   const consecutiveIncompleteRefreshes =
     (previous.consecutiveIncompleteRefreshes ?? 0) + 1;
   const transientPartial =
-    current.healthStatus === "partial" && consecutiveIncompleteRefreshes < 3;
+    current.healthStatus === "partial" && consecutiveIncompleteRefreshes < 20;
   return {
     ...current,
     lanes: current.lanes.map((lane) => {
@@ -496,7 +496,8 @@ function mergeLastKnown(
     }),
     // One Dartsee board occasionally answers a heartbeat a few seconds late.
     // Preserve its last-known state immediately, but only alert staff after
-    // three consecutive incomplete refreshes (roughly 45 seconds).
+    // a sustained five-minute outage. Auth and connection failures still
+    // alert immediately.
     healthStatus: transientPartial ? "ok" : current.healthStatus,
     healthMessage: transientPartial
       ? undefined
