@@ -427,7 +427,17 @@ async function getStoredSnapshot(): Promise<DartseeLaneSnapshot | null> {
   const { data, error } = await supabase.storage.from(STORAGE_BUCKET).download(STORAGE_PATH);
   if (error) return null;
   try {
-    return JSON.parse(await data.text()) as DartseeLaneSnapshot;
+    const snapshot = JSON.parse(await data.text()) as DartseeLaneSnapshot;
+    // Older isolates may have persisted a partial flag before the sustained
+    // failure threshold was introduced. Apply the same tolerance when reading
+    // shared cache so staff do not wait for this isolate to win a refresh lease.
+    if (
+      snapshot.healthStatus === "partial" &&
+      (snapshot.consecutiveIncompleteRefreshes ?? 0) < 20
+    ) {
+      return { ...snapshot, healthStatus: "ok", healthMessage: undefined };
+    }
+    return snapshot;
   } catch {
     return null;
   }
