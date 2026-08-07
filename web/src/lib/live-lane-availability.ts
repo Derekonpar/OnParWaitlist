@@ -35,7 +35,9 @@ export function bowlingSnapshotToAvailability(
     id: String(lane.lane),
     label: `Lane ${lane.lane}`,
     availableAtSeconds:
-      lane.status === "open"
+      snapshot.healthStatus !== "ok"
+        ? Number.POSITIVE_INFINITY
+        : lane.status === "open"
         ? 0
         : lane.status === "occupied"
           ? Math.max(0, lane.remainingSeconds - elapsed)

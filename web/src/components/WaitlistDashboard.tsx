@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityCard } from "./ActivityCard";
 import { JoinModal } from "./JoinModal";
 import { Footer } from "./Footer";
@@ -21,23 +21,27 @@ export function WaitlistDashboard({ initialBoard }: WaitlistDashboardProps) {
   const [error, setError] = useState<string | null>(null);
   const [joinActivity, setJoinActivity] = useState<Activity | null>(null);
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
+  const refreshSequenceRef = useRef(0);
 
   const fetchBoard = useCallback(async () => {
+    const sequence = ++refreshSequenceRef.current;
     try {
       const res = await fetch("/api/waitlist/board", {
         cache: "no-store",
       });
       if (!res.ok) throw new Error("fetch failed");
       const data = await res.json();
+      if (sequence !== refreshSequenceRef.current) return;
       if (Array.isArray(data.board) && data.board.length > 0) {
         setBoard(data.board);
         setLastUpdated(data.updatedAt ?? null);
         setError(null);
       }
     } catch {
+      if (sequence !== refreshSequenceRef.current) return;
       setError("Could not refresh — showing last known wait times.");
     } finally {
-      setLoading(false);
+      if (sequence === refreshSequenceRef.current) setLoading(false);
     }
   }, []);
 
@@ -45,7 +49,7 @@ export function WaitlistDashboard({ initialBoard }: WaitlistDashboardProps) {
     void fetchBoard();
     // Live integrations are shared-cached for 15 seconds. Polling faster adds
     // load during busy periods without producing fresher lane information.
-    const interval = setInterval(fetchBoard, 15000);
+    const interval = setInterval(() => void fetchBoard(), 15000);
     return () => clearInterval(interval);
   }, [fetchBoard]);
 

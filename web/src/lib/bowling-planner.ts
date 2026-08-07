@@ -82,7 +82,10 @@ export function planBowlingAssignments(
       lane.status === "occupied"
         ? Math.max(0, lane.remainingSeconds - elapsedSeconds)
         : 0,
-    availableAtSeconds: laneAvailability(lane, elapsedSeconds),
+    availableAtSeconds:
+      snapshot && snapshot.healthStatus !== "ok"
+        ? Number.POSITIVE_INFINITY
+        : laneAvailability(lane, elapsedSeconds),
   }));
 
   const availability = addScheduleWindows("bowling", lanes.map((lane) => ({

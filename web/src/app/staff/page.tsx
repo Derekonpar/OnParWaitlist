@@ -11,7 +11,9 @@ import type { EntertainmentReservation } from "@/lib/entertainment-schedule";
 import {
   defaultSessionMinutesFor,
   formatBookingSummary,
+  laneCountOptions,
   normalizeLaneCount,
+  sessionOptionsFor,
 } from "@/lib/booking";
 import type { BowlingLaneSnapshot } from "@/lib/bowling-lanes";
 import type { DartseeLaneSnapshot } from "@/lib/dartsee-lanes";
@@ -81,11 +83,18 @@ export default function StaffPage() {
   const [loading, setLoading] = useState(false);
   const [actionId, setActionId] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [editId, setEditId] = useState<string | null>(null);
+  const [editPhone, setEditPhone] = useState("");
+  const [editLaneCount, setEditLaneCount] = useState<LaneCount>(1);
+  const [editSessionMinutes, setEditSessionMinutes] =
+    useState<SessionDuration>(60);
+  const [editSaving, setEditSaving] = useState(false);
   const [soundOn, setSoundOn] = useState(false);
   const [staffTab, setStaffTab] = useState<StaffTab>("queue");
 
   const knownIdsRef = useRef<Set<string> | null>(null);
   const chimeRef = useRef<HTMLAudioElement | null>(null);
+  const refreshSequenceRef = useRef(0);
 
   const [addActivity, setAddActivity] = useState<Activity>("bowling");
   const [addFirstName, setAddFirstName] = useState("");
@@ -112,43 +121,53 @@ export default function StaffPage() {
 
   const fetchQueues = useCallback(async (showLoading = true) => {
     if (!secret) return;
+    const sequence = ++refreshSequenceRef.current;
     await Promise.resolve();
     if (showLoading) setLoading(true);
     try {
-      const res = await fetch("/api/staff/queue", { headers: headers() });
-      if (res.status === 401) {
+      const [queueRes, laneRes, dartLaneRes, resourceRes, scheduleRes] =
+        await Promise.all([
+          fetch("/api/staff/queue", { headers: headers() }),
+          fetch("/api/staff/bowling-lanes", { headers: headers() }),
+          fetch("/api/staff/dart-lanes", { headers: headers() }),
+          fetch("/api/staff/resource-sessions", { headers: headers() }),
+          fetch("/api/staff/entertainment-schedule", { headers: headers() }),
+        ]);
+      if (queueRes.status === 401) {
         setAuthenticated(false);
         sessionStorage.removeItem(STAFF_SECRET_STORAGE_KEY);
         return;
       }
-      const data = await res.json();
-      setQueues(data.queues ?? []);
-      const [laneRes, dartLaneRes, resourceRes, scheduleRes] = await Promise.all([
-        fetch("/api/staff/bowling-lanes", { headers: headers() }),
-        fetch("/api/staff/dart-lanes", { headers: headers() }),
-        fetch("/api/staff/resource-sessions", { headers: headers() }),
-        fetch("/api/staff/entertainment-schedule", { headers: headers() }),
-      ]);
+      const [queueData, laneData, dartLaneData, resourceData, scheduleData] =
+        await Promise.all([
+          queueRes.json(),
+          laneRes.ok ? laneRes.json() : null,
+          dartLaneRes.ok ? dartLaneRes.json() : null,
+          resourceRes.ok ? resourceRes.json() : null,
+          scheduleRes.ok ? scheduleRes.json() : null,
+        ]);
+      if (sequence !== refreshSequenceRef.current) return;
+      setQueues(queueData.queues ?? []);
       if (laneRes.ok) {
-        const laneData = await laneRes.json();
-        setBowlingSnapshot(laneData.snapshot ?? null);
+        if (laneData?.snapshot) setBowlingSnapshot(laneData.snapshot);
       }
       if (dartLaneRes.ok) {
-        const dartLaneData = await dartLaneRes.json();
-        setDartseeSnapshot(dartLaneData.snapshot ?? null);
+        if (dartLaneData?.snapshot) setDartseeSnapshot(dartLaneData.snapshot);
       }
       if (resourceRes.ok) {
-        const resourceData = await resourceRes.json();
-        setResourceSessions(resourceData.sessions ?? []);
+        if (Array.isArray(resourceData?.sessions)) {
+          setResourceSessions(resourceData.sessions);
+        }
       }
       if (scheduleRes.ok) {
-        const scheduleData = await scheduleRes.json();
-        setEntertainmentReservations(scheduleData.schedule?.reservations ?? []);
+        if (Array.isArray(scheduleData?.schedule?.reservations)) {
+          setEntertainmentReservations(scheduleData.schedule.reservations);
+        }
       }
       setAuthenticated(true);
       sessionStorage.setItem(STAFF_SECRET_STORAGE_KEY, secret);
     } finally {
-      if (showLoading) setLoading(false);
+      if (showLoading && sequence === refreshSequenceRef.current) setLoading(false);
     }
   }, [secret, headers]);
 
@@ -308,6 +327,44 @@ export default function StaffPage() {
       }
     } finally {
       setActionId(null);
+    }
+  }
+
+  function beginEdit(entry: WaitlistEntry) {
+    setEditId(entry.id);
+    setEditPhone(entry.phone);
+    setEditLaneCount(entry.laneCount);
+    setEditSessionMinutes(entry.sessionMinutes);
+  }
+
+  async function saveGuestEdit(event: React.FormEvent, entry: WaitlistEntry) {
+    event.preventDefault();
+    setEditSaving(true);
+    try {
+      const response = await fetch("/api/staff/edit", {
+        method: "POST",
+        headers: headers(),
+        body: JSON.stringify({
+          id: entry.id,
+          phone: editPhone,
+          laneCount: editLaneCount,
+          sessionMinutes: editSessionMinutes,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        alert(data.error ?? "Could not update guest");
+        return;
+      }
+      setEditId(null);
+      await fetchQueues(false);
+      alert(
+        data.smsSent
+          ? "Waitlist details updated and a new text was sent."
+          : "Waitlist details updated. No text was sent because SMS is not enabled for this guest.",
+      );
+    } finally {
+      setEditSaving(false);
     }
   }
 
@@ -827,6 +884,70 @@ export default function StaffPage() {
                               className="mt-4 flex flex-wrap gap-2 border-t border-white/10 pt-4"
                               onClick={(e) => e.stopPropagation()}
                             >
+                              {editId === entry.id ? (
+                                <form
+                                  onSubmit={(event) => void saveGuestEdit(event, entry)}
+                                  className="grid w-full gap-2 rounded-xl border border-white/10 bg-neutral-950 p-3 sm:grid-cols-3"
+                                >
+                                  <label className="text-xs font-medium text-neutral-400">
+                                    Phone number
+                                    <input
+                                      required
+                                      value={editPhone}
+                                      onChange={(event) => setEditPhone(event.target.value)}
+                                      className="mt-1 w-full rounded-lg border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-white"
+                                    />
+                                  </label>
+                                  <label className="text-xs font-medium text-neutral-400">
+                                    Lanes / tables
+                                    <select
+                                      value={editLaneCount}
+                                      onChange={(event) => setEditLaneCount(Number(event.target.value) as LaneCount)}
+                                      className="mt-1 w-full rounded-lg border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-white"
+                                    >
+                                      {laneCountOptions(entry.activity).map((count) => (
+                                        <option key={count} value={count}>{count}</option>
+                                      ))}
+                                    </select>
+                                  </label>
+                                  <label className="text-xs font-medium text-neutral-400">
+                                    Session time
+                                    <select
+                                      value={editSessionMinutes}
+                                      onChange={(event) => setEditSessionMinutes(Number(event.target.value) as SessionDuration)}
+                                      className="mt-1 w-full rounded-lg border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-white"
+                                    >
+                                      {sessionOptionsFor(entry.activity).map((minutes) => (
+                                        <option key={minutes} value={minutes}>{minutes} minutes</option>
+                                      ))}
+                                    </select>
+                                  </label>
+                                  <div className="flex gap-2 sm:col-span-3">
+                                    <button
+                                      type="submit"
+                                      disabled={editSaving}
+                                      className="flex-1 rounded-lg bg-white px-3 py-2 text-sm font-semibold text-neutral-950 disabled:opacity-60"
+                                    >
+                                      {editSaving ? "Saving…" : "Save changes & send update"}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setEditId(null)}
+                                      className="rounded-lg border border-neutral-700 px-3 py-2 text-sm text-neutral-300"
+                                    >
+                                      Cancel
+                                    </button>
+                                  </div>
+                                </form>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => beginEdit(entry)}
+                                  className="w-full rounded-xl border border-sky-500/40 px-4 py-2 text-sm font-semibold text-sky-200 hover:bg-sky-500/10"
+                                >
+                                  Edit phone, lanes, or session time
+                                </button>
+                              )}
                               {entry.status === "waiting" && (
                                 <button
                                   type="button"

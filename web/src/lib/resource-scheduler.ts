@@ -82,6 +82,17 @@ function combinations<T>(items: T[], count: number): T[][] {
   return result;
 }
 
+function adjacentResources(lanes: { id: string }[]): boolean {
+  if (lanes.length <= 1) return true;
+  const numbers = lanes
+    .map((lane) => Number(lane.id))
+    .sort((a, b) => a - b);
+  if (numbers.some((value) => !Number.isInteger(value))) return true;
+  return numbers.every(
+    (value, index) => index === 0 || value === numbers[index - 1] + 1,
+  );
+}
+
 function earliestCommonStart(
   lanes: ReturnType<typeof makeWorkingLanes>,
   durationSeconds: number,
@@ -141,6 +152,9 @@ export function planResourceQueue(
 
     const durationSeconds = entry.sessionMinutes * 60;
     const candidates = combinations(usable, entry.laneCount)
+      // A multi-lane party must start together on physically adjacent lanes.
+      // If no adjacent group is ready, keep the party waiting for one.
+      .filter(adjacentResources)
       .map((lanes) => ({ lanes, start: earliestCommonStart(lanes, durationSeconds) }))
       .sort((a, b) => a.start - b.start);
     const best = candidates[0];

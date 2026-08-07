@@ -663,6 +663,7 @@ export function dartseeSnapshotToAvailability(
   const elapsedSeconds = Number.isFinite(capturedAt)
     ? Math.max(0, Math.floor((nowMs - capturedAt) / 1000))
     : 0;
+  const unresponsiveBoards = new Set(snapshot.unresponsiveBoardIds ?? []);
 
   return snapshot.lanes.map((lane) => ({
     // Schedule resources use venue-facing lane numbers, not Dartsee hardware
@@ -671,7 +672,9 @@ export function dartseeSnapshotToAvailability(
     id: String(lane.lane),
     label: `Dart ${lane.lane}`,
     availableAtSeconds:
-      lane.status === "open"
+      unresponsiveBoards.has(lane.boardId)
+        ? Number.POSITIVE_INFINITY
+        : lane.status === "open"
         ? 0
         : lane.status === "occupied"
           ? Math.max(0, lane.remainingSeconds - elapsedSeconds)

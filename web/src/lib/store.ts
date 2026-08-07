@@ -509,6 +509,60 @@ export async function updateStatus(
   return withStoreLock(() => patchEntryStatus(id, status));
 }
 
+export async function updateEntryDetails(
+  id: string,
+  input: {
+    phone: string;
+    laneCount: LaneCount;
+    sessionMinutes: SessionDuration;
+  },
+): Promise<WaitlistEntry | null> {
+  return withStoreLock(async () => {
+    const normalizedPhone = normalizePhone(input.phone);
+    const entries = await readAllUnsafe();
+    const existing = entries.find((entry) => entry.id === id);
+    if (!existing) return null;
+    const duplicate = entries.find(
+      (entry) =>
+        entry.id !== id &&
+        entry.activity === existing.activity &&
+        entry.phone === normalizedPhone &&
+        (entry.status === "waiting" || entry.status === "notified"),
+    );
+    if (duplicate) throw new Error("ALREADY_ON_WAITLIST");
+
+    const supabase = getSupabaseAdmin();
+    if (supabase) {
+      const { data, error } = await supabase
+        .from("waitlist_entries")
+        .update({
+          phone: normalizedPhone,
+          partySize: input.laneCount,
+          estimated_wait_minutes: input.sessionMinutes,
+          updatedAt: new Date().toISOString(),
+        })
+        .eq("id", id)
+        .select("*")
+        .maybeSingle();
+      if (error) {
+        logSupabaseError("edit", error);
+        throw error;
+      }
+      return data ? rowToEntry(data as Record<string, unknown>) : null;
+    }
+
+    const index = entries.findIndex((entry) => entry.id === id);
+    entries[index] = {
+      ...entries[index],
+      phone: normalizedPhone,
+      laneCount: input.laneCount,
+      sessionMinutes: input.sessionMinutes,
+    };
+    await writeAllUnsafe(entries);
+    return entries[index];
+  });
+}
+
 /** Undo accidental serve/remove, or re-text a notified guest. */
 export async function recallEntry(
   id: string,

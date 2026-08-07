@@ -51,3 +51,15 @@ export function buildJoinConfirmation(
   const first = smsFirstName(name);
   return `Thanks ${first}! You're #${position} on the ${activityLabel} waitlist at ${venue}. View your spot in line: ${statusUrl} We'll text you when it's your turn. Reply STOP to opt out.`;
 }
+
+export function buildWaitlistUpdate(
+  name: string,
+  activityLabel: string,
+  bookingSummary: string,
+  position: number,
+  statusUrl: string,
+): string {
+  const venue = readEnv("VENUE_NAME") ?? "On Par Entertainment";
+  const first = smsFirstName(name);
+  return `Hi ${first}, your ${activityLabel} waitlist details at ${venue} were updated: ${bookingSummary}. You're #${position}. View your current status: ${statusUrl} Reply STOP to opt out.`;
+}

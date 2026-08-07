@@ -80,13 +80,16 @@ export function planDartseeAssignments(
   const elapsedSeconds = secondsSince(snapshot?.capturedAt, nowMs);
   const queue = activeDartsQueue(entries);
   const baseLanes = snapshot?.lanes ?? fallbackLanes();
+  const unresponsiveBoards = new Set(snapshot?.unresponsiveBoardIds ?? []);
   const lanes = baseLanes.map((lane) => ({
     ...lane,
     remainingSeconds:
       lane.status === "occupied"
         ? Math.max(0, lane.remainingSeconds - elapsedSeconds)
         : 0,
-    availableAtSeconds: laneAvailability(lane, elapsedSeconds),
+    availableAtSeconds: unresponsiveBoards.has(lane.boardId)
+      ? Number.POSITIVE_INFINITY
+      : laneAvailability(lane, elapsedSeconds),
   }));
 
   const scheduledAvailability = addScheduleWindows(
