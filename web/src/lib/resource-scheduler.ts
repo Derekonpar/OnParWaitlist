@@ -155,8 +155,34 @@ export function planResourceQueue(
       // A multi-lane party must start together on physically adjacent lanes.
       // If no adjacent group is ready, keep the party waiting for one.
       .filter(adjacentResources)
-      .map((lanes) => ({ lanes, start: earliestCommonStart(lanes, durationSeconds) }))
-      .sort((a, b) => a.start - b.start);
+      .map((lanes) => {
+        const start = earliestCommonStart(lanes, durationSeconds);
+        return {
+          lanes,
+          start,
+          // Among combinations that start at the same time, preserve lanes
+          // that have been free longer. For example, prefer a 5-6 pair that
+          // both free in 40 minutes over 4-5 when lane 4 frees in 10 minutes.
+          // The earlier lane can then serve a one-lane guest without delaying
+          // the multi-lane party or violating FIFO.
+          idleLaneSeconds: lanes.reduce(
+            (sum, lane) => sum + Math.max(0, start - lane.availableAtSeconds),
+            0,
+          ),
+          laneKey: lanes
+            .map((lane) => lane.id)
+            .sort((left, right) =>
+              left.localeCompare(right, undefined, { numeric: true }),
+            )
+            .join(":"),
+        };
+      })
+      .sort(
+        (a, b) =>
+          a.start - b.start ||
+          a.idleLaneSeconds - b.idleLaneSeconds ||
+          a.laneKey.localeCompare(b.laneKey, undefined, { numeric: true }),
+      );
     const best = candidates[0];
     if (!best || !Number.isFinite(best.start)) {
       unassigned.push(entry);
