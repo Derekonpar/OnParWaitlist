@@ -135,7 +135,10 @@ function detectScreenState(observations) {
   if (/host is offline|computer is offline|unable to connect|can(?:not|'t) connect|not available|turned off/i.test(text)) {
     return "remote-offline";
   }
-  if (/remote desktop/i.test(text) && /access code|enter.*code|\bpin\b/i.test(text)) {
+  // Chrome Remote Desktop's connected-session PIN screen often contains only
+  // "Enter PIN" plus a remotedesktop.google.com URL. Do not require the
+  // spaced words "Remote Desktop" or the BrunswickHQ card beneath it wins.
+  if (/enter\s*(?:access\s*)?(?:code|pin)|remember my pin|\bpin\b/i.test(text)) {
     return "remote-code";
   }
   if (findObservation(observations, [/^Desk$/i])) return "remote-desktop";
@@ -340,16 +343,15 @@ function formatClock(seconds) {
 async function selectBrunswickTab() {
   const script = `
 tell application "Google Chrome"
-  -- Prefer the isolated one-tab watcher window. Merely capturing it must not
-  -- activate Chrome, raise the window, or change the user's current tab.
+  -- Prefer a window whose active tab is already Brunswick. Chrome may restore
+  -- an extra New Tab after a reboot, so tab count is not a reliable identity.
+  -- Merely capturing it must not activate Chrome or change the active tab.
   set dedicatedWindowId to ""
   repeat with w in windows
-    if (count tabs of w) is 1 then
-      set t to active tab of w
-      if (title of t contains "Brunswick") or (URL of t contains "remotedesktop.google.com/access") then
-        set dedicatedWindowId to (id of w) as text
-        exit repeat
-      end if
+    set t to active tab of w
+    if (title of t contains "Brunswick") or (URL of t contains "remotedesktop.google.com/access") then
+      set dedicatedWindowId to (id of w) as text
+      exit repeat
     end if
   end repeat
 
@@ -365,8 +367,10 @@ tell application "Google Chrome"
           end if
         end repeat
       else
-        set minimized of w to false
-        set bounds of w to {0, 25, 1400, 950}
+        try
+          set minimized of w to false
+          set bounds of w to {0, 25, 1400, 950}
+        end try
       end if
     end repeat
     return "SELECTED_DEDICATED_BRUNSWICK"
@@ -422,8 +426,10 @@ set chromeWindowId to ""
 set chromeTabIndex to ""
 if frontApp is "Google Chrome" then
   tell application "Google Chrome"
-    set chromeWindowId to (id of front window) as text
-    set chromeTabIndex to (active tab index of front window) as text
+    try
+      set chromeWindowId to (id of front window) as text
+      set chromeTabIndex to (active tab index of front window) as text
+    end try
   end tell
 end if
 return frontApp & "|||" & chromeWindowId & "|||" & chromeTabIndex
@@ -437,13 +443,11 @@ async function focusBrunswickWindow() {
   const script = `
 tell application "Google Chrome"
   repeat with w in windows
-    if (count tabs of w) is 1 then
-      set t to active tab of w
-      if (title of t contains "Brunswick") or (URL of t contains "remotedesktop.google.com/access") then
-        set index of w to 1
-        activate
-        return
-      end if
+    set t to active tab of w
+    if (title of t contains "Brunswick") or (URL of t contains "remotedesktop.google.com/access") then
+      set index of w to 1
+      activate
+      return
     end if
   end repeat
 end tell
@@ -475,13 +479,19 @@ else
   end tell
 end if
 end run`;
-  await execFileAsync("osascript", [
-    "-e",
-    script,
-    context.appName,
-    context.chromeWindowId ?? "",
-    context.chromeTabIndex ?? "",
-  ]);
+  try {
+    await execFileAsync("osascript", [
+      "-e",
+      script,
+      context.appName,
+      context.chromeWindowId ?? "",
+      context.chromeTabIndex ?? "",
+    ]);
+  } catch (error) {
+    // A Chrome window can disappear while recovery is running. Restoring the
+    // user's prior focus is best-effort and must never abort lane recovery.
+    console.error(`${new Date().toLocaleTimeString()} focus restore skipped: ${error.message}`);
+  }
 }
 
 async function desktopSize() {

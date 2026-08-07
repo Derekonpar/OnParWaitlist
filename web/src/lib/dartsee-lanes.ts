@@ -25,6 +25,7 @@ export interface DartseeLaneSnapshot {
   healthMessage?: string;
   healthUpdatedAt: string;
   knownLaneCount: number;
+  consecutiveIncompleteRefreshes?: number;
 }
 
 interface DartseeAuth {
@@ -469,12 +470,18 @@ function mergeLastKnown(
   current: DartseeLaneSnapshot,
   previous: DartseeLaneSnapshot | null,
 ): DartseeLaneSnapshot {
-  if (!previous || current.healthStatus === "ok") return current;
+  if (!previous || current.healthStatus === "ok") {
+    return { ...current, consecutiveIncompleteRefreshes: 0 };
+  }
   const previousByBoard = new Map(previous.lanes.map((lane) => [lane.boardId, lane]));
   const previousAgeSeconds = Math.max(
     0,
     Math.floor((Date.now() - new Date(previous.capturedAt).getTime()) / 1000),
   );
+  const consecutiveIncompleteRefreshes =
+    (previous.consecutiveIncompleteRefreshes ?? 0) + 1;
+  const transientPartial =
+    current.healthStatus === "partial" && consecutiveIncompleteRefreshes < 3;
   return {
     ...current,
     lanes: current.lanes.map((lane) => {
@@ -487,7 +494,14 @@ function mergeLastKnown(
         ? { ...retained, remainingSeconds }
         : { ...retained, status: "open", remainingSeconds: 0 };
     }),
-    healthMessage: `${current.healthMessage ?? "Dartsee feed needs attention"} Last known status is retained for unreadable lanes.`,
+    // One Dartsee board occasionally answers a heartbeat a few seconds late.
+    // Preserve its last-known state immediately, but only alert staff after
+    // three consecutive incomplete refreshes (roughly 45 seconds).
+    healthStatus: transientPartial ? "ok" : current.healthStatus,
+    healthMessage: transientPartial
+      ? undefined
+      : `${current.healthMessage ?? "Dartsee feed needs attention"} Last known status is retained for unreadable lanes.`,
+    consecutiveIncompleteRefreshes,
   };
 }
 
