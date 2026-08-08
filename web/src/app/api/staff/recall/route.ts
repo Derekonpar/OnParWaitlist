@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { verifyStaffSecret } from "@/lib/auth";
-import { getEntryById, recallEntry } from "@/lib/store";
+import { getEntryById, recallEntry, updateStatus } from "@/lib/store";
 import { ACTIVITY_LABELS } from "@/lib/types";
 import { buildReadyMessage, sendSms } from "@/lib/twilio";
 
@@ -48,6 +48,9 @@ export async function POST(request: Request) {
             ACTIVITY_LABELS[existing.activity],
           ),
         );
+        if (resentSms) {
+          entry = (await updateStatus(existing.id, "notified")) ?? existing;
+        }
       }
     } else if (
       existing.status === "served" ||

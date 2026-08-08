@@ -62,6 +62,17 @@ function sessionCountdown(endsAt: string, nowMs: number): string {
   return `${hours}:${String(minutes).padStart(2, "0")}:${String(remainder).padStart(2, "0")}`;
 }
 
+function notificationElapsed(notifiedAt: string | undefined, nowMs: number): string {
+  if (!notifiedAt) return "just now";
+  const timestamp = new Date(notifiedAt).getTime();
+  if (!Number.isFinite(timestamp)) return "just now";
+  const seconds = Math.max(0, Math.floor((nowMs - timestamp) / 1000));
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const remainder = seconds % 60;
+  return `${hours}:${String(minutes).padStart(2, "0")}:${String(remainder).padStart(2, "0")}`;
+}
+
 export default function StaffPage() {
   const [secret, setSecret] = useState("");
   const [authenticated, setAuthenticated] = useState(false);
@@ -852,9 +863,16 @@ export default function StaffPage() {
                                 {i + 1}
                               </span>
                               <div>
-                                <p className="font-medium text-white">
-                                  {entry.name}
-                                </p>
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <p className="font-medium text-white">
+                                    {entry.name}
+                                  </p>
+                                  {entry.status === "notified" && (
+                                    <span className="rounded-md bg-amber-500/20 px-2 py-0.5 font-mono text-[11px] font-semibold tabular-nums text-amber-200">
+                                      Notified {notificationElapsed(entry.notifiedAt, nowMs)} ago
+                                    </span>
+                                  )}
+                                </div>
                                 <p className="text-xs text-neutral-500">
                                   {formatBookingSummary(
                                     activity,
