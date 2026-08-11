@@ -14,3 +14,10 @@ export function getAppBaseUrl(): string {
 export function statusPageUrl(entryId: string): string {
   return `${getAppBaseUrl()}/status/${entryId}`;
 }
+
+export function smsStatusCallbackUrl(
+  entryId: string,
+  kind: "join" | "notify" | "update",
+): string {
+  return `${getAppBaseUrl()}/api/twilio/status?entryId=${encodeURIComponent(entryId)}&kind=${kind}`;
+}

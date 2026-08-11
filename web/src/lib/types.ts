@@ -29,6 +29,18 @@ export interface WaitlistEntry {
   status: WaitlistStatus;
   createdAt: string;
   notifiedAt?: string;
+  notificationCount?: number;
+  joinSmsStatus?: string;
+  joinSmsSid?: string;
+  joinSmsErrorCode?: string;
+  joinSmsAt?: string;
+  lastSmsStatus?: string;
+  lastSmsSid?: string;
+  lastSmsKind?: string;
+  lastSmsErrorCode?: string;
+  lastSmsAt?: string;
+  smsConsentAt?: string;
+  smsConsentSource?: string;
 }
 
 export interface ActivityStats {

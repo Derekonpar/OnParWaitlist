@@ -73,6 +73,25 @@ function notificationElapsed(notifiedAt: string | undefined, nowMs: number): str
   return `${hours}:${String(minutes).padStart(2, "0")}:${String(remainder).padStart(2, "0")}`;
 }
 
+function smsStatusLabel(status?: string, errorCode?: string): string | null {
+  if (!status) return null;
+  if (status === "delivered") return "Delivered";
+  if (status === "sent") return "Sent to carrier";
+  if (status === "queued" || status === "accepted") return "Sending";
+  if (status === "failed" || status === "undelivered") {
+    return errorCode === "21610" ? "Blocked — opted out" : "Text not delivered";
+  }
+  return status.replaceAll("_", " ");
+}
+
+function smsStatusClass(status?: string): string {
+  if (status === "delivered") return "border-emerald-400/30 bg-emerald-500/15 text-emerald-200";
+  if (status === "failed" || status === "undelivered") {
+    return "border-red-400/40 bg-red-500/15 text-red-200";
+  }
+  return "border-sky-400/30 bg-sky-500/15 text-sky-200";
+}
+
 export default function StaffPage() {
   const [secret, setSecret] = useState("");
   const [authenticated, setAuthenticated] = useState(false);
@@ -112,7 +131,6 @@ export default function StaffPage() {
   const [addLastName, setAddLastName] = useState("");
   const [addPhone, setAddPhone] = useState("");
   const [addSms, setAddSms] = useState(false);
-  const [addRewards, setAddRewards] = useState(false);
   const [addLaneCount, setAddLaneCount] = useState<LaneCount>(1);
   const [addSessionMinutes, setAddSessionMinutes] =
     useState<SessionDuration>(defaultSessionMinutesFor("bowling"));
@@ -321,10 +339,16 @@ export default function StaffPage() {
         headers: headers(),
         body: JSON.stringify({ id }),
       });
+      const data = await res.json();
       if (!res.ok) {
-        const data = await res.json();
         alert(data.error ?? "Action failed");
         return;
+      }
+      if (endpoint.includes("notify") && data.smsSent === false) {
+        alert("Guest was marked called, but the text could not be sent. Check the SMS status on their card and confirm the phone number.");
+      }
+      if (endpoint.includes("recall") && data.resentSms === false) {
+        alert("The ready text was not resent. Check the guest's SMS consent and phone number.");
       }
       await fetchQueues();
       if (
@@ -393,7 +417,7 @@ export default function StaffPage() {
           lastName: addLastName,
           phone: addPhone,
           smsOptIn: addSms,
-          rewardsOptIn: addRewards,
+          rewardsOptIn: false,
           laneCount: addLaneCount,
           sessionMinutes: addSessionMinutes,
         }),
@@ -404,13 +428,12 @@ export default function StaffPage() {
         return;
       }
       setAddStatus(
-        `Added ${addFirstName} ${addLastName} to ${ACTIVITY_LABELS[addActivity]}`,
+        `Added ${addFirstName} ${addLastName} to ${ACTIVITY_LABELS[addActivity]}${addSms ? (data.smsSent ? " · confirmation text queued" : " · confirmation text failed") : ""}`,
       );
       setAddFirstName("");
       setAddLastName("");
       setAddPhone("");
       setAddSms(false);
-      setAddRewards(false);
       setAddLaneCount(1);
       setAddSessionMinutes(defaultSessionMinutesFor(addActivity));
       await fetchQueues();
@@ -718,8 +741,9 @@ export default function StaffPage() {
 
       {staffTab === "queue" && (
         <>
-      <section className="mb-8 rounded-2xl border border-white/10 bg-[#141414] p-5">
-        <h2 className="text-sm font-semibold text-white">Add to waitlist</h2>
+      <section className="mb-8 rounded-2xl border border-sky-400/30 bg-gradient-to-br from-sky-950/50 to-[#141414] p-5 shadow-lg shadow-sky-950/20">
+        <h2 className="text-base font-bold text-sky-100">Add guest to waitlist</h2>
+        <p className="mt-1 text-xs text-sky-200/60">Staff entry · confirm SMS consent with the guest</p>
         <form onSubmit={addGuest} className="mt-4 space-y-3">
           <select
             value={addActivity}
@@ -782,15 +806,6 @@ export default function StaffPage() {
             />
             SMS opt-in
           </label>
-          <label className="flex items-center gap-2 text-sm text-neutral-300">
-            <input
-              type="checkbox"
-              checked={addRewards}
-              onChange={(e) => setAddRewards(e.target.checked)}
-              className="rounded"
-            />
-            Rewards program
-          </label>
           <button
             type="submit"
             disabled={addLoading}
@@ -826,14 +841,28 @@ export default function StaffPage() {
           const nextResource = activeResourceSessions[0];
 
           return (
-            <section key={activity}>
-              <h2 className="mb-3 flex items-center gap-2 text-base font-semibold text-white">
-                <ActivityIcon activity={activity} className="h-5 w-5" />
-                {ACTIVITY_LABELS[activity]}
-                <span className="text-sm font-normal text-neutral-500">
-                  ({active.length})
+            <section
+              key={activity}
+              className="rounded-2xl border bg-[#101010] p-4"
+              style={{ borderColor: `${theme.accent}55` }}
+            >
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <h2 className="flex items-center gap-2 text-base font-bold text-white">
+                  <span
+                    className="flex h-8 w-8 items-center justify-center rounded-lg text-white"
+                    style={{ backgroundColor: theme.accent }}
+                  >
+                    <ActivityIcon activity={activity} className="h-5 w-5" />
+                  </span>
+                  {ACTIVITY_LABELS[activity]}
+                </h2>
+                <span
+                  className="rounded-full px-3 py-1 text-xs font-bold text-white"
+                  style={{ backgroundColor: `${theme.accent}BB` }}
+                >
+                  {active.length} waiting
                 </span>
-              </h2>
+              </div>
 
               {active.length === 0 && activeResourceSessions.length === 0 ? (
                 <p className="text-sm text-neutral-500">No one waiting</p>
@@ -850,8 +879,10 @@ export default function StaffPage() {
                           }
                           className={`w-full rounded-2xl border p-4 text-left transition ${
                             isSelected
-                              ? "border-white/30 bg-neutral-900"
-                              : "border-white/10 bg-[#141414] hover:border-white/20"
+                              ? "border-white/50 bg-neutral-800 ring-2 ring-white/10"
+                              : entry.status === "notified"
+                                ? "border-amber-400/60 bg-amber-950/30 shadow-md shadow-amber-950/20"
+                                : "border-white/10 bg-[#181818] hover:border-white/30"
                           }`}
                         >
                           <div className="flex items-center justify-between">
@@ -884,14 +915,21 @@ export default function StaffPage() {
                               </div>
                             </div>
                             <div className="flex gap-1.5">
-                              {entry.smsOptIn && (
-                                <span className="rounded bg-emerald-500/20 px-2 py-0.5 text-[10px] font-medium text-emerald-300">
-                                  SMS
+                              {entry.smsOptIn && smsStatusLabel(
+                                entry.status === "notified" ? entry.lastSmsStatus : entry.joinSmsStatus,
+                                entry.status === "notified" ? entry.lastSmsErrorCode : entry.joinSmsErrorCode,
+                              ) && (
+                                <span className={`rounded border px-2 py-0.5 text-[10px] font-bold ${smsStatusClass(entry.status === "notified" ? entry.lastSmsStatus : entry.joinSmsStatus)}`}>
+                                  {entry.status === "notified" ? "Ready text: " : "Join text: "}
+                                  {smsStatusLabel(
+                                    entry.status === "notified" ? entry.lastSmsStatus : entry.joinSmsStatus,
+                                    entry.status === "notified" ? entry.lastSmsErrorCode : entry.joinSmsErrorCode,
+                                  )}
                                 </span>
                               )}
                               {entry.status === "notified" && (
-                                <span className="rounded bg-amber-500/20 px-2 py-0.5 text-[10px] font-medium text-amber-300">
-                                  Called
+                                <span className="rounded bg-amber-400 px-2 py-0.5 text-[10px] font-black text-amber-950">
+                                  Notified {Math.max(1, entry.notificationCount ?? 0)}×
                                 </span>
                               )}
                             </div>

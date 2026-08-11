@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import type { EntertainmentReservation } from "@/lib/entertainment-schedule";
 import type { Activity } from "@/lib/types";
 
@@ -18,13 +19,13 @@ function time(value: string) {
   }).format(new Date(value));
 }
 
-function venueDate() {
+function venueDate(nowMs: number) {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/New_York",
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
-  }).formatToParts(new Date());
+  }).formatToParts(new Date(nowMs));
   const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
   return `${values.year}-${values.month}-${values.day}`;
 }
@@ -36,8 +37,12 @@ export function EntertainmentReservations({
   activity: Activity;
   reservations: EntertainmentReservation[];
 }) {
-  const today = venueDate();
-  const nowMs = Date.now();
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNowMs(Date.now()), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
+  const today = venueDate(nowMs);
   const relevant = reservations.filter(
     (reservation) =>
       reservation.operatingDate === today &&

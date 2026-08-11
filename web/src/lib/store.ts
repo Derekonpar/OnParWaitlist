@@ -90,6 +90,18 @@ function rowToEntry(row: Record<string, unknown>): WaitlistEntry {
     status: db.status,
     createdAt: db.created_at,
     notifiedAt: db.notified_at ?? undefined,
+    notificationCount: db.notification_count,
+    joinSmsStatus: db.join_sms_status ?? undefined,
+    joinSmsSid: db.join_sms_sid ?? undefined,
+    joinSmsErrorCode: db.join_sms_error_code ?? undefined,
+    joinSmsAt: db.join_sms_at ?? undefined,
+    lastSmsStatus: db.last_sms_status ?? undefined,
+    lastSmsSid: db.last_sms_sid ?? undefined,
+    lastSmsKind: db.last_sms_kind ?? undefined,
+    lastSmsErrorCode: db.last_sms_error_code ?? undefined,
+    lastSmsAt: db.last_sms_at ?? undefined,
+    smsConsentAt: db.sms_consent_at ?? undefined,
+    smsConsentSource: db.sms_consent_source ?? undefined,
   };
 }
 
@@ -465,6 +477,7 @@ export async function joinWaitlist(input: {
   rewardsOptIn?: boolean;
   laneCount?: LaneCount;
   sessionMinutes?: SessionDuration;
+  smsConsentSource?: string;
 }): Promise<WaitlistEntry> {
   return withStoreLock(async () => {
     const normalizedPhone = normalizePhone(input.phone);
@@ -496,9 +509,151 @@ export async function joinWaitlist(input: {
         input.sessionMinutes ?? defaultSessionMinutesFor(input.activity),
       status: "waiting",
       createdAt: new Date().toISOString(),
+      notificationCount: 0,
+      ...(input.smsOptIn
+        ? {
+            smsConsentAt: new Date().toISOString(),
+            smsConsentSource: input.smsConsentSource ?? "unspecified",
+          }
+        : {}),
     };
 
     return insertEntry(entry, customerId);
+  });
+}
+
+export type WaitlistSmsKind = "join" | "notify" | "update";
+
+export interface WaitlistSmsAttempt {
+  accepted: boolean;
+  sid?: string;
+  status: string;
+  errorCode?: string;
+}
+
+export async function recordSmsAttempt(
+  id: string,
+  kind: WaitlistSmsKind,
+  attempt: WaitlistSmsAttempt,
+): Promise<WaitlistEntry | null> {
+  return withStoreLock(async () => {
+    const now = new Date().toISOString();
+    const entries = await readAllUnsafe();
+    const existing = entries.find((entry) => entry.id === id);
+    if (!existing) return null;
+
+    const nextCount =
+      kind === "notify"
+        ? (existing.notificationCount ?? 0) + 1
+        : existing.notificationCount ?? 0;
+    const common = {
+      last_sms_sid: attempt.sid ?? null,
+      last_sms_status: attempt.status,
+      last_sms_kind: kind,
+      last_sms_error_code: attempt.errorCode ?? null,
+      last_sms_at: now,
+      notification_count: nextCount,
+      updatedAt: now,
+    };
+    const patch =
+      kind === "join"
+        ? {
+            ...common,
+            join_sms_sid: attempt.sid ?? null,
+            join_sms_status: attempt.status,
+            join_sms_error_code: attempt.errorCode ?? null,
+            join_sms_at: now,
+          }
+        : common;
+
+    const supabase = getSupabaseAdmin();
+    if (supabase) {
+      const { data, error } = await supabase
+        .from("waitlist_entries")
+        .update(patch)
+        .eq("id", id)
+        .select("*")
+        .maybeSingle();
+      if (error) {
+        logSupabaseError("record sms", error);
+        throw error;
+      }
+      return data ? rowToEntry(data as Record<string, unknown>) : null;
+    }
+
+    const index = entries.findIndex((entry) => entry.id === id);
+    entries[index] = {
+      ...entries[index],
+      notificationCount: nextCount,
+      lastSmsStatus: attempt.status,
+      lastSmsSid: attempt.sid,
+      lastSmsKind: kind,
+      lastSmsErrorCode: attempt.errorCode,
+      lastSmsAt: now,
+      ...(kind === "join"
+        ? {
+            joinSmsStatus: attempt.status,
+            joinSmsSid: attempt.sid,
+            joinSmsErrorCode: attempt.errorCode,
+            joinSmsAt: now,
+          }
+        : {}),
+    };
+    await writeAllUnsafe(entries);
+    return entries[index];
+  });
+}
+
+export async function recordSmsDelivery(
+  messageSid: string,
+  status: string,
+  errorCode?: string,
+): Promise<boolean> {
+  return withStoreLock(async () => {
+    const supabase = getSupabaseAdmin();
+    if (supabase) {
+      const { data: rows, error: readError } = await supabase
+        .from("waitlist_entries")
+        .select("id,join_sms_sid,last_sms_sid")
+        .or(`join_sms_sid.eq.${messageSid},last_sms_sid.eq.${messageSid}`)
+        .limit(1);
+      if (readError) throw readError;
+      const row = rows?.[0] as
+        | { id: string; join_sms_sid?: string; last_sms_sid?: string }
+        | undefined;
+      if (!row) return false;
+      const patch: Record<string, string | null> = {
+        updatedAt: new Date().toISOString(),
+      };
+      if (row.join_sms_sid === messageSid) {
+        patch.join_sms_status = status;
+        patch.join_sms_error_code = errorCode ?? null;
+      }
+      if (row.last_sms_sid === messageSid) {
+        patch.last_sms_status = status;
+        patch.last_sms_error_code = errorCode ?? null;
+      }
+      const { error } = await supabase
+        .from("waitlist_entries")
+        .update(patch)
+        .eq("id", row.id);
+      if (error) throw error;
+      return true;
+    }
+
+    const entries = await readFileAll();
+    const index = entries.findIndex(
+      (entry) =>
+        entry.joinSmsSid === messageSid || entry.lastSmsSid === messageSid,
+    );
+    if (index === -1) return false;
+    entries[index] = {
+      ...entries[index],
+      lastSmsStatus: status,
+      lastSmsErrorCode: errorCode,
+    };
+    await writeFileAll(entries);
+    return true;
   });
 }
 

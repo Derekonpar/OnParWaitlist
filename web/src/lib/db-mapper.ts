@@ -24,6 +24,18 @@ export function normalizeWaitlistRow(
   status: WaitlistStatus;
   created_at: string;
   notified_at: string | null;
+  notification_count: number;
+  join_sms_status: string | null;
+  join_sms_sid: string | null;
+  join_sms_error_code: string | null;
+  join_sms_at: string | null;
+  last_sms_status: string | null;
+  last_sms_sid: string | null;
+  last_sms_kind: string | null;
+  last_sms_error_code: string | null;
+  last_sms_at: string | null;
+  sms_consent_at: string | null;
+  sms_consent_source: string | null;
 } {
   const rawStatus = row.status ?? row.Status;
   const rawActivity = row.activity ?? row.Activity;
@@ -76,6 +88,18 @@ export function normalizeWaitlistRow(
     status,
     created_at: created ? String(created) : new Date().toISOString(),
     notified_at: notified ? String(notified) : null,
+    notification_count: Math.max(0, Number(row.notification_count ?? 0) || 0),
+    join_sms_status: row.join_sms_status ? String(row.join_sms_status) : null,
+    join_sms_sid: row.join_sms_sid ? String(row.join_sms_sid) : null,
+    join_sms_error_code: row.join_sms_error_code ? String(row.join_sms_error_code) : null,
+    join_sms_at: row.join_sms_at ? String(row.join_sms_at) : null,
+    last_sms_status: row.last_sms_status ? String(row.last_sms_status) : null,
+    last_sms_sid: row.last_sms_sid ? String(row.last_sms_sid) : null,
+    last_sms_kind: row.last_sms_kind ? String(row.last_sms_kind) : null,
+    last_sms_error_code: row.last_sms_error_code ? String(row.last_sms_error_code) : null,
+    last_sms_at: row.last_sms_at ? String(row.last_sms_at) : null,
+    sms_consent_at: row.sms_consent_at ? String(row.sms_consent_at) : null,
+    sms_consent_source: row.sms_consent_source ? String(row.sms_consent_source) : null,
   };
 }
 
@@ -90,6 +114,9 @@ export function waitlistInsertSnake(
     sessionMinutes: number;
     status: string;
     createdAt: string;
+    notificationCount?: number;
+    smsConsentAt?: string;
+    smsConsentSource?: string;
   },
   customerId: string | null,
 ) {
@@ -108,6 +135,9 @@ export function waitlistInsertSnake(
     status: entry.status,
     created_at: now,
     updatedAt: now,
+    notification_count: entry.notificationCount ?? 0,
+    sms_consent_at: entry.smsConsentAt ?? null,
+    sms_consent_source: entry.smsConsentSource ?? null,
   };
 }
 

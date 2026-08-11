@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { verifyStaffSecret } from "@/lib/auth";
-import { getEntryById, recallEntry, updateStatus } from "@/lib/store";
+import { getEntryById, recallEntry, recordSmsAttempt, updateStatus } from "@/lib/store";
 import { ACTIVITY_LABELS } from "@/lib/types";
 import { buildReadyMessage, sendSms } from "@/lib/twilio";
+import { smsStatusCallbackUrl } from "@/lib/app-url";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -41,14 +42,21 @@ export async function POST(request: Request) {
 
     if (existing.status === "notified") {
       if (existing.smsOptIn) {
-        resentSms = await sendSms(
+        const sms = await sendSms(
           existing.phone,
           buildReadyMessage(
             existing.name,
             ACTIVITY_LABELS[existing.activity],
           ),
+          smsStatusCallbackUrl(existing.id, "notify"),
         );
-        if (resentSms) {
+        try {
+          await recordSmsAttempt(existing.id, "notify", sms);
+        } catch (trackingError) {
+          console.error("[recall sms tracking]", trackingError);
+        }
+        resentSms = sms.accepted;
+        if (sms.accepted) {
           entry = (await updateStatus(existing.id, "notified")) ?? existing;
         }
       }

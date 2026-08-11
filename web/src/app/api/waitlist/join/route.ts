@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { joinWaitlist, getPosition } from "@/lib/store";
+import { joinWaitlist, getPosition, recordSmsAttempt } from "@/lib/store";
 import {
   ACTIVITIES,
   ACTIVITY_LABELS,
@@ -13,7 +13,7 @@ import {
   isValidSessionMinutes,
 } from "@/lib/booking";
 import { combineName } from "@/lib/names";
-import { statusPageUrl } from "@/lib/app-url";
+import { smsStatusCallbackUrl, statusPageUrl } from "@/lib/app-url";
 import { isSmsOptedOut } from "@/lib/sms-consent";
 import {
   buildJoinConfirmation,
@@ -41,7 +41,7 @@ const joinSchema = z.object({
         message: "Enter at least 10 digits",
       }),
   ),
-  smsOptIn: z.boolean(),
+  smsOptIn: z.literal(true),
   rewardsOptIn: z.boolean().optional(),
   laneCount: z.coerce.number().int().default(1),
   sessionMinutes: z.coerce.number().int().optional(),
@@ -80,6 +80,8 @@ function joinValidationMessage(details: {
   if (lane) return "Please choose a valid quantity.";
   const session = details.fieldErrors.sessionMinutes?.[0];
   if (session) return "Please choose a valid session length.";
+  const sms = details.fieldErrors.smsOptIn?.[0];
+  if (sms) return "Online waitlist signup includes transactional text updates. See the host for a non-SMS option.";
   return "Please check your entries and try again.";
 }
 
@@ -116,7 +118,7 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           error:
-            "This number has opted out of texts. Reply START to resubscribe, or join without SMS.",
+            "This number has opted out of texts. Reply START to resubscribe, or see the host for a non-SMS waitlist option.",
         },
         { status: 400 },
       );
@@ -139,6 +141,7 @@ export async function POST(request: Request) {
         rewardsOptIn: rewardsOptIn ?? false,
         laneCount: laneCount as LaneCount,
         sessionMinutes: selectedSessionMinutes as SessionDuration,
+        smsConsentSource: smsOptIn ? "website-primary-action-v1" : undefined,
       });
     } catch (e) {
       if (e instanceof Error && e.message === "INVALID_PHONE") {
@@ -154,7 +157,7 @@ export async function POST(request: Request) {
 
     let smsSent = false;
     if (smsOptIn) {
-      smsSent = await sendSms(
+      const sms = await sendSms(
         entry.phone,
         buildJoinConfirmation(
           entry.name,
@@ -162,7 +165,14 @@ export async function POST(request: Request) {
           position,
           statusPageUrl(entry.id),
         ),
+        smsStatusCallbackUrl(entry.id, "join"),
       );
+      try {
+        await recordSmsAttempt(entry.id, "join", sms);
+      } catch (trackingError) {
+        console.error("[join sms tracking]", trackingError);
+      }
+      smsSent = sms.accepted;
     }
 
     return NextResponse.json({ entry, position, smsSent });

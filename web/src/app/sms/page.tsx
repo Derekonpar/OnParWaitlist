@@ -53,15 +53,16 @@ export default function SmsPage() {
                 or scan the lobby QR code.
               </li>
               <li>Tap <strong className="text-white">Get on waitlist</strong> for an activity.</li>
+              <li>Enter your name and mobile number.</li>
               <li>
-                Enter your name and mobile number, then check{" "}
-                <strong className="text-white">Text me when I&apos;m up</strong>.
+                Review the consent disclosure, then tap{" "}
+                <strong className="text-white">Join waitlist &amp; receive texts</strong>.
               </li>
-              <li>Tap <strong className="text-white">Join waitlist</strong> to confirm.</li>
             </ol>
             <p className="mt-3 text-neutral-400">
-              Opt-in is voluntary. Unchecking the SMS box still lets you join the
-              waitlist without receiving texts.
+              Opt-in is voluntary and consent is not a condition of purchase.
+              Guests who prefer not to receive texts can ask the host for the
+              non-SMS waitlist option.
             </p>
           </article>
 

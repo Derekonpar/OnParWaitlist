@@ -22,7 +22,6 @@ export function JoinModal({ activity, onClose }: JoinModalProps) {
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [phone, setPhone] = useState("");
-  const [smsOptIn, setSmsOptIn] = useState(false);
   const [laneCount, setLaneCount] = useState<LaneCount>(1);
   const [sessionMinutes, setSessionMinutes] = useState<SessionDuration>(
     defaultSessionMinutesFor(activity),
@@ -33,6 +32,7 @@ export function JoinModal({ activity, onClose }: JoinModalProps) {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    const smsOptIn = true;
 
     if (!firstName.trim() || !lastName.trim()) {
       setError("Please enter your first and last name.");
@@ -174,24 +174,20 @@ export function JoinModal({ activity, onClose }: JoinModalProps) {
             onSessionMinutesChange={setSessionMinutes}
           />
 
-          <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-neutral-700 bg-neutral-900/80 p-4 has-[:checked]:border-emerald-500/50 has-[:checked]:bg-emerald-500/10">
-            <input
-              type="checkbox"
-              checked={smsOptIn}
-              onChange={(e) => setSmsOptIn(e.target.checked)}
-              className="mt-1 h-4 w-4 rounded border-neutral-600 text-emerald-500 focus:ring-emerald-500"
-            />
-            <span className="text-sm leading-relaxed text-neutral-400">
-              <span className="font-medium text-neutral-100">
-                Text me when I&apos;m up
-              </span>
-              <br />
-              Optional SMS alerts. Standard rates may apply.{" "}
-              <a href="/sms" className="underline hover:text-neutral-200">
-                SMS program details
-              </a>
+          <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-xs leading-relaxed text-emerald-50/90">
+            By choosing <strong>Join &amp; get text updates</strong>, you agree
+            to receive transactional waitlist texts from On Par Entertainment
+            at the number provided. Message frequency varies. Message and data
+            rates may apply. Reply STOP to opt out or HELP for help. Consent is
+            not a condition of purchase.{" "}
+            <a href="/sms" className="font-semibold underline hover:text-white">
+              SMS terms and privacy
+            </a>
+            <span className="mt-2 block text-emerald-100/70">
+              Prefer not to receive texts? Please see the host for a non-SMS
+              waitlist option.
             </span>
-          </label>
+          </div>
 
           {error && (
             <p className="rounded-xl bg-red-500/15 px-3 py-2 text-sm text-red-300">
@@ -199,22 +195,22 @@ export function JoinModal({ activity, onClose }: JoinModalProps) {
             </p>
           )}
 
-          <div className="flex gap-3 pt-1">
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex-1 rounded-xl border border-neutral-600 px-4 py-3 text-sm font-medium text-neutral-200 hover:bg-neutral-800"
-            >
-              Cancel
-            </button>
+          <div className="pt-1">
             <button
               type="submit"
               disabled={loading}
-              className="flex-1 rounded-xl bg-white px-4 py-3 text-sm font-semibold text-neutral-900 hover:bg-neutral-100 disabled:opacity-60"
+              className="w-full rounded-xl bg-emerald-400 px-4 py-3 text-sm font-bold text-emerald-950 hover:bg-emerald-300 disabled:opacity-60"
             >
-              {loading ? "Joining…" : "Join waitlist"}
+              {loading ? "Joining…" : "Join waitlist & receive texts"}
             </button>
           </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="w-full py-1 text-xs text-neutral-500 hover:text-neutral-300"
+          >
+            Cancel
+          </button>
         </form>
       </div>
     </div>

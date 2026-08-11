@@ -10,25 +10,50 @@ function getClient() {
   return twilio(sid, token);
 }
 
-export async function sendSms(to: string, body: string): Promise<boolean> {
+export interface SmsSendResult {
+  accepted: boolean;
+  sid?: string;
+  status: string;
+  errorCode?: string;
+}
+
+export async function sendSms(
+  to: string,
+  body: string,
+  statusCallback?: string,
+): Promise<SmsSendResult> {
   if (await isSmsOptedOut(to)) {
-    console.warn("[twilio] Skipped — number opted out:", to);
-    return false;
+    console.warn("[twilio] Skipped — number opted out");
+    return { accepted: false, status: "failed", errorCode: "21610" };
   }
 
   const client = getClient();
   const from = readEnv("TWILIO_PHONE_NUMBER");
   if (!client || !from) {
-    console.warn("[twilio] Missing credentials — SMS not sent:", { to, body });
-    return false;
+    console.warn("[twilio] Missing credentials — SMS not sent");
+    return { accepted: false, status: "failed", errorCode: "CONFIGURATION" };
   }
 
   try {
-    await client.messages.create({ to, from, body });
-    return true;
+    const message = await client.messages.create({
+      to,
+      from,
+      body,
+      ...(statusCallback ? { statusCallback } : {}),
+    });
+    return {
+      accepted: true,
+      sid: message.sid,
+      status: message.status ?? "queued",
+      errorCode: message.errorCode ? String(message.errorCode) : undefined,
+    };
   } catch (err) {
-    console.error("[twilio] Send failed:", err);
-    return false;
+    const code =
+      typeof err === "object" && err && "code" in err
+        ? String((err as { code?: unknown }).code ?? "SEND_FAILED")
+        : "SEND_FAILED";
+    console.error("[twilio] Send failed", { code });
+    return { accepted: false, status: "failed", errorCode: code };
   }
 }
 

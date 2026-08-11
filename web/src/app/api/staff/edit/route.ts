@@ -4,6 +4,7 @@ import { verifyStaffSecret } from "@/lib/auth";
 import {
   getEntryById,
   getPosition,
+  recordSmsAttempt,
   updateEntryDetails,
 } from "@/lib/store";
 import {
@@ -14,7 +15,7 @@ import {
 import type { LaneCount, SessionDuration } from "@/lib/types";
 import { ACTIVITY_LABELS } from "@/lib/types";
 import { buildWaitlistUpdate, sendSms } from "@/lib/twilio";
-import { statusPageUrl } from "@/lib/app-url";
+import { smsStatusCallbackUrl, statusPageUrl } from "@/lib/app-url";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -61,22 +62,30 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Guest not found" }, { status: 404 });
     }
     const position = (await getPosition(entry.id))?.position ?? 1;
-    const smsSent = entry.smsOptIn
-      ? await sendSms(
-          entry.phone,
-          buildWaitlistUpdate(
-            entry.name,
-            ACTIVITY_LABELS[entry.activity],
-            formatBookingSummary(
-              entry.activity,
-              entry.laneCount,
-              entry.sessionMinutes,
-            ),
-            position,
-            statusPageUrl(entry.id),
+    let smsSent = false;
+    if (entry.smsOptIn) {
+      const sms = await sendSms(
+        entry.phone,
+        buildWaitlistUpdate(
+          entry.name,
+          ACTIVITY_LABELS[entry.activity],
+          formatBookingSummary(
+            entry.activity,
+            entry.laneCount,
+            entry.sessionMinutes,
           ),
-        )
-      : false;
+          position,
+          statusPageUrl(entry.id),
+        ),
+        smsStatusCallbackUrl(entry.id, "update"),
+      );
+      try {
+        await recordSmsAttempt(entry.id, "update", sms);
+      } catch (trackingError) {
+        console.error("[staff edit sms tracking]", trackingError);
+      }
+      smsSent = sms.accepted;
+    }
     return NextResponse.json({ entry, position, smsSent });
   } catch (error) {
     if (error instanceof Error && error.message === "ALREADY_ON_WAITLIST") {

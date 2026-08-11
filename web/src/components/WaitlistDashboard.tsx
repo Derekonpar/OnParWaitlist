@@ -46,11 +46,14 @@ export function WaitlistDashboard({ initialBoard }: WaitlistDashboardProps) {
   }, []);
 
   useEffect(() => {
-    void fetchBoard();
+    const initial = window.setTimeout(() => void fetchBoard(), 0);
     // Live integrations are shared-cached for 15 seconds. Polling faster adds
     // load during busy periods without producing fresher lane information.
     const interval = setInterval(() => void fetchBoard(), 15000);
-    return () => clearInterval(interval);
+    return () => {
+      window.clearTimeout(initial);
+      clearInterval(interval);
+    };
   }, [fetchBoard]);
 
   return (
