@@ -495,6 +495,11 @@ async function getStoredSnapshot(): Promise<DartseeLaneSnapshot | null> {
   }
 }
 
+/** Read the shared last-known-good snapshot without polling Dartsee. */
+export async function getStoredDartseeLaneSnapshot(): Promise<DartseeLaneSnapshot | null> {
+  return getStoredSnapshot();
+}
+
 async function saveStoredSnapshot(snapshot: DartseeLaneSnapshot) {
   const supabase = getSupabaseAdmin();
   if (!supabase) return;
