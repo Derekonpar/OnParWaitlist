@@ -184,8 +184,9 @@ export function JoinModal({ activity, onClose }: JoinModalProps) {
               SMS terms and privacy
             </a>
             <span className="mt-2 block text-emerald-100/70">
-              Prefer not to receive texts? Please see the host for a non-SMS
-              waitlist option.
+              Your name will be shown on our public waitlist screens. Self-service
+              signup requires text updates. If you do not want texts, see a staff
+              member to be added manually and watch the TV waitlist for your name.
             </span>
           </div>
 

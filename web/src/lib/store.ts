@@ -315,6 +315,7 @@ async function patchEntryStatus(
 
 export interface QueuePreview {
   id: string;
+  name: string;
   position: number;
   status: WaitlistStatus;
   laneCount: number;
@@ -410,6 +411,7 @@ export async function getBoard(): Promise<ActivityBoard[]> {
       stats: buildStats(activity, entries, liveLanes[activity]),
       queue: waiting.map((e, i) => ({
         id: e.id,
+        name: e.name,
         position: i + 1,
         status: e.status,
         laneCount: e.laneCount,

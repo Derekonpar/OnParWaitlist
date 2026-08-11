@@ -78,7 +78,7 @@ export function TvWaitBoard({ initialBoard }: TvWaitBoardProps) {
       </header>
 
       <section className="grid min-h-0 min-w-0 flex-1 grid-cols-2 grid-rows-2 gap-[clamp(0.65rem,1.4vw,1.5rem)]">
-        {board.map(({ stats }) => {
+        {board.map(({ stats, queue }) => {
           const theme = ACTIVITY_THEME[stats.activity];
           const open = stats.estimatedWaitMinutes <= 0;
           return (
@@ -121,6 +121,17 @@ export function TvWaitBoard({ initialBoard }: TvWaitBoardProps) {
                     </span>
                   </p>
                 )}
+                <div className="mt-[clamp(0.45rem,0.8vh,0.8rem)] flex min-w-0 items-center gap-2 border-t border-white/15 pt-[clamp(0.45rem,0.8vh,0.8rem)]">
+                  <span className="shrink-0 text-[clamp(0.55rem,0.7vw,0.75rem)] font-bold uppercase tracking-wider text-white/60">
+                    Waiting
+                  </span>
+                  <p className="min-w-0 truncate text-[clamp(0.75rem,1.15vw,1.35rem)] font-semibold text-white/90">
+                    {queue.length
+                      ? queue.slice(0, 4).map((person) => person.name).join(" · ")
+                      : "No parties"}
+                    {queue.length > 4 ? ` · +${queue.length - 4} more` : ""}
+                  </p>
+                </div>
               </div>
             </article>
           );

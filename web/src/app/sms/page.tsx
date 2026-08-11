@@ -61,8 +61,9 @@ export default function SmsPage() {
             </ol>
             <p className="mt-3 text-neutral-400">
               Opt-in is voluntary and consent is not a condition of purchase.
-              Guests who prefer not to receive texts can ask the host for the
-              non-SMS waitlist option.
+              Self-service signup requires text updates. Guests who do not want
+              texts must ask staff to add them manually and watch the TV waitlist
+              for their publicly displayed name.
             </p>
           </article>
 
