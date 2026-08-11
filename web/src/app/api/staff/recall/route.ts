@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { verifyStaffSecret } from "@/lib/auth";
-import { getEntryById, recallEntry, recordSmsAttempt, updateStatus } from "@/lib/store";
+import { confirmSmsConsent, getEntryById, recallEntry, recordSmsAttempt, updateStatus } from "@/lib/store";
 import { ACTIVITY_LABELS } from "@/lib/types";
 import { buildReadyMessage, sendSms } from "@/lib/twilio";
 import { smsStatusCallbackUrl } from "@/lib/app-url";
@@ -11,6 +11,7 @@ export const runtime = "nodejs";
 
 const schema = z.object({
   id: z.string().uuid(),
+  confirmSmsConsent: z.boolean().optional(),
 });
 
 export async function POST(request: Request) {
@@ -25,7 +26,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Invalid id" }, { status: 400 });
     }
 
-    const existing = await getEntryById(parsed.data.id);
+    let existing = await getEntryById(parsed.data.id);
     if (!existing) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
@@ -41,6 +42,18 @@ export async function POST(request: Request) {
     let resentSms = false;
 
     if (existing.status === "notified") {
+      if (!existing.smsOptIn && !parsed.data.confirmSmsConsent) {
+        return NextResponse.json(
+          {
+            error: "SMS consent must be confirmed before resending this older record.",
+            code: "SMS_CONSENT_REQUIRED",
+          },
+          { status: 409 },
+        );
+      }
+      if (!existing.smsOptIn) {
+        existing = (await confirmSmsConsent(existing.id)) ?? existing;
+      }
       if (existing.smsOptIn) {
         const sms = await sendSms(
           existing.phone,

@@ -334,12 +334,26 @@ export default function StaffPage() {
   async function staffAction(endpoint: string, id: string) {
     setActionId(id);
     try {
-      const res = await fetch(endpoint, {
+      let res = await fetch(endpoint, {
         method: "POST",
         headers: headers(),
         body: JSON.stringify({ id }),
       });
-      const data = await res.json();
+      let data = await res.json();
+      if (
+        res.status === 409 &&
+        data.code === "SMS_CONSENT_REQUIRED" &&
+        window.confirm(
+          "This older entry does not have recorded SMS consent. Confirm that the guest agreed to receive waitlist texts, then resend?",
+        )
+      ) {
+        res = await fetch(endpoint, {
+          method: "POST",
+          headers: headers(),
+          body: JSON.stringify({ id, confirmSmsConsent: true }),
+        });
+        data = await res.json();
+      }
       if (!res.ok) {
         alert(data.error ?? "Action failed");
         return;

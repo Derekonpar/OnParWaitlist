@@ -89,15 +89,14 @@ export default function StatusPage() {
               )}
             </p>
             <p className="mt-1 text-xs text-neutral-500">
-              Only you can see your name — the public waitlist shows your spot,
-              not your name
+              Your name is shown on the public waitlist and TV display.
             </p>
 
             {smsFailed && (
               <p className="mt-4 rounded-xl bg-amber-500/15 px-4 py-3 text-sm text-amber-200">
                 You&apos;re on the list, but we couldn&apos;t send a
-                confirmation text. Staff can still call your name — or watch
-                this screen for updates.
+                confirmation text. Watch the public TV waitlist or this screen
+                for your turn.
               </p>
             )}
 

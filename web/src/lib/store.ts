@@ -666,6 +666,43 @@ export async function updateStatus(
   return withStoreLock(() => patchEntryStatus(id, status));
 }
 
+export async function confirmSmsConsent(
+  id: string,
+  source = "staff-resend-confirmation-v1",
+): Promise<WaitlistEntry | null> {
+  return withStoreLock(async () => {
+    const consentAt = new Date().toISOString();
+    const supabase = getSupabaseAdmin();
+    if (supabase) {
+      const { data, error } = await supabase
+        .from("waitlist_entries")
+        .update({
+          sms_opt_in: true,
+          sms_consent_at: consentAt,
+          sms_consent_source: source,
+          updatedAt: consentAt,
+        })
+        .eq("id", id)
+        .select("*")
+        .maybeSingle();
+      if (error) throw error;
+      return data ? rowToEntry(data as Record<string, unknown>) : null;
+    }
+
+    const entries = await readFileAll();
+    const index = entries.findIndex((entry) => entry.id === id);
+    if (index === -1) return null;
+    entries[index] = {
+      ...entries[index],
+      smsOptIn: true,
+      smsConsentAt: consentAt,
+      smsConsentSource: source,
+    };
+    await writeFileAll(entries);
+    return entries[index];
+  });
+}
+
 export async function updateEntryDetails(
   id: string,
   input: {
