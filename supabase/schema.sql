@@ -206,7 +206,7 @@ create table if not exists activity_resource_sessions (
   starts_at timestamptz not null,
   ends_at timestamptz not null,
   duration_minutes integer not null
-    check (duration_minutes in (60, 120)),
+    check (duration_minutes in (30, 60, 120)),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   primary key (resource_type, resource_id),

@@ -463,7 +463,7 @@ export default function StaffPage() {
     resourceId: string;
     guestName: string;
     startsAt: string;
-    durationMinutes: 60 | 120;
+    durationMinutes: 30 | 60 | 120;
   }): Promise<boolean> {
     const key = `${input.resourceType}:${input.resourceId}`;
     setResourceBusyKey(key);

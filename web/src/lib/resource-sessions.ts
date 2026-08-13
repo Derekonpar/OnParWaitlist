@@ -9,7 +9,7 @@ export interface TimedResourceSession {
   guestName: string;
   startsAt: string;
   endsAt: string;
-  durationMinutes: 60 | 120;
+  durationMinutes: 30 | 60 | 120;
 }
 
 export const TIMED_RESOURCES: Record<
@@ -17,9 +17,9 @@ export const TIMED_RESOURCES: Record<
   { id: string; label: string }[]
 > = {
   pool: [
-    { id: "red", label: "Red pool table" },
-    { id: "green", label: "Green pool table" },
-    { id: "blue", label: "Blue pool table" },
+    { id: "red", label: "Red pool rack" },
+    { id: "green", label: "Green pool rack" },
+    { id: "blue", label: "Blue pool rack" },
   ],
   shuffleboard: [
     { id: "1", label: "Shuffleboard 1" },
@@ -34,7 +34,7 @@ function rowToSession(row: Record<string, unknown>): TimedResourceSession {
     guestName: String(row.guest_name),
     startsAt: String(row.starts_at),
     endsAt: String(row.ends_at),
-    durationMinutes: Number(row.duration_minutes) as 60 | 120,
+    durationMinutes: Number(row.duration_minutes) as 30 | 60 | 120,
   };
 }
 
@@ -57,7 +57,7 @@ export async function saveTimedResourceSession(input: {
   resourceId: string;
   guestName: string;
   startsAt: string;
-  durationMinutes: 60 | 120;
+  durationMinutes: 30 | 60 | 120;
 }): Promise<TimedResourceSession> {
   const supabase = getSupabaseAdmin();
   if (!supabase) throw new Error("STORAGE_NOT_CONFIGURED");

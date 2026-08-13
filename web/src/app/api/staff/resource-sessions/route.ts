@@ -33,7 +33,7 @@ const saveSchema = resourceSchema.and(
   z.object({
     guestName: z.string().trim().min(1).max(80),
     startsAt: z.string().datetime(),
-    durationMinutes: z.union([z.literal(60), z.literal(120)]),
+    durationMinutes: z.union([z.literal(30), z.literal(60), z.literal(120)]),
   }),
 );
 

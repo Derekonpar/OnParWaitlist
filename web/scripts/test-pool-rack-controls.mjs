@@ -1,0 +1,31 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+
+const component = readFileSync(new URL("../src/components/TimedResourcePlanner.tsx", import.meta.url), "utf8");
+const resources = readFileSync(new URL("../src/lib/resource-sessions.ts", import.meta.url), "utf8");
+const route = readFileSync(new URL("../src/app/api/staff/resource-sessions/route.ts", import.meta.url), "utf8");
+const staffPage = readFileSync(new URL("../src/app/staff/page.tsx", import.meta.url), "utf8");
+const schema = readFileSync(new URL("../../supabase/schema.sql", import.meta.url), "utf8");
+const migration = readFileSync(
+  new URL("../../supabase/migrations/20260813000000_allow_30_minute_resource_sessions.sql", import.meta.url),
+  "utf8",
+);
+
+for (const label of ["Red pool rack", "Green pool rack", "Blue pool rack"]) {
+  assert.match(resources, new RegExp(`label: \\"${label}\\"`), `${label} must replace the old table wording`);
+}
+assert.doesNotMatch(resources, /pool table/, "Pool resource labels must not use table wording");
+assert.match(component, /resourceType === "pool"/, "Pool must have a dedicated condensed control path");
+assert.match(component, /30 minutes/, "Pool duration menu must offer 30 minutes");
+assert.match(component, /1 hour/, "Pool duration menu must default to and offer 1 hour");
+assert.match(component, /2 hours/, "Pool duration menu must offer 2 hours");
+assert.match(component, /Start rack/, "Each available Pool rack must have a direct start button");
+assert.match(component, /guestName: "Walk-in"/, "Condensed Pool starts must supply a non-sensitive internal session label");
+assert.match(route, /z\.literal\(30\)/, "The staff API must accept 30-minute sessions");
+assert.match(resources, /30 \| 60 \| 120/, "Stored session types must support 30-minute sessions");
+assert.match(staffPage, /durationMinutes: 30 \| 60 \| 120/, "The staff page request path must carry 30-minute sessions");
+assert.match(schema, /duration_minutes in \(30, 60, 120\)/, "The canonical schema must allow 30-minute sessions");
+assert.match(migration, /drop constraint if exists activity_resource_sessions_duration_minutes_check/, "The migration must replace the duration check safely");
+assert.match(migration, /duration_minutes in \(30, 60, 120\)/, "The migration must allow 30-minute sessions");
+
+console.log("Condensed Pool rack controls regression test passed.");
