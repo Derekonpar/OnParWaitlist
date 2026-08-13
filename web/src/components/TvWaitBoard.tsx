@@ -26,18 +26,25 @@ export function TvWaitBoard({ initialBoard }: TvWaitBoardProps) {
 
   const refresh = useCallback(async () => {
     const sequence = ++refreshSequence.current;
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 7_000);
     try {
-      const response = await fetch("/api/waitlist/board", { cache: "no-store" });
+      const response = await fetch("/api/waitlist/board", {
+        cache: "no-store",
+        signal: controller.signal,
+      });
       if (!response.ok) throw new Error("refresh failed");
       const data = await response.json();
       if (sequence !== refreshSequence.current) return;
       if (Array.isArray(data.board) && data.board.length === 4) {
-        setBoard(data.board);
+        if (!data.stale) setBoard(data.board);
         setUpdatedAt(data.updatedAt ?? null);
-        setConnected(true);
+        setConnected(!data.stale);
       }
     } catch {
       if (sequence === refreshSequence.current) setConnected(false);
+    } finally {
+      window.clearTimeout(timeout);
     }
   }, []);
 
