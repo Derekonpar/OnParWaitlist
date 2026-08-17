@@ -5,6 +5,10 @@ const board = readFileSync(
   new URL("../src/components/TvWaitBoard.tsx", import.meta.url),
   "utf8",
 );
+const customerCard = readFileSync(
+  new URL("../src/components/ActivityCard.tsx", import.meta.url),
+  "utf8",
+);
 
 assert.doesNotMatch(board, /Walk on/i, "Zero-minute live activities must not say Walk On");
 assert.match(board, /["']No Wait["']/, "Zero-minute live activities must say No Wait");
@@ -16,8 +20,23 @@ const karaokeCard = board.match(
 assert.ok(karaokeCard, "The Karaoke status card must be present");
 assert.match(
   karaokeCard,
-  /status="Wait"/,
-  "Karaoke must show the approved fixed Wait status",
+  /status="No Wait"/,
+  "Karaoke must show the approved fixed No Wait status",
+);
+assert.doesNotMatch(
+  board,
+  /Connecting to live waits|Reconnecting|showing last known waits/,
+  "The TV clock must not show connection or reconnecting status copy",
+);
+assert.doesNotMatch(
+  customerCard,
+  /Walk on/i,
+  "Customer signup cards must not use Walk On wording",
+);
+assert.match(
+  customerCard,
+  /No Wait/,
+  "Customer signup cards must use No Wait for zero-minute waits",
 );
 assert.match(board, /src="\/waitlist-qr\.png"/, "The TV board must display the waitlist QR code");
 assert.match(

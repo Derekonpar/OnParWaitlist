@@ -62,7 +62,7 @@ export function ActivityCard({ board, onJoin }: ActivityCardProps) {
                   </span>
                 </>
               ) : (
-                <span className="text-emerald-200">Walk on</span>
+                <span className="text-emerald-200">No Wait</span>
               )}
             </p>
           </div>

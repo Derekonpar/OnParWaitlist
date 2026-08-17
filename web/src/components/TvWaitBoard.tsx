@@ -107,9 +107,7 @@ function EntertainmentCard({
 
 export function TvWaitBoard({ initialBoard }: TvWaitBoardProps) {
   const [board, setBoard] = useState(initialBoard);
-  const [updatedAt, setUpdatedAt] = useState<string | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
-  const [connected, setConnected] = useState(true);
   const refreshSequence = useRef(0);
 
   const refresh = useCallback(async () => {
@@ -126,11 +124,9 @@ export function TvWaitBoard({ initialBoard }: TvWaitBoardProps) {
       if (sequence !== refreshSequence.current) return;
       if (Array.isArray(data.board) && data.board.length === 4) {
         if (!data.stale) setBoard(data.board);
-        setUpdatedAt(data.updatedAt ?? null);
-        setConnected(!data.stale);
       }
     } catch {
-      if (sequence === refreshSequence.current) setConnected(false);
+      // Keep the last known board while the next scheduled refresh retries.
     } finally {
       window.clearTimeout(timeout);
     }
@@ -161,13 +157,6 @@ export function TvWaitBoard({ initialBoard }: TvWaitBoardProps) {
         <div className="text-right">
           <p className="text-[clamp(1.25rem,2.4vw,2.6rem)] font-bold tabular-nums">
             {clockLabel(nowMs)}
-          </p>
-          <p className={`text-[clamp(0.65rem,0.9vw,0.9rem)] font-semibold ${connected ? "text-emerald-300" : "text-amber-300"}`}>
-            {connected
-              ? updatedAt
-                ? "Live · updates automatically"
-                : "Connecting to live waits…"
-              : "Reconnecting · showing last known waits"}
           </p>
         </div>
       </header>
@@ -222,8 +211,8 @@ export function TvWaitBoard({ initialBoard }: TvWaitBoardProps) {
           label="Karaoke"
           icon={<KaraokeIcon />}
           gradient="from-violet-700 via-fuchsia-700 to-pink-700"
-          status="Wait"
-          statusTone="text-amber-200"
+          status="No Wait"
+          statusTone="text-emerald-200"
           statusLabel="Current status"
           detail="Hosted rotation"
         />
