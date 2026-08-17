@@ -100,7 +100,7 @@ export function JoinModal({ activity, onClose }: JoinModalProps) {
                 Join {ACTIVITY_LABELS[activity]}
               </h2>
               <p className="text-sm text-white/80">
-                Your name stays private — only staff see it
+                Your name will appear on the public waitlist and TV
               </p>
             </div>
           </div>

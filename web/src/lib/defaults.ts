@@ -8,6 +8,7 @@ export function emptyBoard(): ActivityBoard[] {
       label: ACTIVITY_LABELS[activity],
       waitingCount: 0,
       estimatedWaitMinutes: 0,
+      availabilityStatus: "unknown",
     },
     queue: [],
   }));

@@ -23,10 +23,15 @@ assert.match(
   /status="No Wait"/,
   "Karaoke must show the approved fixed No Wait status",
 );
-assert.doesNotMatch(
+assert.match(
   board,
-  /Connecting to live waits|Reconnecting|showing last known waits/,
-  "The TV clock must not show connection or reconnecting status copy",
+  /Updating · showing last known/,
+  "The TV clock must identify last-known data during a live refresh failure",
+);
+assert.match(
+  board,
+  /availabilityStatus === "live"/,
+  "The TV board must not label unknown live-feed availability as No Wait",
 );
 assert.doesNotMatch(
   customerCard,

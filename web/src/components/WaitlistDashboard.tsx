@@ -22,16 +22,28 @@ export function WaitlistDashboard({ initialBoard }: WaitlistDashboardProps) {
   const [joinActivity, setJoinActivity] = useState<Activity | null>(null);
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
   const refreshSequenceRef = useRef(0);
+  const refreshControllerRef = useRef<AbortController | null>(null);
 
   const fetchBoard = useCallback(async () => {
+    if (refreshControllerRef.current) return;
+
     const sequence = ++refreshSequenceRef.current;
+    const controller = new AbortController();
+    refreshControllerRef.current = controller;
+    const timeout = window.setTimeout(() => controller.abort(), 7_000);
+    setLoading(true);
     try {
       const res = await fetch("/api/waitlist/board", {
         cache: "no-store",
+        signal: controller.signal,
       });
       if (!res.ok) throw new Error("fetch failed");
       const data = await res.json();
       if (sequence !== refreshSequenceRef.current) return;
+      if (data.stale) {
+        setError("Live waits are updating — showing the last known waitlist.");
+        return;
+      }
       if (Array.isArray(data.board) && data.board.length > 0) {
         setBoard(data.board);
         setLastUpdated(data.updatedAt ?? null);
@@ -41,7 +53,13 @@ export function WaitlistDashboard({ initialBoard }: WaitlistDashboardProps) {
       if (sequence !== refreshSequenceRef.current) return;
       setError("Could not refresh — showing last known wait times.");
     } finally {
-      if (sequence === refreshSequenceRef.current) setLoading(false);
+      window.clearTimeout(timeout);
+      if (refreshControllerRef.current === controller) {
+        refreshControllerRef.current = null;
+      }
+      if (sequence === refreshSequenceRef.current) {
+        setLoading(false);
+      }
     }
   }, []);
 
@@ -53,6 +71,9 @@ export function WaitlistDashboard({ initialBoard }: WaitlistDashboardProps) {
     return () => {
       window.clearTimeout(initial);
       clearInterval(interval);
+      refreshSequenceRef.current += 1;
+      refreshControllerRef.current?.abort();
+      refreshControllerRef.current = null;
     };
   }, [fetchBoard]);
 

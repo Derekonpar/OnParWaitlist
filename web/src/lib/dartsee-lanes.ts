@@ -41,6 +41,10 @@ const STORAGE_BUCKET = "onpar-state";
 const STORAGE_PATH = "dartsee-lanes/current.json";
 const STORAGE_LOCK_PREFIX = "dartsee-lanes/refresh-lock";
 const REFRESH_LEASE_WINDOW_MS = 15_000;
+const STORED_SNAPSHOT_READ_CACHE_MS = 5_000;
+const REFRESH_IN_FLIGHT_GUARD_MS = 30_000;
+const LEASE_LOSER_RETRY_MS = 3_000;
+const REFRESH_ERROR_RETRY_MS = 15_000;
 const DEFAULT_BOARD_IDS = [
   "beavercreek01",
   "beavercreek02",
@@ -60,7 +64,12 @@ let authCache: DartseeAuth | null = null;
 let snapshotCache:
   | { snapshot: DartseeLaneSnapshot | null; expiresAt: number }
   | null = null;
-let snapshotRequest: Promise<DartseeLaneSnapshot | null> | null = null;
+// Cloudflare may reuse a module across otherwise isolated requests. Never put
+// request-bound promises here: an in-flight fetch/WebSocket promise cannot be
+// safely awaited by a different request. These timestamps are only best-effort
+// in-isolate throttles; the durable storage lease coordinates across isolates.
+let nextRefreshAttemptAt = 0;
+let nextStoredReadAt = 0;
 
 function envNumber(name: string, fallback: number): number {
   const value = Number(readEnv(name));
@@ -473,11 +482,44 @@ async function retryMissingBoards(
   };
 }
 
+function rememberSnapshot(
+  snapshot: DartseeLaneSnapshot | null,
+  cacheMs: number,
+) {
+  snapshotCache = {
+    snapshot,
+    expiresAt: Date.now() + cacheMs,
+  };
+}
+
+function snapshotAgeMs(
+  snapshot: DartseeLaneSnapshot | null,
+  nowMs = Date.now(),
+): number {
+  if (!snapshot) return Number.POSITIVE_INFINITY;
+  const capturedAt = new Date(snapshot.capturedAt).getTime();
+  return Number.isFinite(capturedAt)
+    ? Math.max(0, nowMs - capturedAt)
+    : Number.POSITIVE_INFINITY;
+}
+
 async function getStoredSnapshot(): Promise<DartseeLaneSnapshot | null> {
+  const now = Date.now();
+  if (snapshotCache && now < snapshotCache.expiresAt) {
+    return snapshotCache.snapshot;
+  }
+  const lastKnown = snapshotCache?.snapshot ?? null;
+  if (now < nextStoredReadAt) return lastKnown;
+  // Claim the read window before downloading so concurrent public polls do not
+  // fan out into identical storage reads. They safely receive last-known data.
+  nextStoredReadAt = now + STORED_SNAPSHOT_READ_CACHE_MS;
   const supabase = getSupabaseAdmin();
-  if (!supabase) return null;
+  if (!supabase) return lastKnown;
   const { data, error } = await supabase.storage.from(STORAGE_BUCKET).download(STORAGE_PATH);
-  if (error) return null;
+  if (error) {
+    rememberSnapshot(lastKnown, STORED_SNAPSHOT_READ_CACHE_MS);
+    return lastKnown;
+  }
   try {
     const snapshot = JSON.parse(await data.text()) as DartseeLaneSnapshot;
     // Older isolates may have persisted a partial flag before the sustained
@@ -487,11 +529,19 @@ async function getStoredSnapshot(): Promise<DartseeLaneSnapshot | null> {
       snapshot.healthStatus === "partial" &&
       (snapshot.consecutiveIncompleteRefreshes ?? 0) < 20
     ) {
-      return { ...snapshot, healthStatus: "ok", healthMessage: undefined };
+      const tolerated = {
+        ...snapshot,
+        healthStatus: "ok" as const,
+        healthMessage: undefined,
+      };
+      rememberSnapshot(tolerated, STORED_SNAPSHOT_READ_CACHE_MS);
+      return tolerated;
     }
+    rememberSnapshot(snapshot, STORED_SNAPSHOT_READ_CACHE_MS);
     return snapshot;
   } catch {
-    return null;
+    rememberSnapshot(lastKnown, STORED_SNAPSHOT_READ_CACHE_MS);
+    return lastKnown;
   }
 }
 
@@ -581,82 +631,84 @@ function mergeLastKnown(
 
 export async function getDartseeLaneSnapshot(): Promise<DartseeLaneSnapshot | null> {
   const cacheMs = envNumber("DARTSEE_CACHE_MS", 15000);
-  if (snapshotCache && Date.now() < snapshotCache.expiresAt) {
+  const startedAt = Date.now();
+  if (
+    snapshotCache &&
+    startedAt < snapshotCache.expiresAt &&
+    snapshotAgeMs(snapshotCache.snapshot, startedAt) < cacheMs
+  ) {
     return snapshotCache.snapshot;
   }
 
-  if (snapshotRequest) return snapshotRequest;
+  // Set this before the first await so another request in the same isolate
+  // returns cached data instead of sharing this request's I/O or starting a
+  // second storage/login/WebSocket chain.
+  if (startedAt < nextRefreshAttemptAt) {
+    return snapshotCache?.snapshot ?? null;
+  }
+  nextRefreshAttemptAt = startedAt + REFRESH_IN_FLIGHT_GUARD_MS;
 
-  snapshotRequest = (async () => {
-    try {
-      // The storage snapshot is shared across Worker isolates. Reading it
-      // before connecting prevents every customer/staff poll from opening a
-      // separate Dartsee login and WebSocket during busy periods.
-      const stored = await getStoredSnapshot();
-      const storedCapturedAt = stored
-        ? new Date(stored.capturedAt).getTime()
-        : Number.NaN;
-      if (
-        stored &&
-        Number.isFinite(storedCapturedAt) &&
-        Date.now() - storedCapturedAt < cacheMs
-      ) {
-        snapshotCache = { snapshot: stored, expiresAt: Date.now() + cacheMs };
-        return stored;
-      }
-
-      const ownsRefresh = await acquireRefreshLease();
-      if (!ownsRefresh) {
-        // Give the lease owner time to publish its fresh snapshot. Returning
-        // immediately caused separate isolates to display different old
-        // capture times during a traffic burst.
-        await new Promise((resolve) => setTimeout(resolve, 2_000));
-        const refreshed = await getStoredSnapshot();
-        if (refreshed) {
-          snapshotCache = {
-            snapshot: refreshed,
-            expiresAt: Date.now() + Math.min(cacheMs, 5_000),
-          };
-          return refreshed;
-        }
-        return stored;
-      }
-
-      const token = await getAccessToken();
-      if (!token) return null;
-      const initialSnapshot = await readLiveSnapshot(boardIds(), token);
-      const liveSnapshot = initialSnapshot
-        ? await retryMissingBoards(initialSnapshot, token)
-        : null;
-      if (!liveSnapshot) return null;
-      const snapshot = mergeLastKnown(liveSnapshot, stored);
-      await saveStoredSnapshot(snapshot);
-      snapshotCache = { snapshot, expiresAt: Date.now() + cacheMs };
-      return snapshot;
-    } catch (err) {
-      console.error("[dartsee lanes]", err);
-      authCache = null;
-      const previous = await getStoredSnapshot();
-      if (!previous) {
-        snapshotCache = { snapshot: null, expiresAt: Date.now() + cacheMs };
-        return null;
-      }
-      const now = new Date().toISOString();
-      const snapshot: DartseeLaneSnapshot = {
-        ...previous,
-        receivedAt: now,
-        healthStatus: "auth-error",
-        healthMessage: "Dartsee login or API access failed. Last known lane status is shown. Verify the Dartsee account and Central service.",
-        healthUpdatedAt: now,
-      };
-      snapshotCache = { snapshot, expiresAt: Date.now() + cacheMs };
-      return snapshot;
-    } finally {
-      snapshotRequest = null;
+  let stored: DartseeLaneSnapshot | null = snapshotCache?.snapshot ?? null;
+  try {
+    // The storage snapshot is shared across Worker isolates. Reading it before
+    // connecting prevents every customer/staff poll from opening a separate
+    // Dartsee login and WebSocket during busy periods.
+    stored = await getStoredSnapshot();
+    if (stored && snapshotAgeMs(stored) < cacheMs) {
+      rememberSnapshot(stored, cacheMs);
+      nextRefreshAttemptAt = Date.now() + cacheMs;
+      return stored;
     }
-  })();
 
-  return snapshotRequest;
+    const ownsRefresh = await acquireRefreshLease();
+    if (!ownsRefresh) {
+      // The owner will publish to durable storage. A loser must not sleep or
+      // reread storage inside `after()`; the next normal poll will see it.
+      nextRefreshAttemptAt = Date.now() + LEASE_LOSER_RETRY_MS;
+      return stored;
+    }
+
+    const token = await getAccessToken();
+    if (!token) {
+      nextRefreshAttemptAt = Date.now() + REFRESH_ERROR_RETRY_MS;
+      return stored;
+    }
+    const initialSnapshot = await readLiveSnapshot(boardIds(), token);
+    const liveSnapshot = initialSnapshot
+      ? await retryMissingBoards(initialSnapshot, token)
+      : null;
+    if (!liveSnapshot) {
+      nextRefreshAttemptAt = Date.now() + REFRESH_ERROR_RETRY_MS;
+      return stored;
+    }
+    const snapshot = mergeLastKnown(
+      liveSnapshot,
+      stored ?? snapshotCache?.snapshot ?? null,
+    );
+    await saveStoredSnapshot(snapshot);
+    rememberSnapshot(snapshot, cacheMs);
+    nextRefreshAttemptAt = Date.now() + cacheMs;
+    return snapshot;
+  } catch (err) {
+    console.error("[dartsee lanes]", err);
+    authCache = null;
+    const previous = stored ?? snapshotCache?.snapshot ?? null;
+    nextRefreshAttemptAt = Date.now() + REFRESH_ERROR_RETRY_MS;
+    if (!previous) {
+      rememberSnapshot(null, Math.min(cacheMs, REFRESH_ERROR_RETRY_MS));
+      return null;
+    }
+    const now = new Date().toISOString();
+    const snapshot: DartseeLaneSnapshot = {
+      ...previous,
+      receivedAt: now,
+      healthStatus: "auth-error",
+      healthMessage: "Dartsee login or API access failed. Last known lane status is shown. Verify the Dartsee account and Central service.",
+      healthUpdatedAt: now,
+    };
+    rememberSnapshot(snapshot, Math.min(cacheMs, REFRESH_ERROR_RETRY_MS));
+    return snapshot;
+  }
 }
 
 export function dartseeSnapshotToAvailability(

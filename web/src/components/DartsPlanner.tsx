@@ -18,6 +18,8 @@ interface DartsPlannerProps {
   reservations?: EntertainmentReservation[];
 }
 
+const DARTSEE_STALE_AFTER_MS = 60_000;
+
 function freshnessLabel(snapshot: DartseeLaneSnapshot | null, nowMs: number) {
   if (!snapshot || nowMs === 0) return "No feed";
   if (snapshot.healthStatus !== "ok") return "Needs attention";
@@ -52,6 +54,16 @@ function reservationTime(value: string) {
 
 export function DartsPlanner({ snapshot, entries, reservations = [] }: DartsPlannerProps) {
   const [nowMs, setNowMs] = useState(() => Date.now());
+  const capturedAtMs = snapshot
+    ? new Date(snapshot.capturedAt).getTime()
+    : Number.NaN;
+  const feedStale =
+    !Number.isFinite(capturedAtMs) ||
+    nowMs - capturedAtMs > DARTSEE_STALE_AFTER_MS;
+  const feedUnavailable =
+    !snapshot ||
+    feedStale ||
+    (snapshot.healthStatus !== "ok" && snapshot.healthStatus !== "partial");
 
   useEffect(() => {
     const interval = window.setInterval(() => setNowMs(Date.now()), 1000);
@@ -103,7 +115,8 @@ export function DartsPlanner({ snapshot, entries, reservations = [] }: DartsPlan
 
       <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
         {plan.lanes.map((lane) => {
-          const machineOffline = unresponsiveBoards.has(lane.boardId);
+          const machineOffline =
+            feedUnavailable || unresponsiveBoards.has(lane.boardId);
           const assignment = assignmentsByBoard.get(lane.boardId);
           const ids = [`darts-${lane.lane}`, `dart-${lane.lane}`];
           const laneReservations = reservations
@@ -201,11 +214,13 @@ export function DartsPlanner({ snapshot, entries, reservations = [] }: DartsPlan
         })}
       </div>
 
-      {snapshot && snapshot.healthStatus !== "ok" && (
+      {snapshot && (snapshot.healthStatus !== "ok" || feedStale) && (
         <div className="rounded-xl border border-red-400 bg-red-700 p-4 text-white" role="alert">
           <p className="text-sm font-semibold">Dartsee feed needs attention</p>
           <p className="mt-1 text-xs text-red-100">
-            {unresponsiveLaneNumbers.length
+            {feedStale
+              ? "No fresh Dartsee snapshot has arrived for over 1 minute. Go check the Dartsee machine and Central dashboard."
+              : unresponsiveLaneNumbers.length
               ? `Dart lane${unresponsiveLaneNumbers.length === 1 ? "" : "s"} ${unresponsiveLaneNumbers.join(", ")} ${unresponsiveLaneNumbers.length === 1 ? "is" : "are"} not responding. Go check the machine.`
               : snapshot.healthMessage ?? "One or more dart lanes could not be read."}
           </p>

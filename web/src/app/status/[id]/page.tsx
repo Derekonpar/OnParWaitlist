@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { formatBookingSummary } from "@/lib/booking";
@@ -19,6 +19,7 @@ interface StatusData {
   };
   position: number;
   estimatedWaitMinutes: number;
+  availabilityStatus: "live" | "unknown";
 }
 
 export default function StatusPage() {
@@ -27,30 +28,66 @@ export default function StatusPage() {
   const id = params.id as string;
   const smsFailed = searchParams.get("sms") === "failed";
   const [data, setData] = useState<StatusData | null>(null);
-  const [error, setError] = useState(false);
+  const [notFound, setNotFound] = useState(false);
+  const [refreshError, setRefreshError] = useState(false);
+  const refreshSequenceRef = useRef(0);
+  const refreshControllerRef = useRef<AbortController | null>(null);
 
-  useEffect(() => {
-    async function load() {
+  const load = useCallback(async () => {
+    if (refreshControllerRef.current) return;
+
+    const sequence = ++refreshSequenceRef.current;
+    const controller = new AbortController();
+    refreshControllerRef.current = controller;
+    const timeout = window.setTimeout(() => controller.abort(), 7_000);
+    try {
       const res = await fetch(`/api/waitlist/status/${id}`, {
         cache: "no-store",
+        signal: controller.signal,
       });
-      if (!res.ok) {
-        setError(true);
+      if (sequence !== refreshSequenceRef.current) return;
+      if (res.status === 404) {
+        setData(null);
+        setNotFound(true);
+        setRefreshError(false);
         return;
       }
-      setData(await res.json());
-      setError(false);
+      if (!res.ok) throw new Error("refresh failed");
+
+      const nextData = await res.json();
+      if (sequence !== refreshSequenceRef.current) return;
+      setData(nextData);
+      setNotFound(false);
+      setRefreshError(false);
+    } catch {
+      if (sequence === refreshSequenceRef.current) {
+        setRefreshError(true);
+      }
+    } finally {
+      window.clearTimeout(timeout);
+      if (refreshControllerRef.current === controller) {
+        refreshControllerRef.current = null;
+      }
     }
-    load();
-    const interval = setInterval(load, 5000);
-    return () => clearInterval(interval);
   }, [id]);
+
+  useEffect(() => {
+    const initial = window.setTimeout(() => void load(), 0);
+    const interval = window.setInterval(() => void load(), 15_000);
+    return () => {
+      window.clearTimeout(initial);
+      window.clearInterval(interval);
+      refreshSequenceRef.current += 1;
+      refreshControllerRef.current?.abort();
+      refreshControllerRef.current = null;
+    };
+  }, [load]);
 
   return (
     <>
       <Header />
       <main className="mx-auto flex max-w-lg flex-1 flex-col items-center justify-center px-5 py-12 text-center">
-        {error && (
+        {notFound && (
           <div>
             <p className="text-neutral-400">Waitlist entry not found.</p>
             <Link
@@ -62,12 +99,24 @@ export default function StatusPage() {
           </div>
         )}
 
-        {!error && !data && (
-          <div className="h-8 w-8 animate-spin rounded-full border-2 border-neutral-700 border-t-white" />
+        {!notFound && !data && (
+          <div>
+            <div className="mx-auto h-8 w-8 animate-spin rounded-full border-2 border-neutral-700 border-t-white" />
+            {refreshError && (
+              <p className="mt-4 text-sm text-amber-200">
+                Live status is taking longer than expected. Retrying…
+              </p>
+            )}
+          </div>
         )}
 
         {data && (
           <div className="w-full">
+            {refreshError && (
+              <p className="mb-5 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+                Live status is updating — showing your last known place.
+              </p>
+            )}
             <div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-full bg-emerald-500/20 text-2xl text-emerald-300">
               ✓
             </div>
@@ -109,7 +158,9 @@ export default function StatusPage() {
                   #{data.position}
                 </p>
                 <p className="mt-4 text-neutral-400">
-                  Estimated wait ~{data.estimatedWaitMinutes} min
+                  {data.availabilityStatus === "live"
+                    ? `Estimated wait ~${data.estimatedWaitMinutes} min`
+                    : "Live lane timing is updating. Your position is current."}
                 </p>
               </div>
             ) : data.entry.status === "notified" ? (

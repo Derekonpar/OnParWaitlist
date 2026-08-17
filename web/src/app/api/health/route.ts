@@ -1,12 +1,26 @@
 import { NextResponse } from "next/server";
 import { getBowlingLaneSnapshot } from "@/lib/bowling-lanes";
 import { getStoredDartseeLaneSnapshot } from "@/lib/dartsee-lanes";
+import { getStoredEntertainmentSchedule } from "@/lib/entertainment-schedule";
 import { getStorageStatus } from "@/lib/store";
+import { withDeadline } from "@/lib/async-deadline";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 type VersionMetadata = { id?: string };
+type DependencyStatus = "ok" | "degraded" | "unavailable";
+
+const HEALTH_READ_TIMEOUT_MS = 2_000;
+const BOWLING_FRESH_FOR_MS = 120_000;
+const DARTSEE_FRESH_FOR_MS = 60_000;
+const SCHEDULE_FRESH_FOR_MS = 120_000;
+
+function isFresh(value: string | undefined, maxAgeMs: number, nowMs: number) {
+  if (!value) return false;
+  const timestamp = new Date(value).getTime();
+  return Number.isFinite(timestamp) && nowMs - timestamp <= maxAgeMs;
+}
 
 function buildIdentifier() {
   try {
@@ -24,21 +38,61 @@ function buildIdentifier() {
 
 export async function GET() {
   const checkedAt = new Date().toISOString();
-  const [storage, bowling, darts] = await Promise.all([
-    getStorageStatus().catch(() => ({ backend: "none" as const, canWrite: false })),
-    getBowlingLaneSnapshot().catch(() => null),
-    getStoredDartseeLaneSnapshot().catch(() => null),
+  const nowMs = Date.now();
+  const [storage, bowling, darts, schedule] = await Promise.all([
+    withDeadline(
+      getStorageStatus().catch(() => ({
+        backend: "none" as const,
+        canWrite: false,
+      })),
+      HEALTH_READ_TIMEOUT_MS,
+      { backend: "none" as const, canWrite: false },
+    ),
+    withDeadline(
+      getBowlingLaneSnapshot().catch(() => null),
+      HEALTH_READ_TIMEOUT_MS,
+      null,
+    ),
+    withDeadline(
+      getStoredDartseeLaneSnapshot().catch(() => null),
+      HEALTH_READ_TIMEOUT_MS,
+      null,
+    ),
+    withDeadline(
+      getStoredEntertainmentSchedule().catch(() => null),
+      HEALTH_READ_TIMEOUT_MS,
+      null,
+    ),
   ]);
 
-  const storageStatus = storage.canWrite ? "ok" : "unavailable";
-  const bowlingStatus = bowling
-    ? bowling.healthStatus === "ok" ? "ok" : "degraded"
+  const storageStatus: DependencyStatus = storage.canWrite
+    ? "ok"
     : "unavailable";
-  const dartsStatus = darts
-    ? darts.healthStatus === "ok" ? "ok" : "degraded"
-    : "unavailable";
-  const status = storageStatus === "ok" && bowlingStatus !== "unavailable" && dartsStatus !== "unavailable"
-    ? bowlingStatus === "ok" && dartsStatus === "ok" ? "ok" : "degraded"
+  const bowlingStatus: DependencyStatus = !bowling
+    ? "unavailable"
+    : bowling.healthStatus === "ok" &&
+        isFresh(bowling.capturedAt, BOWLING_FRESH_FOR_MS, nowMs)
+      ? "ok"
+      : "degraded";
+  const dartsStatus: DependencyStatus = !darts
+    ? "unavailable"
+    : darts.healthStatus === "ok" &&
+        isFresh(darts.capturedAt, DARTSEE_FRESH_FOR_MS, nowMs)
+      ? "ok"
+      : "degraded";
+  const scheduleStatus: DependencyStatus = !schedule
+    ? "unavailable"
+    : isFresh(schedule.fetchedAt, SCHEDULE_FRESH_FOR_MS, nowMs)
+      ? "ok"
+      : "degraded";
+  const dependencyStatuses = [
+    storageStatus,
+    bowlingStatus,
+    dartsStatus,
+    scheduleStatus,
+  ];
+  const status = dependencyStatuses.every((value) => value === "ok")
+    ? "ok"
     : "degraded";
 
   return NextResponse.json(
@@ -60,6 +114,10 @@ export async function GET() {
           capturedAt: darts?.capturedAt ?? null,
           receivedAt: darts?.receivedAt ?? null,
           healthUpdatedAt: darts?.healthUpdatedAt ?? null,
+        },
+        entertainmentSchedule: {
+          status: scheduleStatus,
+          fetchedAt: schedule?.fetchedAt ?? null,
         },
       },
     },

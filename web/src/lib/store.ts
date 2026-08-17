@@ -11,6 +11,8 @@ import { defaultSessionMinutesFor } from "./booking";
 import { getLiveLaneAvailability } from "./live-lane-availability";
 import {
   activityQueueWait,
+  hasCompleteActivityAvailability,
+  hasCompleteTargetAvailability,
   type ResourceLaneAvailability,
   waitMinutesAhead,
 } from "./wait-estimate";
@@ -27,12 +29,32 @@ import {
 
 const DATA_DIR = path.join(process.cwd(), "data");
 const DATA_FILE = path.join(DATA_DIR, "waitlist.json");
+const ACTIVE_WAITLIST_STATUSES = [
+  ...statusForDb("waiting"),
+  ...statusForDb("notified"),
+];
+const ACTIVE_ENTRY_SELECT =
+  "id,activity,name,status,created_at,partySize,estimated_wait_minutes";
+const STAFF_ARCHIVE_SELECT =
+  "id,activity,name,phone,status,created_at,partySize,estimated_wait_minutes";
+const STAFF_RECENT_HISTORY_LIMIT = 40;
+const STAFF_ARCHIVE_PAGE_SIZE = 25;
+const STAFF_ARCHIVE_MAX_PAGE_SIZE = 50;
 
-let storeLock: Promise<unknown> = Promise.resolve();
+let localFileStoreLock: Promise<unknown> = Promise.resolve();
 
-function withStoreLock<T>(fn: () => Promise<T>): Promise<T> {
-  const run = storeLock.then(fn, fn);
-  storeLock = run.catch(() => {});
+function withLocalFileFallbackLock<T>(fn: () => Promise<T>): Promise<T> {
+  // Supabase provides its own concurrency controls. A serverless request with
+  // missing storage must also fail independently instead of queuing behind an
+  // unrelated request's promise.
+  if (getSupabaseAdmin() || isServerlessHost()) return fn();
+
+  // The local fallback uses read-modify-write JSON operations. Serialize only
+  // those filesystem paths so concurrent local mutations cannot overwrite one
+  // another. Reads also pass through here because readAllUnsafe may purge a
+  // stale legacy row from the local file.
+  const run = localFileStoreLock.then(fn, fn);
+  localFileStoreLock = run.catch(() => {});
   return run;
 }
 
@@ -132,13 +154,6 @@ async function sanitizeStaleEntries(
   return kept;
 }
 
-function sortByCreatedAt(rows: WaitlistEntry[]): WaitlistEntry[] {
-  return [...rows].sort(
-    (a, b) =>
-      new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
-  );
-}
-
 function logSupabaseError(context: string, error: { message: string; code?: string; details?: string; hint?: string }) {
   console.error(`[store:${context}]`, error.message, error.code, error.details, error.hint);
 }
@@ -185,21 +200,236 @@ async function upsertCustomer(
 }
 
 async function readAllUnsafe(): Promise<WaitlistEntry[]> {
-  const supabase = getSupabaseAdmin();
-  if (supabase) {
-    const { data, error } = await supabase.from("waitlist_entries").select("*");
-    if (error) {
-      logSupabaseError("read", error);
-      throw error;
-    }
-    const entries = sortByCreatedAt(
-      (data ?? []).map((row) => rowToEntry(row as Record<string, unknown>)),
-    );
-    return sanitizeStaleEntries(entries);
-  }
-
   if (isServerlessHost()) throw new Error("STORAGE_NOT_CONFIGURED");
   return sanitizeStaleEntries(await readFileAll());
+}
+
+/**
+ * Public wait calculations need only active queue rows and scheduling fields.
+ * Keep phone, consent, SMS delivery, customer, and historical rows out of the
+ * high-frequency board/status payload read from Supabase.
+ */
+async function readActiveEntriesUnsafe(): Promise<WaitlistEntry[]> {
+  const supabase = getSupabaseAdmin();
+  if (supabase) {
+    const { data, error } = await supabase
+      .from("waitlist_entries")
+      .select(ACTIVE_ENTRY_SELECT)
+      .in("status", ACTIVE_WAITLIST_STATUSES)
+      .order("created_at", { ascending: true });
+    if (error) {
+      logSupabaseError("read active", error);
+      throw error;
+    }
+    return sanitizeStaleEntries(
+      (data ?? []).map((row) => rowToEntry(row as Record<string, unknown>)),
+    );
+  }
+
+  const entries = await readAllUnsafe();
+  return entries.filter(
+    (entry) => entry.status === "waiting" || entry.status === "notified",
+  );
+}
+
+async function readEntryByIdUnsafe(id: string): Promise<WaitlistEntry | null> {
+  const supabase = getSupabaseAdmin();
+  if (supabase) {
+    const { data, error } = await supabase
+      .from("waitlist_entries")
+      .select("*")
+      .eq("id", id)
+      .maybeSingle();
+    if (error) {
+      logSupabaseError("read entry", error);
+      throw error;
+    }
+    return data ? rowToEntry(data as Record<string, unknown>) : null;
+  }
+
+  const entries = await readAllUnsafe();
+  return entries.find((entry) => entry.id === id) ?? null;
+}
+
+/**
+ * Staff refreshes happen every 15 seconds, so keep that hot path bounded:
+ * every active guest plus only the newest served/removed entries used by the
+ * recall strip. Archived history is loaded separately when staff open it.
+ */
+async function readStaffQueueEntriesUnsafe(): Promise<WaitlistEntry[]> {
+  const supabase = getSupabaseAdmin();
+  if (supabase) {
+    const activeStatuses = [
+      ...statusForDb("waiting"),
+      ...statusForDb("notified"),
+    ];
+    const historyStatuses = [
+      ...statusForDb("served"),
+      ...statusForDb("cancelled"),
+    ];
+    const [activeResult, historyResult] = await Promise.all([
+      supabase
+        .from("waitlist_entries")
+        .select("*")
+        .in("status", activeStatuses)
+        .order("created_at", { ascending: true }),
+      supabase
+        .from("waitlist_entries")
+        .select("*")
+        .in("status", historyStatuses)
+        .order("created_at", { ascending: false })
+        .limit(STAFF_RECENT_HISTORY_LIMIT),
+    ]);
+    if (activeResult.error) {
+      logSupabaseError("read staff active", activeResult.error);
+      throw activeResult.error;
+    }
+    if (historyResult.error) {
+      logSupabaseError("read staff recent history", historyResult.error);
+      throw historyResult.error;
+    }
+    const activeEntries = await sanitizeStaleEntries(
+      (activeResult.data ?? []).map((row) =>
+        rowToEntry(row as Record<string, unknown>),
+      ),
+    );
+    const historyEntries = (historyResult.data ?? []).map((row) =>
+      rowToEntry(row as Record<string, unknown>),
+    );
+    return [...activeEntries, ...historyEntries];
+  }
+
+  const entries = await readAllUnsafe();
+  const activeEntries = entries.filter(
+    (entry) => entry.status === "waiting" || entry.status === "notified",
+  );
+  const historyEntries = entries
+    .filter(
+      (entry) => entry.status === "served" || entry.status === "cancelled",
+    )
+    .sort(
+      (left, right) =>
+        new Date(right.createdAt).getTime() -
+        new Date(left.createdAt).getTime(),
+    )
+    .slice(0, STAFF_RECENT_HISTORY_LIMIT);
+  return [...activeEntries, ...historyEntries];
+}
+
+export type StaffArchiveEntry = Pick<
+  WaitlistEntry,
+  "id" | "activity" | "name" | "phone" | "status" | "createdAt"
+>;
+
+function toStaffArchiveEntry(entry: WaitlistEntry): StaffArchiveEntry {
+  return {
+    id: entry.id,
+    activity: entry.activity,
+    name: entry.name,
+    phone: entry.phone,
+    status: entry.status,
+    createdAt: entry.createdAt,
+  };
+}
+
+export interface StaffArchivePage {
+  entries: StaffArchiveEntry[];
+  page: number;
+  pageSize: number;
+  hasMore: boolean;
+}
+
+/** Read a single bounded page of archived guests for the on-demand staff UI. */
+export async function getStaffArchivePage(options: {
+  query?: string;
+  page?: number;
+  pageSize?: number;
+} = {}): Promise<StaffArchivePage> {
+  const query = options.query?.trim().slice(0, 80) ?? "";
+  const page = Math.max(1, Math.floor(options.page ?? 1));
+  const pageSize = Math.min(
+    STAFF_ARCHIVE_MAX_PAGE_SIZE,
+    Math.max(1, Math.floor(options.pageSize ?? STAFF_ARCHIVE_PAGE_SIZE)),
+  );
+  const offset = (page - 1) * pageSize;
+  const supabase = getSupabaseAdmin();
+
+  if (supabase) {
+    let request = supabase
+      .from("waitlist_entries")
+      .select(STAFF_ARCHIVE_SELECT)
+      .in("status", statusForDb("archived"))
+      .order("created_at", { ascending: false });
+    if (query) request = request.ilike("name", `%${query}%`);
+    const { data, error } = await request.range(offset, offset + pageSize);
+    if (error) {
+      logSupabaseError("read staff archive", error);
+      throw error;
+    }
+    const rows = (data ?? []).map((row) =>
+      toStaffArchiveEntry(rowToEntry(row as Record<string, unknown>)),
+    );
+    return {
+      entries: rows.slice(0, pageSize),
+      page,
+      pageSize,
+      hasMore: rows.length > pageSize,
+    };
+  }
+
+  return withLocalFileFallbackLock(async () => {
+    const normalizedQuery = query.toLowerCase();
+    const entries = (await readAllUnsafe())
+      .filter((entry) => entry.status === "archived")
+      .filter(
+        (entry) =>
+          !normalizedQuery || entry.name.toLowerCase().includes(normalizedQuery),
+      )
+      .sort(
+        (left, right) =>
+          new Date(right.createdAt).getTime() -
+          new Date(left.createdAt).getTime(),
+      );
+    const rows = entries.slice(offset, offset + pageSize + 1);
+    return {
+      entries: rows.slice(0, pageSize).map(toStaffArchiveEntry),
+      page,
+      pageSize,
+      hasMore: rows.length > pageSize,
+    };
+  });
+}
+
+async function hasActiveDuplicateUnsafe(
+  activity: Activity,
+  phone: string,
+  excludeId?: string,
+): Promise<boolean> {
+  const supabase = getSupabaseAdmin();
+  if (supabase) {
+    let request = supabase
+      .from("waitlist_entries")
+      .select("id")
+      .eq("activity", activity)
+      .eq("phone", phone)
+      .in("status", ACTIVE_WAITLIST_STATUSES);
+    if (excludeId) request = request.neq("id", excludeId);
+    const { data, error } = await request.limit(1);
+    if (error) {
+      logSupabaseError("duplicate check", error);
+      throw error;
+    }
+    return Boolean(data?.length);
+  }
+
+  const entries = await readAllUnsafe();
+  return entries.some(
+    (entry) =>
+      entry.id !== excludeId &&
+      entry.activity === activity &&
+      entry.phone === phone &&
+      (entry.status === "waiting" || entry.status === "notified"),
+  );
 }
 
 async function writeAllUnsafe(entries: WaitlistEntry[]): Promise<void> {
@@ -369,8 +599,10 @@ export async function getStorageStatus(): Promise<{
 }
 
 export async function getStats(): Promise<ActivityStats[]> {
-  const entries = await withStoreLock(readAllUnsafe);
-  const liveLanes = await getLiveLaneAvailability();
+  const [entries, liveLanes] = await Promise.all([
+    withLocalFileFallbackLock(readActiveEntriesUnsafe),
+    getLiveLaneAvailability({ refreshRemote: false }),
+  ]);
   return ACTIVITIES.map((activity) =>
     buildStats(activity, entries, liveLanes[activity]),
   );
@@ -389,12 +621,17 @@ function buildStats(
     label: ACTIVITY_LABELS[activity],
     waitingCount: waiting.length,
     estimatedWaitMinutes: activityQueueWait(activity, entries, lanes),
+    availabilityStatus: hasCompleteActivityAvailability(activity, entries, lanes)
+      ? "live"
+      : "unknown",
   };
 }
 
 export async function getBoard(): Promise<ActivityBoard[]> {
-  const entries = await withStoreLock(readAllUnsafe);
-  const liveLanes = await getLiveLaneAvailability();
+  const [entries, liveLanes] = await Promise.all([
+    withLocalFileFallbackLock(readActiveEntriesUnsafe),
+    getLiveLaneAvailability({ refreshRemote: false }),
+  ]);
   return ACTIVITIES.map((activity) => {
     const waiting = entries
       .filter(
@@ -424,7 +661,7 @@ export async function getBoard(): Promise<ActivityBoard[]> {
 export async function getStaffQueues(): Promise<
   { activity: Activity; queue: WaitlistEntry[] }[]
 > {
-  const entries = await withStoreLock(readAllUnsafe);
+  const entries = await withLocalFileFallbackLock(readStaffQueueEntriesUnsafe);
   return ACTIVITIES.map((activity) => ({
     activity,
     queue: entries
@@ -437,17 +674,17 @@ export async function getStaffQueues(): Promise<
 }
 
 export async function getEstimatedWaitMinutes(id: string): Promise<number> {
-  const entries = await withStoreLock(readAllUnsafe);
+  const entries = await withLocalFileFallbackLock(readActiveEntriesUnsafe);
   const entry = entries.find((e) => e.id === id);
   if (!entry || entry.status !== "waiting") return 0;
-  const liveLanes = await getLiveLaneAvailability();
+  const liveLanes = await getLiveLaneAvailability({ refreshRemote: false });
   return waitMinutesAhead(entries, entry, liveLanes[entry.activity]);
 }
 
-export async function getPosition(
+function getPositionFromEntries(
+  entries: WaitlistEntry[],
   id: string,
-): Promise<{ entry: WaitlistEntry; position: number } | null> {
-  const entries = await withStoreLock(readAllUnsafe);
+): { entry: WaitlistEntry; position: number } | null {
   const entry = entries.find((e) => e.id === id);
   if (!entry) return null;
   if (
@@ -471,6 +708,52 @@ export async function getPosition(
   return { entry, position: ahead.length + 1 };
 }
 
+export async function getPosition(
+  id: string,
+): Promise<{ entry: WaitlistEntry; position: number } | null> {
+  const entries = await withLocalFileFallbackLock(readActiveEntriesUnsafe);
+  return getPositionFromEntries(entries, id);
+}
+
+export interface WaitlistStatusSnapshot {
+  entry: WaitlistEntry;
+  position: number;
+  estimatedWaitMinutes: number;
+  availabilityStatus: "live" | "unknown";
+}
+
+/**
+ * Read a guest status from one queue snapshot. The previous route loaded the
+ * entire queue once for position and again for its estimate, then blocked on
+ * remote live feeds. This keeps both values internally consistent and uses
+ * only shared last-known-good lane data.
+ */
+export async function getWaitlistStatus(
+  id: string,
+): Promise<WaitlistStatusSnapshot | null> {
+  const [entries, liveLanes] = await Promise.all([
+    withLocalFileFallbackLock(readActiveEntriesUnsafe),
+    getLiveLaneAvailability({ refreshRemote: false }),
+  ]);
+  const result = getPositionFromEntries(entries, id);
+  if (!result) return null;
+  const estimatedWaitMinutes = result.entry.status === "waiting"
+    ? waitMinutesAhead(
+        entries,
+        result.entry,
+        liveLanes[result.entry.activity],
+      )
+    : 0;
+  const availabilityStatus = hasCompleteTargetAvailability(
+    entries,
+    result.entry,
+    liveLanes[result.entry.activity],
+  )
+    ? "live"
+    : "unknown";
+  return { ...result, estimatedWaitMinutes, availabilityStatus };
+}
+
 export async function joinWaitlist(input: {
   activity: Activity;
   name: string;
@@ -481,17 +764,11 @@ export async function joinWaitlist(input: {
   sessionMinutes?: SessionDuration;
   smsConsentSource?: string;
 }): Promise<WaitlistEntry> {
-  return withStoreLock(async () => {
+  return withLocalFileFallbackLock(async () => {
     const normalizedPhone = normalizePhone(input.phone);
-    const entries = await readAllUnsafe();
-
-    const duplicate = entries.find(
-      (e) =>
-        e.activity === input.activity &&
-        e.phone === normalizedPhone &&
-        (e.status === "waiting" || e.status === "notified"),
-    );
-    if (duplicate) throw new Error("ALREADY_ON_WAITLIST");
+    if (await hasActiveDuplicateUnsafe(input.activity, normalizedPhone)) {
+      throw new Error("ALREADY_ON_WAITLIST");
+    }
 
     const customerId = await upsertCustomer(
       input.name.trim(),
@@ -538,16 +815,39 @@ export async function recordSmsAttempt(
   kind: WaitlistSmsKind,
   attempt: WaitlistSmsAttempt,
 ): Promise<WaitlistEntry | null> {
-  return withStoreLock(async () => {
+  return withLocalFileFallbackLock(async () => {
     const now = new Date().toISOString();
-    const entries = await readAllUnsafe();
-    const existing = entries.find((entry) => entry.id === id);
-    if (!existing) return null;
+    const supabase = getSupabaseAdmin();
+    let fileEntries: WaitlistEntry[] | null = null;
+    let fileIndex = -1;
+    let notificationCount = 0;
+
+    if (supabase) {
+      const { data: existing, error: readError } = await supabase
+        .from("waitlist_entries")
+        .select("notification_count")
+        .eq("id", id)
+        .maybeSingle();
+      if (readError) {
+        logSupabaseError("read sms count", readError);
+        throw readError;
+      }
+      if (!existing) return null;
+      notificationCount = Math.max(
+        0,
+        Number(existing.notification_count ?? 0) || 0,
+      );
+    } else {
+      fileEntries = await readAllUnsafe();
+      fileIndex = fileEntries.findIndex((entry) => entry.id === id);
+      if (fileIndex === -1) return null;
+      notificationCount = fileEntries[fileIndex].notificationCount ?? 0;
+    }
 
     const nextCount =
       kind === "notify"
-        ? (existing.notificationCount ?? 0) + 1
-        : existing.notificationCount ?? 0;
+        ? notificationCount + 1
+        : notificationCount;
     const common = {
       last_sms_sid: attempt.sid ?? null,
       last_sms_status: attempt.status,
@@ -568,7 +868,6 @@ export async function recordSmsAttempt(
           }
         : common;
 
-    const supabase = getSupabaseAdmin();
     if (supabase) {
       const { data, error } = await supabase
         .from("waitlist_entries")
@@ -583,9 +882,9 @@ export async function recordSmsAttempt(
       return data ? rowToEntry(data as Record<string, unknown>) : null;
     }
 
-    const index = entries.findIndex((entry) => entry.id === id);
-    entries[index] = {
-      ...entries[index],
+    if (!fileEntries || fileIndex < 0) return null;
+    fileEntries[fileIndex] = {
+      ...fileEntries[fileIndex],
       notificationCount: nextCount,
       lastSmsStatus: attempt.status,
       lastSmsSid: attempt.sid,
@@ -601,8 +900,8 @@ export async function recordSmsAttempt(
           }
         : {}),
     };
-    await writeAllUnsafe(entries);
-    return entries[index];
+    await writeAllUnsafe(fileEntries);
+    return fileEntries[fileIndex];
   });
 }
 
@@ -611,7 +910,7 @@ export async function recordSmsDelivery(
   status: string,
   errorCode?: string,
 ): Promise<boolean> {
-  return withStoreLock(async () => {
+  return withLocalFileFallbackLock(async () => {
     const supabase = getSupabaseAdmin();
     if (supabase) {
       const { data: rows, error: readError } = await supabase
@@ -663,14 +962,14 @@ export async function updateStatus(
   id: string,
   status: WaitlistStatus,
 ): Promise<WaitlistEntry | null> {
-  return withStoreLock(() => patchEntryStatus(id, status));
+  return withLocalFileFallbackLock(() => patchEntryStatus(id, status));
 }
 
 export async function confirmSmsConsent(
   id: string,
   source = "staff-resend-confirmation-v1",
 ): Promise<WaitlistEntry | null> {
-  return withStoreLock(async () => {
+  return withLocalFileFallbackLock(async () => {
     const consentAt = new Date().toISOString();
     const supabase = getSupabaseAdmin();
     if (supabase) {
@@ -711,22 +1010,21 @@ export async function updateEntryDetails(
     sessionMinutes: SessionDuration;
   },
 ): Promise<WaitlistEntry | null> {
-  return withStoreLock(async () => {
+  return withLocalFileFallbackLock(async () => {
     const normalizedPhone = normalizePhone(input.phone);
-    const entries = await readAllUnsafe();
-    const existing = entries.find((entry) => entry.id === id);
-    if (!existing) return null;
-    const duplicate = entries.find(
-      (entry) =>
-        entry.id !== id &&
-        entry.activity === existing.activity &&
-        entry.phone === normalizedPhone &&
-        (entry.status === "waiting" || entry.status === "notified"),
-    );
-    if (duplicate) throw new Error("ALREADY_ON_WAITLIST");
-
     const supabase = getSupabaseAdmin();
     if (supabase) {
+      const existing = await readEntryByIdUnsafe(id);
+      if (!existing) return null;
+      if (
+        await hasActiveDuplicateUnsafe(
+          existing.activity,
+          normalizedPhone,
+          id,
+        )
+      ) {
+        throw new Error("ALREADY_ON_WAITLIST");
+      }
       const { data, error } = await supabase
         .from("waitlist_entries")
         .update({
@@ -745,6 +1043,17 @@ export async function updateEntryDetails(
       return data ? rowToEntry(data as Record<string, unknown>) : null;
     }
 
+    const entries = await readAllUnsafe();
+    const existing = entries.find((entry) => entry.id === id);
+    if (!existing) return null;
+    const duplicate = entries.find(
+      (entry) =>
+        entry.id !== id &&
+        entry.activity === existing.activity &&
+        entry.phone === normalizedPhone &&
+        (entry.status === "waiting" || entry.status === "notified"),
+    );
+    if (duplicate) throw new Error("ALREADY_ON_WAITLIST");
     const index = entries.findIndex((entry) => entry.id === id);
     entries[index] = {
       ...entries[index],
@@ -761,9 +1070,8 @@ export async function updateEntryDetails(
 export async function recallEntry(
   id: string,
 ): Promise<{ entry: WaitlistEntry; resentSms: boolean } | null> {
-  return withStoreLock(async () => {
-    const entries = await readAllUnsafe();
-    const entry = entries.find((e) => e.id === id);
+  return withLocalFileFallbackLock(async () => {
+    const entry = await readEntryByIdUnsafe(id);
     if (!entry) return null;
 
     if (entry.status === "notified") {
@@ -781,13 +1089,12 @@ export async function recallEntry(
 }
 
 export async function getEntryById(id: string): Promise<WaitlistEntry | null> {
-  const entries = await withStoreLock(readAllUnsafe);
-  return entries.find((e) => e.id === id) ?? null;
+  return withLocalFileFallbackLock(() => readEntryByIdUnsafe(id));
 }
 
 /** Remove from queue — works for valid UUIDs (cancel) or legacy invalid ids (delete). */
 export async function removeEntry(id: string): Promise<boolean> {
-  return withStoreLock(async () => {
+  return withLocalFileFallbackLock(async () => {
     if (isValidEntryId(id)) {
       const entry = await patchEntryStatus(id, "cancelled");
       return entry !== null;
@@ -799,9 +1106,8 @@ export async function removeEntry(id: string): Promise<boolean> {
 
 /** Hide served/cancelled party from the recall strip into the searchable archive. */
 export async function archiveEntry(id: string): Promise<WaitlistEntry | null> {
-  return withStoreLock(async () => {
-    const entries = await readAllUnsafe();
-    const entry = entries.find((e) => e.id === id);
+  return withLocalFileFallbackLock(async () => {
+    const entry = await readEntryByIdUnsafe(id);
     if (!entry) return null;
     if (entry.status !== "served" && entry.status !== "cancelled") {
       return null;
@@ -811,19 +1117,39 @@ export async function archiveEntry(id: string): Promise<WaitlistEntry | null> {
 }
 
 export async function cancelActiveEntriesForPhone(phone: string): Promise<number> {
-  return withStoreLock(async () => {
+  return withLocalFileFallbackLock(async () => {
     const normalized = normalizePhone(phone);
+    const supabase = getSupabaseAdmin();
+    if (supabase) {
+      const { data, error } = await supabase
+        .from("waitlist_entries")
+        .update({
+          status: "cancelled",
+          updatedAt: new Date().toISOString(),
+        })
+        .eq("phone", normalized)
+        .in("status", ACTIVE_WAITLIST_STATUSES)
+        .select("id");
+      if (error) {
+        logSupabaseError("cancel phone entries", error);
+        throw error;
+      }
+      return data?.length ?? 0;
+    }
+
     const entries = await readAllUnsafe();
     let count = 0;
-    for (const e of entries) {
+    for (let index = 0; index < entries.length; index += 1) {
+      const entry = entries[index];
       if (
-        e.phone === normalized &&
-        (e.status === "waiting" || e.status === "notified")
+        entry.phone === normalized &&
+        (entry.status === "waiting" || entry.status === "notified")
       ) {
-        await patchEntryStatus(e.id, "cancelled");
+        entries[index] = { ...entry, status: "cancelled" };
         count++;
       }
     }
+    if (count > 0) await writeAllUnsafe(entries);
     return count;
   });
 }

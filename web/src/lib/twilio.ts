@@ -3,11 +3,18 @@ import { isSmsOptedOut } from "./sms-consent";
 import { smsFirstName } from "./names";
 import { readEnv } from "./env";
 
+const TWILIO_HTTP_TIMEOUT_MS = 5_000;
+
 function getClient() {
   const sid = readEnv("TWILIO_ACCOUNT_SID");
   const token = readEnv("TWILIO_AUTH_TOKEN");
   if (!sid || !token) return null;
-  return twilio(sid, token);
+  return twilio(sid, token, {
+    // Twilio defaults to a 30-second socket timeout. A guest should not be
+    // trapped on the join screen for that long when the provider is degraded.
+    timeout: TWILIO_HTTP_TIMEOUT_MS,
+    autoRetry: false,
+  });
 }
 
 export interface SmsSendResult {
@@ -17,12 +24,20 @@ export interface SmsSendResult {
   errorCode?: string;
 }
 
+interface SmsSendOptions {
+  optOutCheck?: "required" | "already-checked";
+}
+
 export async function sendSms(
   to: string,
   body: string,
   statusCallback?: string,
+  options: SmsSendOptions = {},
 ): Promise<SmsSendResult> {
-  if (await isSmsOptedOut(to)) {
+  if (
+    options.optOutCheck !== "already-checked" &&
+    (await isSmsOptedOut(to))
+  ) {
     console.warn("[twilio] Skipped — number opted out");
     return { accepted: false, status: "failed", errorCode: "21610" };
   }

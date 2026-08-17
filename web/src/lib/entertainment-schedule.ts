@@ -27,7 +27,7 @@ export interface EntertainmentReservation {
   updatedAt: string;
 }
 
-interface EntertainmentScheduleResponse {
+export interface EntertainmentScheduleResponse {
   from: string;
   to: string;
   timeZone: string;
@@ -38,9 +38,17 @@ interface EntertainmentScheduleResponse {
 
 const DEFAULT_URL = "https://eventhost-opal.vercel.app/api/entertainment-schedule";
 const CACHE_MS = 60_000;
+const STORED_READ_CACHE_MS = 10_000;
 const STORAGE_BUCKET = "onpar-state";
 const STORAGE_PATH = "entertainment-schedule/current.json";
-let memoryCache: { value: EntertainmentScheduleResponse; expiresAt: number } | null = null;
+const STORAGE_LOCK_PREFIX = "entertainment-schedule/refresh-lock";
+const REFRESH_LEASE_WINDOW_MS = 15_000;
+let memoryCache:
+  | {
+      value: EntertainmentScheduleResponse | null;
+      readExpiresAt: number;
+    }
+  | null = null;
 
 function venueDate(offsetDays = 0): string {
   const date = new Date(Date.now() + offsetDays * 86_400_000);
@@ -94,21 +102,70 @@ async function saveStored(value: EntertainmentScheduleResponse) {
   if (error) console.error("[entertainment schedule:storage]", error.message);
 }
 
-export async function getEntertainmentSchedule(): Promise<EntertainmentScheduleResponse | null> {
-  if (memoryCache && Date.now() < memoryCache.expiresAt) {
+async function acquireRefreshLease(): Promise<boolean> {
+  const supabase = getSupabaseAdmin();
+  if (!supabase) return true;
+  const bucket = Math.floor(Date.now() / REFRESH_LEASE_WINDOW_MS);
+  const lockPath = `${STORAGE_LOCK_PREFIX}-${bucket}.json`;
+  const { error } = await supabase.storage.from(STORAGE_BUCKET).upload(
+    lockPath,
+    JSON.stringify({ acquiredAt: new Date().toISOString() }),
+    { contentType: "application/json", upsert: false },
+  );
+  if (error) return false;
+
+  // A failed cleanup is harmless. Time-bucketed names ensure a crashed
+  // refresher cannot hold the lease indefinitely.
+  await supabase.storage
+    .from(STORAGE_BUCKET)
+    .remove([
+      `${STORAGE_LOCK_PREFIX}-${bucket - 1}.json`,
+      `${STORAGE_LOCK_PREFIX}-${bucket - 2}.json`,
+    ]);
+  return true;
+}
+
+function rememberStored(value: EntertainmentScheduleResponse | null) {
+  memoryCache = {
+    value,
+    // This only throttles repeated Storage downloads. Source freshness always
+    // comes from value.fetchedAt, so caching an old snapshot cannot make its
+    // reservation protection look current.
+    readExpiresAt: Date.now() + STORED_READ_CACHE_MS,
+  };
+}
+
+/**
+ * Return the shared last-known-good schedule without contacting Event Host.
+ * Public and staff reads use this path, then arrange a refresh after sending
+ * their response.
+ */
+export async function getStoredEntertainmentSchedule(): Promise<EntertainmentScheduleResponse | null> {
+  if (memoryCache && Date.now() < memoryCache.readExpiresAt) {
     return currentOperatingDayOnly(memoryCache.value);
   }
   const stored = await readStored();
+  rememberStored(stored);
+  return currentOperatingDayOnly(stored);
+}
+
+export async function getEntertainmentSchedule(): Promise<EntertainmentScheduleResponse | null> {
+  const cachedRead = Boolean(
+    memoryCache && Date.now() < memoryCache.readExpiresAt,
+  );
+  const stored = cachedRead ? memoryCache?.value ?? null : await readStored();
+  if (!cachedRead) rememberStored(stored);
   const storedAt = stored ? new Date(stored.fetchedAt).getTime() : Number.NaN;
   if (stored && Number.isFinite(storedAt) && Date.now() - storedAt < CACHE_MS) {
     const current = currentOperatingDayOnly(stored);
     if (!current) return null;
-    memoryCache = { value: current, expiresAt: Date.now() + CACHE_MS };
+    rememberStored(current);
     return current;
   }
 
   const token = readEnv("ENTERTAINMENT_SCHEDULE_API_TOKEN");
   if (!token) return currentOperatingDayOnly(stored);
+  if (!(await acquireRefreshLease())) return currentOperatingDayOnly(stored);
   const url = new URL(readEnv("ENTERTAINMENT_SCHEDULE_API_URL") ?? DEFAULT_URL);
   url.searchParams.set("from", venueDate());
   // Staff operations and wait calculations only need the current operating
@@ -128,7 +185,7 @@ export async function getEntertainmentSchedule(): Promise<EntertainmentScheduleR
     });
     if (!value) return currentOperatingDayOnly(stored);
     await saveStored(value);
-    memoryCache = { value, expiresAt: Date.now() + CACHE_MS };
+    rememberStored(value);
     return value;
   } catch (error) {
     console.error("[entertainment schedule]", error);

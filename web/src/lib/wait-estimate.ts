@@ -1,5 +1,7 @@
 export {
   activityQueueWait,
+  hasCompleteActivityAvailability,
+  hasCompleteTargetAvailability,
   waitMinutesAhead,
   type ResourceLaneAvailability,
 } from "./resource-scheduler";

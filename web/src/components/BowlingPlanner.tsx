@@ -21,6 +21,8 @@ interface BowlingPlannerProps {
   reservations?: EntertainmentReservation[];
 }
 
+const BOWLING_STALE_AFTER_MS = 2 * 60_000;
+
 function freshnessLabel(snapshot: BowlingLaneSnapshot | null, nowMs: number) {
   if (!snapshot || nowMs === 0) return "No feed";
   const capturedAt = new Date(snapshot.capturedAt).getTime();
@@ -54,6 +56,13 @@ function reservationTime(value: string) {
 
 export function BowlingPlanner({ snapshot, entries, reservations = [] }: BowlingPlannerProps) {
   const [nowMs, setNowMs] = useState(() => Date.now());
+  const capturedAtMs = snapshot
+    ? new Date(snapshot.capturedAt).getTime()
+    : Number.NaN;
+  const feedStale =
+    !Number.isFinite(capturedAtMs) ||
+    nowMs - capturedAtMs > BOWLING_STALE_AFTER_MS;
+  const feedUnavailable = !snapshot || snapshot.healthStatus !== "ok" || feedStale;
 
   useEffect(() => {
     const interval = window.setInterval(() => setNowMs(Date.now()), 1000);
@@ -79,13 +88,15 @@ export function BowlingPlanner({ snapshot, entries, reservations = [] }: Bowling
 
   return (
     <section className="space-y-5">
-      {snapshot && snapshot.healthStatus !== "ok" && (
+      {snapshot && feedUnavailable && (
         <div className="rounded-xl border border-red-400/70 bg-red-950/60 p-4">
           <p className="text-sm font-semibold text-red-100">
             Brunswick feed recovery needed
           </p>
           <p className="mt-1 text-sm text-red-200">
-            {snapshot.healthMessage ?? "Lane times may be stale."}
+            {snapshot.healthStatus !== "ok"
+              ? snapshot.healthMessage ?? "Lane times may be stale."
+              : "No fresh Brunswick snapshot has arrived for over 2 minutes. Check the watcher and Remote Desktop window."}
           </p>
         </div>
       )}
@@ -140,13 +151,15 @@ export function BowlingPlanner({ snapshot, entries, reservations = [] }: Bowling
             <div
               key={lane.lane}
               className={`min-h-28 rounded-lg border p-3 shadow-sm ${laneClass(
-                lane.status,
+                feedUnavailable ? "unknown" : lane.status,
               )}`}
             >
               <div className="flex items-start justify-between gap-2">
                 <p className="text-xs font-semibold">Lane {lane.lane}</p>
                 <p className="text-sm font-bold">
-                  {lane.status === "occupied"
+                  {feedUnavailable
+                    ? "--"
+                    : lane.status === "occupied"
                     ? formatClock(lane.remainingSeconds)
                     : lane.status === "reserved"
                       ? "Reserved"

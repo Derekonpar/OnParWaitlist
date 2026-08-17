@@ -124,6 +124,20 @@ export function hasUsableLaneAvailability(
   );
 }
 
+function newGuestFor(activity: Activity): WaitlistEntry {
+  return {
+    id: "__new_guest__",
+    activity,
+    name: "New guest",
+    phone: "",
+    smsOptIn: false,
+    laneCount: 1,
+    sessionMinutes: defaultSessionMinutesFor(activity),
+    status: "waiting",
+    createdAt: "9999-12-31T23:59:59.999Z",
+  };
+}
+
 export function planResourceQueue(
   entries: WaitlistEntry[],
   lanes: ResourceLaneAvailability[],
@@ -219,17 +233,7 @@ export function activityQueueWait(
   lanes?: ResourceLaneAvailability[],
 ): number {
   const inLine = activeQueue(activity, entries);
-  const hypothetical: WaitlistEntry = {
-    id: "__new_guest__",
-    activity,
-    name: "New guest",
-    phone: "",
-    smsOptIn: false,
-    laneCount: 1,
-    sessionMinutes: defaultSessionMinutesFor(activity),
-    status: "waiting",
-    createdAt: "9999-12-31T23:59:59.999Z",
-  };
+  const hypothetical = newGuestFor(activity);
 
   if (hasUsableLaneAvailability(lanes, hypothetical.laneCount)) {
     const plan = planResourceQueue([...inLine, hypothetical], lanes);
@@ -243,6 +247,43 @@ export function activityQueueWait(
 
   if (inLine.length === 0) return 0;
   return fifoWaitMinutes(inLine);
+}
+
+/**
+ * A public activity estimate is live only when the same plan used for the
+ * estimate can place every queued party and the next hypothetical party. A
+ * partially responding lane feed must not turn a FIFO fallback into a
+ * seemingly live estimate.
+ */
+export function hasCompleteActivityAvailability(
+  activity: Activity,
+  entries: WaitlistEntry[],
+  lanes?: ResourceLaneAvailability[],
+): boolean {
+  const inLine = activeQueue(activity, entries);
+  const hypothetical = newGuestFor(activity);
+  if (!hasUsableLaneAvailability(lanes, hypothetical.laneCount)) return false;
+  const plan = planResourceQueue([...inLine, hypothetical], lanes);
+  return (
+    plan.unassigned.length === 0 &&
+    plan.assignments.some((assignment) => assignment.entryId === hypothetical.id)
+  );
+}
+
+/** Return true only when a guest's exact multi-resource plan is assignable. */
+export function hasCompleteTargetAvailability(
+  entries: WaitlistEntry[],
+  target: WaitlistEntry,
+  lanes?: ResourceLaneAvailability[],
+): boolean {
+  if (target.status !== "waiting") return true;
+  const ahead = activeQueue(target.activity, entries, target);
+  if (!hasUsableLaneAvailability(lanes, target.laneCount)) return false;
+  const plan = planResourceQueue([...ahead, target], lanes);
+  return (
+    plan.unassigned.length === 0 &&
+    plan.assignments.some((assignment) => assignment.entryId === target.id)
+  );
 }
 
 export function waitMinutesAhead(

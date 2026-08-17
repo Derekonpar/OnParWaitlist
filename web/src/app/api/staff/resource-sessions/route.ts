@@ -7,13 +7,15 @@ import {
   saveTimedResourceSession,
   TIMED_RESOURCES,
 } from "@/lib/resource-sessions";
-import { getEntertainmentSchedule } from "@/lib/entertainment-schedule";
+import { getStoredEntertainmentSchedule } from "@/lib/entertainment-schedule";
 import {
   reservationConflictsWithSession,
   timedResourceReservationIds,
 } from "@/lib/reservation-policy";
 
 export const dynamic = "force-dynamic";
+
+const SCHEDULE_PROTECTION_MAX_AGE_MS = 2 * 60_000;
 
 const resourceTypeSchema = z.enum(["pool", "shuffleboard"]);
 const resourceSchema = z
@@ -67,8 +69,24 @@ export async function POST(request: Request) {
       parsed.data.resourceType,
       parsed.data.resourceId,
     );
-    const schedule = await getEntertainmentSchedule();
-    const conflict = schedule?.reservations.find(
+    const schedule = await getStoredEntertainmentSchedule();
+    const scheduleAgeMs = schedule
+      ? Date.now() - new Date(schedule.fetchedAt).getTime()
+      : Number.POSITIVE_INFINITY;
+    if (
+      !schedule ||
+      !Number.isFinite(scheduleAgeMs) ||
+      scheduleAgeMs > SCHEDULE_PROTECTION_MAX_AGE_MS
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            "Reservation protection is updating. Wait a moment, refresh the schedule, and try again.",
+        },
+        { status: 503 },
+      );
+    }
+    const conflict = schedule.reservations.find(
       (reservation) =>
         resourceIds.includes(reservation.resourceId.toLowerCase()) &&
         reservationConflictsWithSession(reservation, startMs, endMs),

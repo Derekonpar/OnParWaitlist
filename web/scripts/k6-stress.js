@@ -5,7 +5,10 @@
  *   k6 run web/scripts/k6-stress.js
  *   k6 run -e BASE_URL=https://onparwaitlist.com web/scripts/k6-stress.js
  *
- * Mix: ~70% board, ~15% home, ~10% health, ~5% join (no SMS).
+ * Read-only mix: ~75% board, ~15% home, ~10% health.
+ *
+ * This intentionally never joins a queue or sends SMS, so it is safe to use
+ * for production latency checks while the venue is open.
  */
 import http from "k6/http";
 import { check, sleep } from "k6";
@@ -18,7 +21,6 @@ const BASE_URL = (__ENV.BASE_URL || "https://onparwaitlist.com").replace(
 
 const errorRate = new Rate("errors");
 const boardLatency = new Trend("board_ms");
-const joinLatency = new Trend("join_ms");
 
 export const options = {
   scenarios: {
@@ -35,18 +37,10 @@ export const options = {
   },
 };
 
-const ACTIVITIES = ["bowling", "darts", "pool", "shuffleboard"];
-
-function uniquePhone() {
-  // 10-digit US-style fake numbers unique per VU iteration
-  const n = `${__VU}${__ITER}${Date.now()}`.replace(/\D/g, "").slice(-10);
-  return n.padStart(10, "5");
-}
-
-export default function () {
+export default function runWaitlistReadOnlyStress() {
   const roll = Math.random();
 
-  if (roll < 0.7) {
+  if (roll < 0.75) {
     const res = http.get(`${BASE_URL}/api/waitlist/board`, {
       tags: { name: "board" },
     });
@@ -63,11 +57,11 @@ export default function () {
       },
     });
     errorRate.add(!ok);
-  } else if (roll < 0.85) {
+  } else if (roll < 0.9) {
     const res = http.get(`${BASE_URL}/`, { tags: { name: "home" } });
     const ok = check(res, { "home 200": (r) => r.status === 200 });
     errorRate.add(!ok);
-  } else if (roll < 0.95) {
+  } else {
     const res = http.get(`${BASE_URL}/api/waitlist/health`, {
       tags: { name: "health" },
     });
@@ -76,34 +70,6 @@ export default function () {
       "storage writable": (r) => {
         try {
           return r.json().storage?.canWrite === true;
-        } catch {
-          return false;
-        }
-      },
-    });
-    errorRate.add(!ok);
-  } else {
-    const activity = ACTIVITIES[Math.floor(Math.random() * ACTIVITIES.length)];
-    const payload = JSON.stringify({
-      activity,
-      firstName: `Load${__VU}`,
-      lastName: `Test${__ITER}`,
-      phone: uniquePhone(),
-      smsOptIn: false,
-      rewardsOptIn: false,
-      laneCount: 1,
-      sessionMinutes: 30,
-    });
-    const res = http.post(`${BASE_URL}/api/waitlist/join`, payload, {
-      headers: { "Content-Type": "application/json" },
-      tags: { name: "join" },
-    });
-    joinLatency.add(res.timings.duration);
-    const ok = check(res, {
-      "join 200": (r) => r.status === 200,
-      "join has entry": (r) => {
-        try {
-          return Boolean(r.json().entry?.id);
         } catch {
           return false;
         }

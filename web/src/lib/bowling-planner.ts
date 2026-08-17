@@ -5,6 +5,7 @@ import { addScheduleWindows } from "./entertainment-schedule";
 import { planResourceQueue } from "./resource-scheduler";
 
 const LANE_COUNT = 12;
+const BOWLING_MAX_SNAPSHOT_AGE_MS = 120_000;
 
 export interface PlannedBowlingLane extends BowlingLaneReading {
   availableAtSeconds: number;
@@ -68,6 +69,14 @@ export function planBowlingAssignments(
   reservations: EntertainmentReservation[] = [],
 ): BowlingPlan {
   const elapsedSeconds = secondsSince(snapshot?.capturedAt, nowMs);
+  const capturedAtMs = snapshot
+    ? new Date(snapshot.capturedAt).getTime()
+    : Number.NaN;
+  const snapshotUnavailable =
+    !snapshot ||
+    snapshot.healthStatus !== "ok" ||
+    !Number.isFinite(capturedAtMs) ||
+    nowMs - capturedAtMs > BOWLING_MAX_SNAPSHOT_AGE_MS;
   const queue = activeBowlingQueue(entries);
   const baseLanes =
     snapshot?.lanes ??
@@ -82,10 +91,9 @@ export function planBowlingAssignments(
       lane.status === "occupied"
         ? Math.max(0, lane.remainingSeconds - elapsedSeconds)
         : 0,
-    availableAtSeconds:
-      snapshot && snapshot.healthStatus !== "ok"
-        ? Number.POSITIVE_INFINITY
-        : laneAvailability(lane, elapsedSeconds),
+    availableAtSeconds: snapshotUnavailable
+      ? Number.POSITIVE_INFINITY
+      : laneAvailability(lane, elapsedSeconds),
   }));
 
   const availability = addScheduleWindows("bowling", lanes.map((lane) => ({

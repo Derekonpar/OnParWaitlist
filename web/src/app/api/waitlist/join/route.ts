@@ -166,6 +166,7 @@ export async function POST(request: Request) {
           statusPageUrl(entry.id),
         ),
         smsStatusCallbackUrl(entry.id, "join"),
+        { optOutCheck: "already-checked" },
       );
       try {
         await recordSmsAttempt(entry.id, "join", sms);

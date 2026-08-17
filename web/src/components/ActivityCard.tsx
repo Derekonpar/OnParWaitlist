@@ -17,6 +17,7 @@ interface ActivityCardProps {
 export function ActivityCard({ board, onJoin }: ActivityCardProps) {
   const { stats, queue } = board;
   const theme = ACTIVITY_THEME[stats.activity];
+  const waitKnown = stats.availabilityStatus === "live";
   const hasWait = stats.estimatedWaitMinutes > 0;
 
   return (
@@ -54,7 +55,9 @@ export function ActivityCard({ board, onJoin }: ActivityCardProps) {
               Estimated wait
             </p>
             <p className="text-xl font-semibold text-white">
-              {hasWait ? (
+              {!waitKnown ? (
+                <span className="text-amber-100">Updating…</span>
+              ) : hasWait ? (
                 <>
                   ~{stats.estimatedWaitMinutes}
                   <span className="ml-1 text-sm font-normal text-white/70">
@@ -66,9 +69,19 @@ export function ActivityCard({ board, onJoin }: ActivityCardProps) {
               )}
             </p>
           </div>
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-400/20 px-2.5 py-1 text-xs font-medium text-emerald-100">
-            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-300" />
-            Live
+          <span
+            className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${
+              waitKnown
+                ? "bg-emerald-400/20 text-emerald-100"
+                : "bg-amber-400/20 text-amber-100"
+            }`}
+          >
+            <span
+              className={`h-1.5 w-1.5 animate-pulse rounded-full ${
+                waitKnown ? "bg-emerald-300" : "bg-amber-300"
+              }`}
+            />
+            {waitKnown ? "Live" : "Updating"}
           </span>
         </div>
       </div>
@@ -80,7 +93,9 @@ export function ActivityCard({ board, onJoin }: ActivityCardProps) {
           </p>
           {queue.length === 0 ? (
             <p className="rounded-xl border border-dashed border-neutral-700 bg-neutral-900/50 px-4 py-3 text-sm text-neutral-400">
-              No waitlist parties ahead.
+              {waitKnown
+                ? "No waitlist parties ahead."
+                : "Loading the current waitlist…"}
             </p>
           ) : (
             <ol className="space-y-2">

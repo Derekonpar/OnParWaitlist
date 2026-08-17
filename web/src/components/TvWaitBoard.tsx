@@ -108,11 +108,20 @@ function EntertainmentCard({
 export function TvWaitBoard({ initialBoard }: TvWaitBoardProps) {
   const [board, setBoard] = useState(initialBoard);
   const [nowMs, setNowMs] = useState(() => Date.now());
+  const [connected, setConnected] = useState(true);
+  const [updatedAt, setUpdatedAt] = useState<string | null>(null);
   const refreshSequence = useRef(0);
+  const refreshController = useRef<AbortController | null>(null);
+  const hasUnknownWaits = board.some(
+    ({ stats }) => stats.availabilityStatus === "unknown",
+  );
 
   const refresh = useCallback(async () => {
+    if (refreshController.current) return;
+
     const sequence = ++refreshSequence.current;
     const controller = new AbortController();
+    refreshController.current = controller;
     const timeout = window.setTimeout(() => controller.abort(), 7_000);
     try {
       const response = await fetch("/api/waitlist/board", {
@@ -123,12 +132,22 @@ export function TvWaitBoard({ initialBoard }: TvWaitBoardProps) {
       const data = await response.json();
       if (sequence !== refreshSequence.current) return;
       if (Array.isArray(data.board) && data.board.length === 4) {
-        if (!data.stale) setBoard(data.board);
+        if (data.stale) {
+          setConnected(false);
+          return;
+        }
+        setBoard(data.board);
+        setConnected(true);
+        setUpdatedAt(data.updatedAt ?? null);
       }
     } catch {
       // Keep the last known board while the next scheduled refresh retries.
+      if (sequence === refreshSequence.current) setConnected(false);
     } finally {
       window.clearTimeout(timeout);
+      if (refreshController.current === controller) {
+        refreshController.current = null;
+      }
     }
   }, []);
 
@@ -140,6 +159,9 @@ export function TvWaitBoard({ initialBoard }: TvWaitBoardProps) {
       window.clearTimeout(initial);
       window.clearInterval(refreshTimer);
       window.clearInterval(clockTimer);
+      refreshSequence.current += 1;
+      refreshController.current?.abort();
+      refreshController.current = null;
     };
   }, [refresh]);
 
@@ -158,6 +180,22 @@ export function TvWaitBoard({ initialBoard }: TvWaitBoardProps) {
           <p className="text-[clamp(1.25rem,2.4vw,2.6rem)] font-bold tabular-nums">
             {clockLabel(nowMs)}
           </p>
+          <p
+            className={`mt-1 text-[clamp(0.58rem,0.75vw,0.82rem)] font-bold uppercase tracking-[0.16em] ${
+              connected && !hasUnknownWaits
+                ? "text-emerald-300"
+                : "text-amber-300"
+            }`}
+            aria-live="polite"
+          >
+            {connected
+              ? updatedAt
+                ? hasUnknownWaits
+                  ? "Updating live feeds · latest queue shown"
+                  : "Live waits"
+                : "Connecting to live waits"
+              : "Updating · showing last known"}
+          </p>
         </div>
       </header>
 
@@ -167,10 +205,13 @@ export function TvWaitBoard({ initialBoard }: TvWaitBoardProps) {
       >
         {board.map(({ stats, queue }) => {
           const theme = ACTIVITY_THEME[stats.activity];
-          const open = stats.estimatedWaitMinutes <= 0;
+          const waitKnown = stats.availabilityStatus === "live";
+          const open = waitKnown && stats.estimatedWaitMinutes <= 0;
           const detail = queue.length
             ? `${queue.slice(0, 3).map((person) => person.name).join(" · ")}${queue.length > 3 ? ` · +${queue.length - 3} more` : ""}`
-            : "No parties waiting";
+            : waitKnown
+              ? "No parties waiting"
+              : "Loading current waitlist";
           return (
             <EntertainmentCard
               key={stats.activity}
@@ -178,7 +219,9 @@ export function TvWaitBoard({ initialBoard }: TvWaitBoardProps) {
               icon={<ActivityIcon activity={stats.activity} className="h-3/5 w-3/5" />}
               gradient={theme.gradient}
               status={
-                open ? (
+                !waitKnown ? (
+                  "Updating"
+                ) : open ? (
                   "No Wait"
                 ) : (
                   <>
@@ -189,8 +232,14 @@ export function TvWaitBoard({ initialBoard }: TvWaitBoardProps) {
                   </>
                 )
               }
-              statusTone={open ? "text-emerald-200" : "text-white"}
-              statusLabel="Estimated wait"
+              statusTone={
+                !waitKnown
+                  ? "text-amber-200"
+                  : open
+                    ? "text-emerald-200"
+                    : "text-white"
+              }
+              statusLabel={waitKnown ? "Estimated wait" : "Live feed"}
               waitingCount={stats.waitingCount}
               detail={detail}
             />

@@ -48,6 +48,7 @@ export interface ActivityStats {
   label: string;
   waitingCount: number;
   estimatedWaitMinutes: number;
+  availabilityStatus: "live" | "unknown";
 }
 
 export const ACTIVITY_LABELS: Record<Activity, string> = {

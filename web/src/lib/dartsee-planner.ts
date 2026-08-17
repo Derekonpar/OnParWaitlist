@@ -4,6 +4,7 @@ import { addScheduleWindows, type EntertainmentReservation } from "./entertainme
 import type { WaitlistEntry } from "./types";
 
 const DARTSEE_LANE_COUNT = 5;
+const DARTSEE_MAX_SNAPSHOT_AGE_MS = 60_000;
 
 export interface PlannedDartseeLane extends DartseeLaneReading {
   availableAtSeconds: number;
@@ -78,6 +79,14 @@ export function planDartseeAssignments(
   reservations: EntertainmentReservation[] = [],
 ): DartseePlan {
   const elapsedSeconds = secondsSince(snapshot?.capturedAt, nowMs);
+  const capturedAtMs = snapshot
+    ? new Date(snapshot.capturedAt).getTime()
+    : Number.NaN;
+  const snapshotUnavailable =
+    !snapshot ||
+    !Number.isFinite(capturedAtMs) ||
+    nowMs - capturedAtMs > DARTSEE_MAX_SNAPSHOT_AGE_MS ||
+    (snapshot.healthStatus !== "ok" && snapshot.healthStatus !== "partial");
   const queue = activeDartsQueue(entries);
   const baseLanes = snapshot?.lanes ?? fallbackLanes();
   const unresponsiveBoards = new Set(snapshot?.unresponsiveBoardIds ?? []);
@@ -87,7 +96,7 @@ export function planDartseeAssignments(
       lane.status === "occupied"
         ? Math.max(0, lane.remainingSeconds - elapsedSeconds)
         : 0,
-    availableAtSeconds: unresponsiveBoards.has(lane.boardId)
+    availableAtSeconds: snapshotUnavailable || unresponsiveBoards.has(lane.boardId)
       ? Number.POSITIVE_INFINITY
       : laneAvailability(lane, elapsedSeconds),
   }));

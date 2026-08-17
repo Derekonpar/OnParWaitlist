@@ -35,7 +35,53 @@ import {
 const SOUND_STORAGE_KEY = "onpar-staff-sound";
 const STAFF_SECRET_STORAGE_KEY = "onpar-staff-secret";
 const BOWLING_STALE_AFTER_MS = 2 * 60_000;
+const DARTSEE_STALE_AFTER_MS = 60_000;
+const STAFF_QUEUE_TIMEOUT_MS = 5_000;
+const STAFF_INTEGRATION_TIMEOUT_MS = 5_000;
+const STAFF_QUEUE_STALE_AFTER_MS = 45_000;
+const SCHEDULE_STALE_AFTER_MS = 120_000;
+const RESOURCE_SESSIONS_STALE_AFTER_MS = 45_000;
+const ARCHIVE_PAGE_SIZE = 25;
 type StaffTab = "queue" | "bowling" | "darts" | "pool" | "shuffleboard";
+type StaffArchiveEntry = Pick<
+  WaitlistEntry,
+  "id" | "activity" | "name" | "phone" | "status" | "createdAt"
+>;
+
+function staffHeadersFor(secret: string) {
+  return {
+    "Content-Type": "application/json",
+    "x-staff-secret": secret,
+  };
+}
+
+async function fetchStaffEndpoint(
+  endpoint: string,
+  secret: string,
+  parentSignal: AbortSignal,
+  timeoutMs: number,
+): Promise<{ response: Response; data: unknown }> {
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  if (parentSignal.aborted) {
+    controller.abort();
+  } else {
+    parentSignal.addEventListener("abort", abort, { once: true });
+  }
+  const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(endpoint, {
+      cache: "no-store",
+      headers: staffHeadersFor(secret),
+      signal: controller.signal,
+    });
+    const data = await response.json();
+    return { response, data };
+  } finally {
+    window.clearTimeout(timeout);
+    parentSignal.removeEventListener("abort", abort);
+  }
+}
 
 function activeEntryIds(
   queues: { activity: Activity; queue: WaitlistEntry[] }[],
@@ -111,6 +157,17 @@ export default function StaffPage() {
   const [resourceBusyKey, setResourceBusyKey] = useState<string | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [loading, setLoading] = useState(false);
+  const [queueUpdatedAtMs, setQueueUpdatedAtMs] = useState<number | null>(null);
+  const [queueRefreshError, setQueueRefreshError] = useState(false);
+  const [scheduleUpdatedAtMs, setScheduleUpdatedAtMs] = useState<number | null>(
+    null,
+  );
+  const [scheduleReportedStale, setScheduleReportedStale] = useState(true);
+  const [scheduleRefreshError, setScheduleRefreshError] = useState(false);
+  const [resourceSessionsUpdatedAtMs, setResourceSessionsUpdatedAtMs] =
+    useState<number | null>(null);
+  const [resourceSessionsRefreshError, setResourceSessionsRefreshError] =
+    useState(false);
   const [actionId, setActionId] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [editId, setEditId] = useState<string | null>(null);
@@ -125,6 +182,9 @@ export default function StaffPage() {
   const knownIdsRef = useRef<Set<string> | null>(null);
   const chimeRef = useRef<HTMLAudioElement | null>(null);
   const refreshSequenceRef = useRef(0);
+  const refreshControllerRef = useRef<AbortController | null>(null);
+  const archiveSequenceRef = useRef(0);
+  const archiveControllerRef = useRef<AbortController | null>(null);
 
   const [addActivity, setAddActivity] = useState<Activity>("bowling");
   const [addFirstName, setAddFirstName] = useState("");
@@ -139,66 +199,227 @@ export default function StaffPage() {
   const [servedOpen, setServedOpen] = useState(true);
   const [archiveOpen, setArchiveOpen] = useState(false);
   const [archiveQuery, setArchiveQuery] = useState("");
+  const [archiveEntries, setArchiveEntries] = useState<StaffArchiveEntry[]>([]);
+  const [archivePage, setArchivePage] = useState(1);
+  const [archiveHasMore, setArchiveHasMore] = useState(false);
+  const [archiveLoading, setArchiveLoading] = useState(false);
+  const [archiveError, setArchiveError] = useState<string | null>(null);
 
   const headers = useCallback(
-    () => ({
-      "Content-Type": "application/json",
-      "x-staff-secret": secret,
-    }),
+    () => staffHeadersFor(secret),
     [secret],
   );
 
-  const fetchQueues = useCallback(async (showLoading = true) => {
-    if (!secret) return;
-    const sequence = ++refreshSequenceRef.current;
-    await Promise.resolve();
-    if (showLoading) setLoading(true);
-    try {
-      const [queueRes, laneRes, dartLaneRes, resourceRes, scheduleRes] =
-        await Promise.all([
-          fetch("/api/staff/queue", { headers: headers() }),
-          fetch("/api/staff/bowling-lanes", { headers: headers() }),
-          fetch("/api/staff/dart-lanes", { headers: headers() }),
-          fetch("/api/staff/resource-sessions", { headers: headers() }),
-          fetch("/api/staff/entertainment-schedule", { headers: headers() }),
-        ]);
-      if (queueRes.status === 401) {
-        setAuthenticated(false);
-        sessionStorage.removeItem(STAFF_SECRET_STORAGE_KEY);
-        return;
-      }
-      const [queueData, laneData, dartLaneData, resourceData, scheduleData] =
-        await Promise.all([
-          queueRes.json(),
-          laneRes.ok ? laneRes.json() : null,
-          dartLaneRes.ok ? dartLaneRes.json() : null,
-          resourceRes.ok ? resourceRes.json() : null,
-          scheduleRes.ok ? scheduleRes.json() : null,
-        ]);
-      if (sequence !== refreshSequenceRef.current) return;
-      setQueues(queueData.queues ?? []);
-      if (laneRes.ok) {
-        if (laneData?.snapshot) setBowlingSnapshot(laneData.snapshot);
-      }
-      if (dartLaneRes.ok) {
-        if (dartLaneData?.snapshot) setDartseeSnapshot(dartLaneData.snapshot);
-      }
-      if (resourceRes.ok) {
-        if (Array.isArray(resourceData?.sessions)) {
-          setResourceSessions(resourceData.sessions);
+  const loadStaffData = useCallback(
+    async (staffSecret: string, showLoading = true) => {
+      if (!staffSecret) return;
+
+      refreshControllerRef.current?.abort();
+      const controller = new AbortController();
+      refreshControllerRef.current = controller;
+      const sequence = ++refreshSequenceRef.current;
+      if (showLoading) setLoading(true);
+      try {
+        const queueResult = await fetchStaffEndpoint(
+          "/api/staff/queue",
+          staffSecret,
+          controller.signal,
+          STAFF_QUEUE_TIMEOUT_MS,
+        );
+        if (sequence !== refreshSequenceRef.current) return;
+        if (queueResult.response.status === 401) {
+          setAuthenticated(false);
+          setQueueRefreshError(false);
+          sessionStorage.removeItem(STAFF_SECRET_STORAGE_KEY);
+          return;
         }
-      }
-      if (scheduleRes.ok) {
-        if (Array.isArray(scheduleData?.schedule?.reservations)) {
-          setEntertainmentReservations(scheduleData.schedule.reservations);
+        if (!queueResult.response.ok) {
+          throw new Error("Could not refresh the staff queue");
         }
+
+        const queueData = queueResult.data as {
+          queues?: { activity: Activity; queue: WaitlistEntry[] }[];
+        };
+        if (sequence !== refreshSequenceRef.current) return;
+        setQueues(queueData.queues ?? []);
+        setQueueUpdatedAtMs(Date.now());
+        setQueueRefreshError(false);
+        setAuthenticated(true);
+        sessionStorage.setItem(STAFF_SECRET_STORAGE_KEY, staffSecret);
+
+        const loadIntegration = async (
+          endpoint: string,
+          applyData: (data: unknown) => void,
+        ) => {
+          const result = await fetchStaffEndpoint(
+            endpoint,
+            staffSecret,
+            controller.signal,
+            STAFF_INTEGRATION_TIMEOUT_MS,
+          );
+          if (!result.response.ok) {
+            throw new Error(`Could not refresh ${endpoint}`);
+          }
+          if (sequence !== refreshSequenceRef.current) return;
+          applyData(result.data);
+        };
+
+        const loadSchedule = async () => {
+          try {
+            await loadIntegration(
+              "/api/staff/entertainment-schedule",
+              (value) => {
+                const data = value as {
+                  schedule?: {
+                    reservations?: EntertainmentReservation[];
+                  } | null;
+                  dataUpdatedAt?: string;
+                  stale?: boolean;
+                };
+                if (Array.isArray(data.schedule?.reservations)) {
+                  setEntertainmentReservations(data.schedule.reservations);
+                }
+                const updatedAt = data.dataUpdatedAt
+                  ? new Date(data.dataUpdatedAt).getTime()
+                  : Number.NaN;
+                if (Number.isFinite(updatedAt)) {
+                  setScheduleUpdatedAtMs(updatedAt);
+                }
+                setScheduleReportedStale(
+                  Boolean(data.stale) || !Number.isFinite(updatedAt),
+                );
+                setScheduleRefreshError(false);
+              },
+            );
+          } catch {
+            if (sequence === refreshSequenceRef.current) {
+              // Keep the last-known reservations visible, but make it clear that
+              // staff cannot trust reservation protection until this recovers.
+              setScheduleRefreshError(true);
+            }
+          }
+        };
+
+        const loadResourceSessions = async () => {
+          try {
+            await loadIntegration("/api/staff/resource-sessions", (value) => {
+              const data = value as { sessions?: TimedResourceSession[] };
+              if (!Array.isArray(data.sessions)) {
+                throw new Error("Invalid timed-resource session response");
+              }
+              setResourceSessions(data.sessions);
+              setResourceSessionsUpdatedAtMs(Date.now());
+              setResourceSessionsRefreshError(false);
+            });
+          } catch {
+            if (sequence === refreshSequenceRef.current) {
+              // Never replace known pool/shuffleboard sessions with an empty
+              // error response; staff must see that the snapshot is delayed.
+              setResourceSessionsRefreshError(true);
+            }
+          }
+        };
+
+        await Promise.allSettled([
+          loadIntegration("/api/staff/bowling-lanes", (value) => {
+            const data = value as { snapshot?: BowlingLaneSnapshot | null };
+            if (data.snapshot) setBowlingSnapshot(data.snapshot);
+          }),
+          loadIntegration("/api/staff/dart-lanes", (value) => {
+            const data = value as { snapshot?: DartseeLaneSnapshot | null };
+            if (data.snapshot) setDartseeSnapshot(data.snapshot);
+          }),
+          loadResourceSessions(),
+          loadSchedule(),
+        ]);
+      } catch {
+        // Preserve the current queue and integration snapshots. A later manual
+        // or scheduled refresh retries without logging staff out on a blip.
+        if (sequence === refreshSequenceRef.current) {
+          setQueueRefreshError(true);
+        }
+      } finally {
+        if (refreshControllerRef.current === controller) {
+          refreshControllerRef.current = null;
+        }
+        if (sequence === refreshSequenceRef.current) setLoading(false);
       }
-      setAuthenticated(true);
-      sessionStorage.setItem(STAFF_SECRET_STORAGE_KEY, secret);
-    } finally {
-      if (showLoading && sequence === refreshSequenceRef.current) setLoading(false);
-    }
-  }, [secret, headers]);
+    },
+    [],
+  );
+
+  const fetchQueues = useCallback(
+    async (showLoading = true) => loadStaffData(secret, showLoading),
+    [loadStaffData, secret],
+  );
+
+  const loadArchive = useCallback(
+    async (
+      staffSecret: string,
+      query: string,
+      page: number,
+      append = false,
+    ) => {
+      if (!staffSecret) return;
+      archiveControllerRef.current?.abort();
+      const controller = new AbortController();
+      archiveControllerRef.current = controller;
+      const sequence = ++archiveSequenceRef.current;
+      setArchiveLoading(true);
+      setArchiveError(null);
+      if (!append) {
+        setArchiveEntries([]);
+        setArchiveHasMore(false);
+      }
+      try {
+        const params = new URLSearchParams({
+          q: query.trim(),
+          page: String(page),
+          pageSize: String(ARCHIVE_PAGE_SIZE),
+        });
+        const result = await fetchStaffEndpoint(
+          `/api/staff/archive?${params.toString()}`,
+          staffSecret,
+          controller.signal,
+          STAFF_QUEUE_TIMEOUT_MS,
+        );
+        if (sequence !== archiveSequenceRef.current) return;
+        if (result.response.status === 401) {
+          setAuthenticated(false);
+          sessionStorage.removeItem(STAFF_SECRET_STORAGE_KEY);
+          return;
+        }
+        if (!result.response.ok) throw new Error("Archive search failed");
+      const data = result.data as {
+          entries?: StaffArchiveEntry[];
+          page?: number;
+          hasMore?: boolean;
+        };
+        const nextEntries = Array.isArray(data.entries) ? data.entries : [];
+        setArchiveEntries((current) => {
+          if (!append) return nextEntries;
+          const byId = new Map(current.map((entry) => [entry.id, entry]));
+          for (const entry of nextEntries) byId.set(entry.id, entry);
+          return [...byId.values()];
+        });
+        setArchivePage(data.page ?? page);
+        setArchiveHasMore(Boolean(data.hasMore));
+      } catch {
+        if (
+          sequence === archiveSequenceRef.current &&
+          !controller.signal.aborted
+        ) {
+          setArchiveError("Could not load the archive. Try again.");
+        }
+      } finally {
+        if (archiveControllerRef.current === controller) {
+          archiveControllerRef.current = null;
+        }
+        if (sequence === archiveSequenceRef.current) setArchiveLoading(false);
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     const soundTimeout = window.setTimeout(() => {
@@ -220,59 +441,36 @@ export default function StaffPage() {
 
     const authTimeout = window.setTimeout(() => {
       setSecret(saved);
-      void (async () => {
-        const res = await fetch("/api/staff/queue", {
-          headers: {
-            "Content-Type": "application/json",
-            "x-staff-secret": saved,
-          },
-        });
-        if (res.ok) {
-          const data = await res.json();
-          setQueues(data.queues ?? []);
-          const savedHeaders = {
-            "Content-Type": "application/json",
-            "x-staff-secret": saved,
-          };
-          const [laneRes, dartLaneRes, resourceRes, scheduleRes] = await Promise.all([
-            fetch("/api/staff/bowling-lanes", {
-              headers: savedHeaders,
-            }),
-            fetch("/api/staff/dart-lanes", {
-              headers: savedHeaders,
-            }),
-            fetch("/api/staff/resource-sessions", {
-              headers: savedHeaders,
-            }),
-            fetch("/api/staff/entertainment-schedule", {
-              headers: savedHeaders,
-            }),
-          ]);
-          if (laneRes.ok) {
-            const laneData = await laneRes.json();
-            setBowlingSnapshot(laneData.snapshot ?? null);
-          }
-          if (dartLaneRes.ok) {
-            const dartLaneData = await dartLaneRes.json();
-            setDartseeSnapshot(dartLaneData.snapshot ?? null);
-          }
-          if (resourceRes.ok) {
-            const resourceData = await resourceRes.json();
-            setResourceSessions(resourceData.sessions ?? []);
-          }
-          if (scheduleRes.ok) {
-            const scheduleData = await scheduleRes.json();
-            setEntertainmentReservations(scheduleData.schedule?.reservations ?? []);
-          }
-          setAuthenticated(true);
-        } else {
-          sessionStorage.removeItem(STAFF_SECRET_STORAGE_KEY);
-        }
-      })();
+      void loadStaffData(saved);
     }, 0);
 
     return () => window.clearTimeout(authTimeout);
+  }, [loadStaffData]);
+
+  useEffect(() => {
+    return () => {
+      refreshSequenceRef.current += 1;
+      refreshControllerRef.current?.abort();
+      refreshControllerRef.current = null;
+      archiveSequenceRef.current += 1;
+      archiveControllerRef.current?.abort();
+      archiveControllerRef.current = null;
+    };
   }, []);
+
+  useEffect(() => {
+    if (!authenticated || !archiveOpen || !secret) return;
+    const delay = archiveQuery.trim() ? 300 : 0;
+    const timeout = window.setTimeout(() => {
+      void loadArchive(secret, archiveQuery, 1);
+    }, delay);
+    return () => {
+      window.clearTimeout(timeout);
+      archiveSequenceRef.current += 1;
+      archiveControllerRef.current?.abort();
+      archiveControllerRef.current = null;
+    };
+  }, [archiveOpen, archiveQuery, authenticated, loadArchive, secret]);
 
   useEffect(() => {
     if (!authenticated) {
@@ -365,6 +563,9 @@ export default function StaffPage() {
         alert("The ready text was not resent. Check the guest's SMS consent and phone number.");
       }
       await fetchQueues();
+      if (endpoint.includes("archive") && archiveOpen) {
+        await loadArchive(secret, archiveQuery, 1);
+      }
       if (
         endpoint.includes("notify") ||
         endpoint.includes("recall") ||
@@ -525,17 +726,6 @@ export default function StaffPage() {
         new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
     )
     .slice(0, 40);
-  const archivedEntries = allEntries
-    .filter((e) => e.status === "archived")
-    .filter((e) => {
-      const q = archiveQuery.trim().toLowerCase();
-      if (!q) return true;
-      return e.name.toLowerCase().includes(q);
-    })
-    .sort(
-      (a, b) =>
-        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-    );
   const resourceAlerts = resourceSessions.filter(
     (session) => new Date(session.endsAt).getTime() - nowMs <= 5 * 60_000,
   );
@@ -546,16 +736,61 @@ export default function StaffPage() {
     !Number.isFinite(bowlingSnapshotAgeMs) ||
     bowlingSnapshotAgeMs > BOWLING_STALE_AFTER_MS;
   const bowlingFeedNeedsAttention =
-    Boolean(bowlingSnapshot) &&
-    (bowlingSnapshot?.healthStatus !== "ok" || bowlingFeedStale);
+    !loading &&
+    (!bowlingSnapshot ||
+      bowlingSnapshot.healthStatus !== "ok" ||
+      bowlingFeedStale);
+  const dartseeSnapshotAgeMs = dartseeSnapshot
+    ? nowMs - new Date(dartseeSnapshot.capturedAt).getTime()
+    : Number.POSITIVE_INFINITY;
+  const dartseeFeedStale =
+    !Number.isFinite(dartseeSnapshotAgeMs) ||
+    dartseeSnapshotAgeMs > DARTSEE_STALE_AFTER_MS;
   const dartseeFeedNeedsAttention =
-    Boolean(dartseeSnapshot) && dartseeSnapshot?.healthStatus !== "ok";
+    !loading &&
+    (!dartseeSnapshot ||
+      dartseeSnapshot.healthStatus !== "ok" ||
+      dartseeFeedStale);
+  const queueAgeMs = queueUpdatedAtMs === null
+    ? Number.POSITIVE_INFINITY
+    : nowMs - queueUpdatedAtMs;
+  const queueFeedStale =
+    authenticated &&
+    (queueRefreshError ||
+      (queueUpdatedAtMs !== null && queueAgeMs > STAFF_QUEUE_STALE_AFTER_MS));
+  const scheduleAgeMs = scheduleUpdatedAtMs === null
+    ? Number.POSITIVE_INFINITY
+    : nowMs - scheduleUpdatedAtMs;
+  const scheduleFeedNeedsAttention =
+    authenticated &&
+    !loading &&
+    (scheduleRefreshError ||
+      scheduleReportedStale ||
+      !Number.isFinite(scheduleAgeMs) ||
+      scheduleAgeMs > SCHEDULE_STALE_AFTER_MS);
+  const resourceSessionsAgeMs = resourceSessionsUpdatedAtMs === null
+    ? Number.POSITIVE_INFINITY
+    : nowMs - resourceSessionsUpdatedAtMs;
+  const resourceSessionsNeedAttention =
+    authenticated &&
+    !loading &&
+    (resourceSessionsRefreshError ||
+      !Number.isFinite(resourceSessionsAgeMs) ||
+      resourceSessionsAgeMs > RESOURCE_SESSIONS_STALE_AFTER_MS);
 
   if (!authenticated) {
     return (
       <main className="mx-auto flex min-h-screen max-w-md flex-col justify-center px-5">
         <h1 className="text-2xl font-semibold text-white">Staff</h1>
         <p className="mt-2 text-sm text-neutral-400">Enter your staff password.</p>
+        {queueRefreshError && (
+          <p
+            className="mt-4 rounded-xl border border-amber-400/50 bg-amber-500/15 px-4 py-3 text-sm text-amber-100"
+            role="alert"
+          >
+            Could not reach the staff queue. Check the connection and try again.
+          </p>
+        )}
         <input
           type="password"
           value={secret}
@@ -567,9 +802,10 @@ export default function StaffPage() {
         <button
           type="button"
           onClick={() => void fetchQueues()}
-          className="mt-4 w-full rounded-xl bg-white py-3 text-sm font-semibold text-neutral-900"
+          disabled={loading}
+          className="mt-4 w-full rounded-xl bg-white py-3 text-sm font-semibold text-neutral-900 disabled:opacity-60"
         >
-          Sign in
+          {loading ? "Signing in…" : "Sign in"}
         </button>
       </main>
     );
@@ -577,7 +813,49 @@ export default function StaffPage() {
 
   return (
     <main className="mx-auto min-h-screen max-w-5xl px-4 py-6 pb-24 sm:px-5">
-      {bowlingSnapshot && bowlingFeedNeedsAttention && (
+      {queueFeedStale && (
+        <div
+          className="mb-5 rounded-xl border border-amber-400/60 bg-amber-500/20 px-4 py-3 text-sm font-semibold text-amber-50"
+          role="alert"
+        >
+          Queue refresh delayed — showing the last known guest list.
+          <span className="mt-1 block text-xs font-normal text-amber-100/90">
+            {queueUpdatedAtMs === null
+              ? "Retrying now."
+              : `Last successful update ${Math.max(1, Math.floor(queueAgeMs / 1_000))} seconds ago.`}
+          </span>
+        </div>
+      )}
+      {scheduleFeedNeedsAttention && (
+        <div
+          className="mb-5 rounded-xl border border-red-400 bg-red-700 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-red-950/30"
+          role="alert"
+        >
+          <span className="block">Reservation schedule needs attention</span>
+          <span className="mt-1 block text-xs font-normal text-red-100">
+            Upcoming-event protection may be outdated. Keep the last-known
+            reservations in place and do not assign any new lane or table until
+            Event Host is verified.
+            {scheduleUpdatedAtMs !== null && (
+              <> Last good schedule was {Math.max(1, Math.floor(scheduleAgeMs / 60_000))} minute{Math.floor(scheduleAgeMs / 60_000) === 1 ? "" : "s"} ago.</>
+            )}
+          </span>
+        </div>
+      )}
+      {resourceSessionsNeedAttention && (
+        <div
+          className="mb-5 rounded-xl border border-red-400 bg-red-700 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-red-950/30"
+          role="alert"
+        >
+          <span className="block">Pool / shuffleboard sessions need attention</span>
+          <span className="mt-1 block text-xs font-normal text-red-100">
+            The table timers may be outdated. Keep the last-known sessions in
+            place and verify the balls and pucks before assigning a pool table
+            or shuffleboard.
+          </span>
+        </div>
+      )}
+      {bowlingFeedNeedsAttention && (
         <button
           type="button"
           onClick={() => setStaffTab("bowling")}
@@ -586,14 +864,16 @@ export default function StaffPage() {
         >
           <span className="block">Brunswick feed needs attention</span>
           <span className="mt-1 block text-xs font-normal text-red-100">
-            {bowlingSnapshot.healthStatus !== "ok"
-              ? (bowlingSnapshot.healthMessage ??
-                "Lane times may be stale. Check the Brunswick computer and Remote Desktop window.")
+            {!bowlingSnapshot
+              ? "No Brunswick snapshot is available. Confirm the watcher is running and check the Brunswick Remote Desktop window."
+              : bowlingSnapshot.healthStatus !== "ok"
+                ? (bowlingSnapshot.healthMessage ??
+                  "Lane times may be stale. Check the Brunswick computer and Remote Desktop window.")
               : "No Brunswick snapshot has arrived for over 2 minutes. Confirm the watcher is running and check the Brunswick Remote Desktop window."}
           </span>
         </button>
       )}
-      {dartseeSnapshot && dartseeFeedNeedsAttention && (
+      {dartseeFeedNeedsAttention && (
         <button
           type="button"
           onClick={() => setStaffTab("darts")}
@@ -602,8 +882,12 @@ export default function StaffPage() {
         >
           <span className="block">Dartsee feed needs attention</span>
           <span className="mt-1 block text-xs font-normal text-red-100">
-            {dartseeSnapshot.healthMessage ??
-              "Dart lane status is incomplete. Check the Dartsee Central dashboard and the affected lane units."}
+            {!dartseeSnapshot
+              ? "No Dartsee snapshot is available. Go check the Dartsee machine and Central dashboard."
+              : dartseeFeedStale
+              ? "No fresh Dartsee snapshot has arrived for over 1 minute. Go check the Dartsee machine and Central dashboard."
+              : dartseeSnapshot.healthMessage ??
+                "Dart lane status is incomplete. Check the Dartsee Central dashboard and the affected lane units."}
           </span>
         </button>
       )}
@@ -1239,11 +1523,7 @@ export default function StaffPage() {
               Hidden archive
             </h2>
             <p className="text-xs text-neutral-500">
-              Search deleted parties by name (
-              {
-                allEntries.filter((e) => e.status === "archived").length
-              }
-              )
+              Search deleted parties by name · loaded only when opened
             </p>
           </div>
           <span className="text-sm text-neutral-400">
@@ -1260,26 +1540,61 @@ export default function StaffPage() {
               placeholder="Search party name…"
               className="w-full rounded-xl border border-neutral-700 bg-neutral-900 px-4 py-3 text-sm text-white placeholder:text-neutral-500"
             />
-            {archivedEntries.length === 0 ? (
+            {archiveError && (
+              <div className="rounded-xl border border-amber-400/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+                {archiveError}
+                <button
+                  type="button"
+                  onClick={() =>
+                    void loadArchive(secret, archiveQuery, 1)
+                  }
+                  className="ml-2 underline underline-offset-2"
+                >
+                  Retry
+                </button>
+              </div>
+            )}
+            {archiveLoading && archiveEntries.length === 0 ? (
+              <p className="text-sm text-neutral-500">Loading archive…</p>
+            ) : archiveEntries.length === 0 ? (
               <p className="text-sm text-neutral-500">
                 {archiveQuery.trim()
                   ? "No matching parties"
                   : "Archive is empty"}
               </p>
             ) : (
-              <ul className="space-y-2">
-                {archivedEntries.map((entry) => (
-                  <li
-                    key={entry.id}
-                    className="rounded-2xl border border-white/5 bg-neutral-950/80 p-4"
+              <>
+                <ul className="space-y-2">
+                  {archiveEntries.map((entry) => (
+                    <li
+                      key={entry.id}
+                      className="rounded-2xl border border-white/5 bg-neutral-950/80 p-4"
+                    >
+                      <p className="font-medium text-neutral-400">{entry.name}</p>
+                      <p className="text-xs text-neutral-600">
+                        {ACTIVITY_LABELS[entry.activity]} · {entry.phone}
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+                {archiveHasMore && (
+                  <button
+                    type="button"
+                    disabled={archiveLoading}
+                    onClick={() =>
+                      void loadArchive(
+                        secret,
+                        archiveQuery,
+                        archivePage + 1,
+                        true,
+                      )
+                    }
+                    className="w-full rounded-xl border border-white/10 px-4 py-3 text-sm font-semibold text-neutral-300 hover:bg-white/5 disabled:opacity-60"
                   >
-                    <p className="font-medium text-neutral-400">{entry.name}</p>
-                    <p className="text-xs text-neutral-600">
-                      {ACTIVITY_LABELS[entry.activity]} · {entry.phone}
-                    </p>
-                  </li>
-                ))}
-              </ul>
+                    {archiveLoading ? "Loading…" : "Load more"}
+                  </button>
+                )}
+              </>
             )}
           </div>
         )}
