@@ -12,7 +12,7 @@ import {
   isValidLaneCount,
   isValidSessionMinutes,
 } from "@/lib/booking";
-import { combineName } from "@/lib/names";
+import { validatePublicGuestName } from "@/lib/public-guest-name-policy";
 import { smsStatusCallbackUrl, statusPageUrl } from "@/lib/app-url";
 import { isSmsOptedOut } from "@/lib/sms-consent";
 import {
@@ -110,7 +110,19 @@ export async function POST(request: Request) {
       laneCount,
       sessionMinutes,
     } = parsed.data;
-    const name = combineName(firstName, lastName);
+    const guestName = validatePublicGuestName(firstName, lastName);
+    if (!guestName.ok) {
+      return NextResponse.json(
+        {
+          code: "INVALID_GUEST_NAME",
+          error:
+            "That name can’t be used. Please enter your real first and last name, or ask a staff member for help.",
+        },
+        { status: 400 },
+      );
+    }
+
+    const name = guestName.fullName;
     const selectedSessionMinutes =
       sessionMinutes ?? defaultSessionMinutesFor(activity);
 

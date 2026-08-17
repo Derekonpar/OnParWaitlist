@@ -119,6 +119,7 @@ export function JoinModal({ activity, onClose }: JoinModalProps) {
                 id="firstName"
                 type="text"
                 required
+                maxLength={40}
                 autoComplete="given-name"
                 placeholder="Jordan"
                 value={firstName}
@@ -137,6 +138,7 @@ export function JoinModal({ activity, onClose }: JoinModalProps) {
                 id="lastName"
                 type="text"
                 required
+                maxLength={40}
                 autoComplete="family-name"
                 placeholder="Smith"
                 value={lastName}
