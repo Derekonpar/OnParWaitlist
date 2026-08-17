@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 
 const board = readFileSync(
   new URL("../src/components/TvWaitBoard.tsx", import.meta.url),
@@ -44,6 +44,33 @@ assert.match(
   "Customer signup cards must use No Wait for zero-minute waits",
 );
 assert.match(board, /src="\/waitlist-qr\.png"/, "The TV board must display the waitlist QR code");
+assert.ok(
+  existsSync(new URL("../public/images/on-par-logo-full.png", import.meta.url)),
+  "The supplied On Par logo asset must be present",
+);
+assert.match(
+  board,
+  /src="\/images\/on-par-logo-full\.png"/,
+  "The QR panel must display the supplied On Par logo",
+);
+assert.ok(
+  board.indexOf('src="/images/on-par-logo-full.png"') <
+    board.indexOf('src="/waitlist-qr.png"'),
+  "The On Par logo must appear above the waitlist QR code",
+);
+assert.match(board, /queue\.slice\(0, 5\)/, "The TV card must show at most five guest names");
+assert.match(board, /\{person\.position\}/, "Each displayed guest must include their queue number");
+assert.match(board, /\{person\.name\}/, "Each displayed queue row must include the guest name");
+assert.match(board, /queue=\{queue\}/, "Live entertainment cards must receive their queue preview");
+assert.ok(
+  board.indexOf("data-tv-queue-preview") < board.indexOf("data-tv-wait-summary"),
+  "Guest names must appear above the estimated-wait block",
+);
+assert.match(
+  board,
+  /data-tv-wait-summary[\s\S]*?className="mt-auto shrink-0/,
+  "The estimated-wait block must remain anchored at the bottom",
+);
 assert.match(
   board,
   /Put yourself on the waitlist/i,
