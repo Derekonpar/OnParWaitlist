@@ -306,7 +306,7 @@ export function TvWaitBoard({ initialBoard }: TvWaitBoardProps) {
             alt="On Par Entertainment"
             width={1580}
             height={795}
-            className="mb-[clamp(0.45rem,0.9vh,0.8rem)] h-[clamp(4.75rem,9vh,7rem)] w-auto max-w-full brightness-0 invert"
+            className="mb-[clamp(0.45rem,0.9vh,0.8rem)] h-[clamp(4.75rem,9vh,7rem)] w-auto max-w-full invert"
           />
           <p className="text-[clamp(0.68rem,0.85vw,0.95rem)] font-bold uppercase tracking-[0.22em] text-violet-300">
             Join from your phone

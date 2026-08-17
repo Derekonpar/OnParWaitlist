@@ -53,6 +53,16 @@ assert.match(
   /src="\/images\/on-par-logo-full\.png"/,
   "The QR panel must display the supplied On Par logo",
 );
+assert.match(
+  board,
+  /on-par-logo-full\.png[\s\S]*?className="[^"]*\binvert\b/,
+  "The supplied black-and-white logo must be color-inverted on the dark panel",
+);
+assert.doesNotMatch(
+  board,
+  /on-par-logo-full\.png[\s\S]*?className="[^"]*brightness-0/,
+  "The logo must not be flattened to a solid white silhouette",
+);
 assert.ok(
   board.indexOf('src="/images/on-par-logo-full.png"') <
     board.indexOf('src="/waitlist-qr.png"'),
