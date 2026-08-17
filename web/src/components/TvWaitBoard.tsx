@@ -1,12 +1,24 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import type { ActivityBoard } from "@/lib/store";
 import { ACTIVITY_THEME } from "@/lib/types";
 import { ActivityIcon } from "./ActivityIcon";
 
 interface TvWaitBoardProps {
   initialBoard: ActivityBoard[];
+}
+
+interface EntertainmentCardProps {
+  label: string;
+  icon: ReactNode;
+  gradient: string;
+  status: ReactNode;
+  statusTone: string;
+  statusLabel: string;
+  waitingCount?: number;
+  detail: string;
 }
 
 function clockLabel(nowMs: number) {
@@ -19,7 +31,7 @@ function clockLabel(nowMs: number) {
 
 function MiniGolfIcon() {
   return (
-    <svg viewBox="0 0 24 24" className="h-8 w-8" aria-hidden>
+    <svg viewBox="0 0 24 24" className="h-3/5 w-3/5" aria-hidden>
       <path d="M7 3v14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
       <path d="M8 4h8l-3 4H8" fill="currentColor" />
       <ellipse cx="12" cy="18" rx="7" ry="2.5" fill="none" stroke="currentColor" strokeWidth="1.5" />
@@ -30,11 +42,66 @@ function MiniGolfIcon() {
 
 function KaraokeIcon() {
   return (
-    <svg viewBox="0 0 24 24" className="h-8 w-8" aria-hidden>
+    <svg viewBox="0 0 24 24" className="h-3/5 w-3/5" aria-hidden>
       <path d="M15.5 4.5a4 4 0 0 0-5.7 5.6l1.2 1.2 5.7-5.7-1.2-1.1Z" fill="currentColor" />
       <path d="m11.7 10.5-6.2 6.2 1.8 1.8 6.2-6.2" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
       <path d="M5 20h7" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
     </svg>
+  );
+}
+
+function EntertainmentCard({
+  label,
+  icon,
+  gradient,
+  status,
+  statusTone,
+  statusLabel,
+  waitingCount,
+  detail,
+}: EntertainmentCardProps) {
+  return (
+    <article
+      data-entertainment-card
+      className={`relative flex min-h-0 min-w-0 flex-col overflow-hidden rounded-[clamp(1rem,1.6vw,1.7rem)] border border-white/15 bg-gradient-to-br ${gradient} p-[clamp(0.8rem,1.25vw,1.35rem)] shadow-2xl shadow-black/30`}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-[clamp(0.5rem,0.8vw,0.9rem)]">
+          <span className="flex h-[clamp(2.8rem,3.8vw,4.25rem)] w-[clamp(2.8rem,3.8vw,4.25rem)] shrink-0 items-center justify-center rounded-[clamp(0.75rem,1vw,1rem)] bg-white/20 backdrop-blur">
+            {icon}
+          </span>
+          <h2 className="min-w-0 text-[clamp(1.15rem,1.75vw,2.1rem)] font-black leading-tight tracking-tight">
+            {label}
+          </h2>
+        </div>
+        {typeof waitingCount === "number" ? (
+          <div className="shrink-0 rounded-full bg-black/25 px-[clamp(0.55rem,0.75vw,0.8rem)] py-1 text-center backdrop-blur">
+            <p className="text-[clamp(0.48rem,0.55vw,0.62rem)] font-bold uppercase tracking-widest text-white/65">
+              In line
+            </p>
+            <p className="text-[clamp(1.15rem,1.55vw,1.8rem)] font-black tabular-nums leading-none">
+              {waitingCount}
+            </p>
+          </div>
+        ) : (
+          <span className="shrink-0 rounded-full bg-black/25 px-3 py-2 text-[clamp(0.52rem,0.62vw,0.7rem)] font-bold uppercase tracking-widest text-white/70">
+            House status
+          </span>
+        )}
+      </div>
+
+      <div className="mt-auto rounded-[clamp(0.85rem,1vw,1.15rem)] bg-black/30 p-[clamp(0.75rem,1vw,1.1rem)] backdrop-blur-sm">
+        <p className="text-[clamp(0.55rem,0.68vw,0.75rem)] font-bold uppercase tracking-[0.18em] text-white/65">
+          {statusLabel}
+        </p>
+        <div className={`mt-1 truncate text-[clamp(2rem,3.3vw,4rem)] font-black leading-none ${statusTone}`}>
+          {status}
+        </div>
+        <p className="mt-[clamp(0.5rem,0.7vh,0.7rem)] truncate border-t border-white/15 pt-[clamp(0.45rem,0.65vh,0.65rem)] text-[clamp(0.65rem,0.82vw,0.92rem)] font-semibold text-white/75">
+          {detail}
+        </p>
+      </div>
+    </article>
   );
 }
 
@@ -105,119 +172,86 @@ export function TvWaitBoard({ initialBoard }: TvWaitBoardProps) {
         </div>
       </header>
 
-      <section className="grid min-h-0 min-w-0 flex-1 grid-cols-2 grid-rows-2 gap-[clamp(0.55rem,1vw,1rem)]">
+      <section
+        aria-label="Entertainment wait status and waitlist signup"
+        className="grid min-h-0 min-w-0 flex-1 grid-cols-[repeat(3,minmax(0,1fr))_minmax(20rem,0.9fr)] grid-rows-2 gap-[clamp(0.6rem,1vw,1rem)]"
+      >
         {board.map(({ stats, queue }) => {
           const theme = ACTIVITY_THEME[stats.activity];
           const open = stats.estimatedWaitMinutes <= 0;
+          const detail = queue.length
+            ? `${queue.slice(0, 3).map((person) => person.name).join(" · ")}${queue.length > 3 ? ` · +${queue.length - 3} more` : ""}`
+            : "No parties waiting";
           return (
-            <article
+            <EntertainmentCard
               key={stats.activity}
-              className={`relative flex min-h-0 min-w-0 flex-col overflow-hidden rounded-[clamp(1rem,2vw,2rem)] border border-white/15 bg-gradient-to-br ${theme.gradient} p-[clamp(0.8rem,2vw,2.5rem)] shadow-2xl shadow-black/30`}
-            >
-              <div className="flex items-start justify-between gap-4">
-                <div className="flex min-w-0 items-center gap-[clamp(0.5rem,1.2vw,1.5rem)]">
-                  <span className="flex h-[clamp(3rem,5vw,5.5rem)] w-[clamp(3rem,5vw,5.5rem)] items-center justify-center rounded-[clamp(0.8rem,1.3vw,1.4rem)] bg-white/20 backdrop-blur">
-                    <ActivityIcon activity={stats.activity} className="h-3/5 w-3/5" />
-                  </span>
-                  <h2 className="min-w-0 truncate text-[clamp(1.25rem,2.7vw,3.8rem)] font-black tracking-tight">
-                    {stats.label}
-                  </h2>
-                </div>
-                <div className="rounded-full bg-black/25 px-[clamp(0.7rem,1.2vw,1.25rem)] py-[clamp(0.35rem,0.6vw,0.65rem)] text-center backdrop-blur">
-                  <p className="text-[clamp(0.55rem,0.75vw,0.8rem)] font-bold uppercase tracking-widest text-white/70">
-                    In line
-                  </p>
-                  <p className="text-[clamp(1.4rem,2.4vw,2.8rem)] font-black tabular-nums leading-none">
-                    {stats.waitingCount}
-                  </p>
-                </div>
-              </div>
-
-              <div className="mt-auto rounded-[clamp(0.9rem,1.5vw,1.5rem)] bg-black/30 p-[clamp(0.9rem,1.6vw,1.8rem)] backdrop-blur-sm">
-                <p className="text-[clamp(0.65rem,0.9vw,1rem)] font-bold uppercase tracking-[0.2em] text-white/65">
-                  Estimated wait
-                </p>
-                {open ? (
-                  <p className="mt-1 truncate text-[clamp(2rem,5.3vw,7rem)] font-black leading-none text-emerald-200">
-                    No Wait
-                  </p>
+              label={stats.label}
+              icon={<ActivityIcon activity={stats.activity} className="h-3/5 w-3/5" />}
+              gradient={theme.gradient}
+              status={
+                open ? (
+                  "No Wait"
                 ) : (
-                  <p className="mt-1 text-[clamp(3rem,7vw,8rem)] font-black leading-none tabular-nums">
+                  <>
                     {stats.estimatedWaitMinutes}
                     <span className="ml-[0.3em] text-[0.28em] font-bold uppercase tracking-wider text-white/70">
                       min
                     </span>
-                  </p>
-                )}
-                <div className="mt-[clamp(0.45rem,0.8vh,0.8rem)] flex min-w-0 items-center gap-2 border-t border-white/15 pt-[clamp(0.45rem,0.8vh,0.8rem)]">
-                  <span className="shrink-0 text-[clamp(0.55rem,0.7vw,0.75rem)] font-bold uppercase tracking-wider text-white/60">
-                    Waiting
-                  </span>
-                  <p className="min-w-0 truncate text-[clamp(0.75rem,1.15vw,1.35rem)] font-semibold text-white/90">
-                    {queue.length
-                      ? queue.slice(0, 4).map((person) => person.name).join(" · ")
-                      : "No parties"}
-                    {queue.length > 4 ? ` · +${queue.length - 4} more` : ""}
-                  </p>
-                </div>
-              </div>
-            </article>
+                  </>
+                )
+              }
+              statusTone={open ? "text-emerald-200" : "text-white"}
+              statusLabel="Estimated wait"
+              waitingCount={stats.waitingCount}
+              detail={detail}
+            />
           );
         })}
-      </section>
 
-      <section
-        aria-label="Additional entertainment and waitlist signup"
-        className="mt-[clamp(0.55rem,1vh,0.9rem)] grid shrink-0 grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(15rem,0.9fr)] gap-[clamp(0.55rem,1vw,1rem)]"
-      >
-        <article className="flex min-w-0 items-center justify-between gap-4 rounded-[clamp(0.9rem,1.4vw,1.4rem)] border border-emerald-300/20 bg-gradient-to-r from-emerald-950 to-teal-900 px-[clamp(0.8rem,1.3vw,1.35rem)] py-[clamp(0.65rem,1vh,1rem)] shadow-lg shadow-black/20">
-          <div className="flex min-w-0 items-center gap-3">
-            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-emerald-300/15 text-emerald-200">
-              <MiniGolfIcon />
-            </span>
-            <div className="min-w-0">
-              <p className="truncate text-[clamp(1rem,1.5vw,1.7rem)] font-black">Mini Golf</p>
-              <p className="text-[clamp(0.58rem,0.7vw,0.75rem)] font-bold uppercase tracking-[0.18em] text-white/55">Current status</p>
-            </div>
-          </div>
-          <p className="shrink-0 text-[clamp(1.3rem,2.2vw,2.7rem)] font-black leading-none text-emerald-200">
-            No Wait
+        <EntertainmentCard
+          label="Mini Golf"
+          icon={<MiniGolfIcon />}
+          gradient="from-emerald-700 via-teal-700 to-cyan-700"
+          status="No Wait"
+          statusTone="text-emerald-200"
+          statusLabel="Current status"
+          detail="Always available"
+        />
+
+        <EntertainmentCard
+          label="Karaoke"
+          icon={<KaraokeIcon />}
+          gradient="from-violet-700 via-fuchsia-700 to-pink-700"
+          status="Wait"
+          statusTone="text-amber-200"
+          statusLabel="Current status"
+          detail="Hosted rotation"
+        />
+
+        <aside className="col-start-4 row-span-2 row-start-1 flex min-h-0 flex-col items-center justify-center rounded-[clamp(1rem,1.6vw,1.7rem)] border border-violet-300/20 bg-gradient-to-b from-violet-950 via-[#17102b] to-[#0f0d18] p-[clamp(1rem,1.5vw,1.75rem)] text-center shadow-2xl shadow-black/40">
+          <p className="text-[clamp(0.68rem,0.85vw,0.95rem)] font-bold uppercase tracking-[0.22em] text-violet-300">
+            Join from your phone
           </p>
-        </article>
-
-        <article className="flex min-w-0 items-center justify-between gap-4 rounded-[clamp(0.9rem,1.4vw,1.4rem)] border border-fuchsia-300/20 bg-gradient-to-r from-violet-950 to-fuchsia-900 px-[clamp(0.8rem,1.3vw,1.35rem)] py-[clamp(0.65rem,1vh,1rem)] shadow-lg shadow-black/20">
-          <div className="flex min-w-0 items-center gap-3">
-            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-fuchsia-300/15 text-fuchsia-200">
-              <KaraokeIcon />
-            </span>
-            <div className="min-w-0">
-              <p className="truncate text-[clamp(1rem,1.5vw,1.7rem)] font-black">Karaoke</p>
-              <p className="text-[clamp(0.58rem,0.7vw,0.75rem)] font-bold uppercase tracking-[0.18em] text-white/55">Current status</p>
-            </div>
+          <h2 className="mt-2 text-[clamp(1.5rem,2.2vw,2.8rem)] font-black leading-tight">
+            Put yourself on the waitlist
+          </h2>
+          <div className="mt-[clamp(1rem,2vh,1.6rem)] rounded-[clamp(1rem,1.3vw,1.35rem)] bg-white p-[clamp(0.65rem,0.9vw,0.9rem)] shadow-2xl shadow-violet-950/50">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/waitlist-qr.png"
+              alt="QR code for onparwaitlist.com"
+              width={240}
+              height={240}
+              className="h-[clamp(12rem,16vw,16rem)] w-[clamp(12rem,16vw,16rem)]"
+            />
           </div>
-          <p className="shrink-0 text-[clamp(1.3rem,2.2vw,2.7rem)] font-black leading-none text-amber-200">
-            Wait
+          <p className="mt-[clamp(0.9rem,1.6vh,1.25rem)] text-[clamp(0.8rem,1.05vw,1.2rem)] font-bold text-white">
+            Scan with your camera
           </p>
-        </article>
-
-        <article className="flex min-w-0 items-center gap-[clamp(0.7rem,1vw,1rem)] rounded-[clamp(0.9rem,1.4vw,1.4rem)] border border-violet-300/20 bg-white/[0.07] px-[clamp(0.65rem,1vw,1rem)] py-[clamp(0.5rem,0.8vh,0.8rem)] shadow-lg shadow-black/20">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src="/waitlist-qr.png"
-            alt="QR code for onparwaitlist.com"
-            width={88}
-            height={88}
-            className="h-[clamp(4.25rem,6vw,5.5rem)] w-[clamp(4.25rem,6vw,5.5rem)] shrink-0 rounded-lg bg-white p-1"
-          />
-          <div className="min-w-0">
-            <p className="text-[clamp(0.95rem,1.4vw,1.55rem)] font-black leading-tight">
-              Put yourself on the waitlist
-            </p>
-            <p className="mt-1 text-[clamp(0.62rem,0.8vw,0.85rem)] font-semibold text-violet-200">
-              Scan or visit onparwaitlist.com
-            </p>
-          </div>
-        </article>
+          <p className="mt-1 text-[clamp(0.68rem,0.82vw,0.92rem)] font-semibold text-violet-200">
+            or visit onparwaitlist.com
+          </p>
+        </aside>
       </section>
     </main>
   );

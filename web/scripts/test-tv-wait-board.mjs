@@ -7,16 +7,16 @@ const board = readFileSync(
 );
 
 assert.doesNotMatch(board, /Walk on/i, "Zero-minute live activities must not say Walk On");
-assert.match(board, />\s*No Wait\s*</, "Zero-minute live activities must say No Wait");
+assert.match(board, /["']No Wait["']/, "Zero-minute live activities must say No Wait");
 assert.match(board, /Mini Golf/, "The TV board must include Mini Golf");
 assert.match(board, /Karaoke/, "The TV board must include Karaoke");
 const karaokeCard = board.match(
-  /<article className="[^"]*from-violet-950[^"]*">[\s\S]*?<\/article>/,
+  /<EntertainmentCard\s+[\s\S]*?label="Karaoke"[\s\S]*?detail="Hosted rotation"[\s\S]*?\/>/,
 )?.[0];
 assert.ok(karaokeCard, "The Karaoke status card must be present");
 assert.match(
   karaokeCard,
-  />\s*Wait\s*</,
+  /status="Wait"/,
   "Karaoke must show the approved fixed Wait status",
 );
 assert.match(board, /src="\/waitlist-qr\.png"/, "The TV board must display the waitlist QR code");
@@ -28,8 +28,20 @@ assert.match(
 assert.match(board, /onparwaitlist\.com/, "The QR call to action must include the readable URL");
 assert.match(
   board,
-  /aria-label="Additional entertainment and waitlist signup"/,
-  "The compact bottom band must be labeled for accessibility",
+  /function EntertainmentCard/,
+  "All entertainment statuses must share one equal-size card component",
 );
+assert.equal(
+  (board.match(/<EntertainmentCard/g) ?? []).length,
+  3,
+  "The shared card must render the four live activities plus Mini Golf and Karaoke",
+);
+assert.match(
+  board,
+  /grid-cols-\[repeat\(3,minmax\(0,1fr\)\)_minmax\(20rem,0\.9fr\)\]/,
+  "The TV layout must reserve three equal activity columns and one QR column",
+);
+assert.match(board, /row-span-2/, "The QR panel must span both entertainment rows");
+assert.match(board, /width=\{240\}/, "The QR image must be substantially larger for scanning");
 
 console.log("TV wait board content regression test passed.");
