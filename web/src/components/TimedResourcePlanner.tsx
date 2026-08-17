@@ -111,7 +111,7 @@ export function TimedResourcePlanner({
       resourceType: "pool",
       resourceId: poolResourceId,
       guestName: "Walk-in",
-      startsAt: new Date().toISOString(),
+      startsAt: new Date(nowMs + WALK_TO_RESOURCE_BUFFER_MS).toISOString(),
       durationMinutes: poolDurations[poolResourceId] ?? 60,
     });
   }
@@ -226,7 +226,7 @@ export function TimedResourcePlanner({
               activeReservation || protectedReservation,
             );
             const poolDuration = poolDurations[resource.id] ?? 60;
-            const poolStartMs = nowMs;
+            const poolStartMs = nowMs + WALK_TO_RESOURCE_BUFFER_MS;
             const poolEndMs = poolStartMs + poolDuration * 60_000;
             const poolConflict =
               resourceType === "pool"

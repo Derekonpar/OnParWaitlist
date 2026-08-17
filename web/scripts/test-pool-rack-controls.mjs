@@ -21,9 +21,24 @@ assert.match(component, /1 hour/, "Pool duration menu must default to and offer 
 assert.match(component, /2 hours/, "Pool duration menu must offer 2 hours");
 assert.match(component, /Start rack/, "Each available Pool rack must have a direct start button");
 assert.match(component, /guestName: "Walk-in"/, "Condensed Pool starts must supply a non-sensitive internal session label");
+assert.match(
+  component,
+  /startsAt: new Date\(nowMs \+ WALK_TO_RESOURCE_BUFFER_MS\)\.toISOString\(\)/,
+  "Condensed Pool starts must preserve the 3-minute walk-back buffer",
+);
+assert.match(
+  component,
+  /const poolStartMs = nowMs \+ WALK_TO_RESOURCE_BUFFER_MS;/,
+  "Pool reservation conflict checks must include the 3-minute walk-back buffer",
+);
 assert.match(route, /z\.literal\(30\)/, "The staff API must accept 30-minute sessions");
 assert.match(resources, /30 \| 60 \| 120/, "Stored session types must support 30-minute sessions");
 assert.match(staffPage, /durationMinutes: 30 \| 60 \| 120/, "The staff page request path must carry 30-minute sessions");
+assert.match(
+  staffPage,
+  /<TimedResourcePlanner\s+key=\{staffTab\}/,
+  "Switching between Pool and Shuffleboards must remount resource-specific planner state",
+);
 assert.match(schema, /duration_minutes in \(30, 60, 120\)/, "The canonical schema must allow 30-minute sessions");
 assert.match(migration, /drop constraint if exists activity_resource_sessions_duration_minutes_check/, "The migration must replace the duration check safely");
 assert.match(migration, /duration_minutes in \(30, 60, 120\)/, "The migration must allow 30-minute sessions");

@@ -739,6 +739,7 @@ export default function StaffPage() {
       {(staffTab === "pool" || staffTab === "shuffleboard") && (
         <>
           <TimedResourcePlanner
+            key={staffTab}
             resourceType={staffTab}
             sessions={resourceSessions}
             reservations={entertainmentReservations}
