@@ -68,9 +68,19 @@ assert.ok(
     board.indexOf('src="/waitlist-qr.png"'),
   "The On Par logo must appear above the waitlist QR code",
 );
-assert.match(board, /queue\.slice\(0, 5\)/, "The TV card must show at most five guest names");
+assert.match(board, /queue\.slice\(0, 4\)/, "The TV card must show at most four guest names");
 assert.match(board, /\{person\.position\}/, "Each displayed guest must include their queue number");
 assert.match(board, /\{person\.name\}/, "Each displayed queue row must include the guest name");
+assert.match(
+  board,
+  /min-h-\[clamp\(2\.25rem,4\.6vh,2\.75rem\)\]/,
+  "Each guest row must be tall enough to read from across the room",
+);
+assert.match(
+  board,
+  /text-\[clamp\(1rem,1\.35vw,1\.5rem\)\] font-black/,
+  "TV guest names must use the larger high-contrast type treatment",
+);
 assert.match(board, /queue=\{queue\}/, "Live entertainment cards must receive their queue preview");
 assert.ok(
   board.indexOf("data-tv-queue-preview") < board.indexOf("data-tv-wait-summary"),

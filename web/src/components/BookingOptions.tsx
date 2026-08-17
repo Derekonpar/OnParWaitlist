@@ -32,11 +32,13 @@ export function BookingOptions({
   const laneOptions = laneCountOptions(activity);
   const sessionOptions = sessionOptionsFor(activity);
   const laneGridClass =
-    laneOptions.length <= 2
-      ? "grid-cols-2"
-      : laneOptions.length === 3
-        ? "grid-cols-3"
-        : "grid-cols-4";
+    laneOptions.length === 5
+      ? "grid-cols-5"
+      : laneOptions.length <= 2
+        ? "grid-cols-2"
+        : laneOptions.length === 3
+          ? "grid-cols-3"
+          : "grid-cols-4";
 
   return (
     <div className={compact ? "space-y-3" : "space-y-4"}>
@@ -48,7 +50,9 @@ export function BookingOptions({
               key={count}
               type="button"
               onClick={() => onLaneCountChange(count as LaneCount)}
-              className={`rounded-xl border px-2 py-2.5 text-sm font-semibold transition ${
+              className={`rounded-xl border px-2 text-sm font-semibold transition ${
+                compact ? "py-2" : "py-2.5"
+              } ${
                 laneCount === count
                   ? "border-white bg-white text-neutral-900"
                   : "border-neutral-700 bg-neutral-900 text-neutral-300 hover:border-neutral-500"
@@ -74,7 +78,9 @@ export function BookingOptions({
               onClick={() =>
                 onSessionMinutesChange(minutes as SessionDuration)
               }
-              className={`rounded-xl border px-3 py-2.5 text-sm font-semibold transition ${
+              className={`rounded-xl border px-3 text-sm font-semibold transition ${
+                compact ? "py-2" : "py-2.5"
+              } ${
                 sessionMinutes === minutes
                   ? "border-white bg-white text-neutral-900"
                   : "border-neutral-700 bg-neutral-900 text-neutral-300 hover:border-neutral-500"

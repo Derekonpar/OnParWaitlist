@@ -19,6 +19,7 @@ const resourceSessionsRoute = source(
 );
 const healthRoute = source("../src/app/api/health/route.ts");
 const store = source("../src/lib/store.ts");
+const normalizedJoinModal = joinModal.replace(/\s+/g, " ");
 
 const staleGuard = dashboard.indexOf("if (data.stale)");
 const boardReplacement = dashboard.indexOf("setBoard(data.board)");
@@ -114,6 +115,35 @@ assert.doesNotMatch(
   joinModal,
   /name stays private/i,
   "Self-service consent copy must not contradict the public name display",
+);
+assert.match(
+  joinModal,
+  /max-h-\[calc\(100dvh-1rem\)\][^\n]*overflow-y-auto[^\n]*overscroll-contain/,
+  "The mobile join dialog must stay within the visible viewport and scroll internally",
+);
+assert.match(
+  joinModal,
+  /<BookingOptions[\s\S]*?compact[\s\S]*?\/>/,
+  "The public join form must use compact booking controls on phones",
+);
+for (const requiredConsentText of [
+  "transactional waitlist texts",
+  "Message frequency varies",
+  "message and data rates may apply",
+  "Reply STOP to opt out or HELP for help",
+  "Consent is not a condition of purchase",
+  "Self-service requires",
+]) {
+  assert.match(
+    normalizedJoinModal,
+    new RegExp(requiredConsentText, "i"),
+    `Compact consent must retain: ${requiredConsentText}`,
+  );
+}
+assert.match(
+  joinModal,
+  /href="\/sms"/,
+  "Compact consent must retain the SMS terms and privacy link",
 );
 assert.match(
   resourceSessionsRoute,

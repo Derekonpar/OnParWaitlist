@@ -98,16 +98,16 @@ function EntertainmentCard({
           className="mt-[clamp(0.35rem,0.55vh,0.6rem)] min-h-0 flex-1 overflow-hidden"
         >
           {queue.length ? (
-            <ol className="space-y-[clamp(0.2rem,0.4vh,0.4rem)]">
-              {queue.slice(0, 5).map((person) => (
+            <ol className="space-y-[clamp(0.3rem,0.55vh,0.45rem)]">
+              {queue.slice(0, 4).map((person) => (
                 <li
                   key={person.id}
-                  className="flex min-w-0 items-center gap-[clamp(0.45rem,0.65vw,0.7rem)] rounded-lg bg-black/20 px-[clamp(0.5rem,0.7vw,0.75rem)] py-[clamp(0.18rem,0.35vh,0.35rem)]"
+                  className="flex min-h-[clamp(2.25rem,4.6vh,2.75rem)] min-w-0 items-center gap-[clamp(0.5rem,0.7vw,0.75rem)] rounded-xl bg-black/30 px-[clamp(0.55rem,0.75vw,0.8rem)] py-[clamp(0.35rem,0.55vh,0.5rem)]"
                 >
-                  <span className="flex h-[clamp(1.25rem,1.5vw,1.7rem)] w-[clamp(1.25rem,1.5vw,1.7rem)] shrink-0 items-center justify-center rounded-full bg-white/20 text-[clamp(0.58rem,0.72vw,0.82rem)] font-black tabular-nums">
+                  <span className="flex h-[clamp(1.6rem,2vw,2rem)] w-[clamp(1.6rem,2vw,2rem)] shrink-0 items-center justify-center rounded-full bg-white/25 text-[clamp(0.78rem,0.95vw,1rem)] font-black tabular-nums">
                     {person.position}
                   </span>
-                  <span className="min-w-0 truncate text-[clamp(0.72rem,1vw,1.12rem)] font-bold leading-tight text-white/95">
+                  <span className="min-w-0 truncate text-[clamp(1rem,1.35vw,1.5rem)] font-black leading-tight tracking-tight text-white">
                     {person.name}
                   </span>
                 </li>
