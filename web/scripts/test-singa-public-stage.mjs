@@ -227,6 +227,9 @@ const client = readFileSync(
 
 assert.match(route, /export async function GET\(request: Request\)/);
 assert.match(route, /getSingaPublicStageWait\(request\)/);
+assert.match(route, /getSingaPublicStageTransportDiagnostic\(\)/);
+assert.match(route, /"x-onpar-karaoke-outcome"/);
+assert.match(route, /"x-onpar-karaoke-transport"/);
 assert.doesNotMatch(route, /export async function (POST|PUT|PATCH|DELETE)/);
 assert.doesNotMatch(route, /public_code|username|password|credential/i);
 assert.match(route, /"cache-control": "private, no-store"/);
@@ -252,6 +255,7 @@ assert.match(
 );
 assert.doesNotMatch(relayRequestSource, /cache:/);
 assert.match(client, /parseSingaPublicStageRelayPayload/);
+assert.match(client, /transportDiagnostic\.outcome = "request-failed"/);
 assert.match(client, /SINGA_PUBLIC_STAGE_VENUE_ID/);
 assert.match(client, /refreshInFlight/);
 assert.doesNotMatch(relayRequestSource, /requestContext/);

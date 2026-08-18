@@ -42,6 +42,16 @@ let responseCache:
   | null = null;
 let lastKnownGood: SingaPublicStageFreshWait | null = null;
 let refreshInFlight: Promise<SingaPublicStageWait> | null = null;
+let transportDiagnostic = {
+  transport: "not-checked" as "not-checked" | "direct" | "relay",
+  outcome: "not-checked" as
+    | "not-checked"
+    | "invalid-config"
+    | "upstream-http"
+    | "invalid-payload"
+    | "request-failed"
+    | "ok",
+};
 
 function configuredZoneId(): string {
   return (
@@ -131,6 +141,10 @@ async function refreshSingaPublicStageWait(
   const zoneId = configuredZoneId();
   const venueId = configuredVenueId();
   if (!isValidSingaZoneId(zoneId) || !isValidSingaVenueId(venueId)) {
+    transportDiagnostic = {
+      transport: "not-checked",
+      outcome: "invalid-config",
+    };
     return remember(unavailableNow());
   }
 
@@ -142,13 +156,20 @@ async function refreshSingaPublicStageWait(
 
   try {
     const relayToken = configuredRelayToken();
+    transportDiagnostic = {
+      transport: relayToken ? "relay" : "direct",
+      outcome: "not-checked",
+    };
     const response = await fetch(
       relayToken
         ? singaPublicStageRelayRequest(relayToken)
         : singaPublicStageRequest(requestContext, zoneId),
       { signal: controller.signal },
     );
-    if (!response.ok) return remember(unavailableNow());
+    if (!response.ok) {
+      transportDiagnostic.outcome = "upstream-http";
+      return remember(unavailableNow());
+    }
 
     const checkedAt = new Date().toISOString();
     const payload = (await response.json()) as unknown;
@@ -160,15 +181,25 @@ async function refreshSingaPublicStageWait(
           venueId,
           checkedAt,
         );
-    if (!fresh) return remember(unavailableNow());
+    if (!fresh) {
+      transportDiagnostic.outcome = "invalid-payload";
+      return remember(unavailableNow());
+    }
 
+    transportDiagnostic.outcome = "ok";
     lastKnownGood = fresh;
     return remember(fresh);
   } catch {
+    transportDiagnostic.outcome = "request-failed";
     return remember(unavailableNow());
   } finally {
     clearTimeout(timeout);
   }
+}
+
+/** Sanitized transport state for response headers and operations monitoring. */
+export function getSingaPublicStageTransportDiagnostic() {
+  return { ...transportDiagnostic };
 }
 
 /**
