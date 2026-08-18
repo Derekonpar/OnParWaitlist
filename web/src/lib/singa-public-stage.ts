@@ -118,6 +118,8 @@ function singaPublicStageRelayRequest(token: string): Request {
     headers: {
       accept: "application/json",
       authorization: `Bearer ${token}`,
+      "cache-control": "no-cache",
+      "user-agent": "OnPar-Waitlist/1.0",
     },
     cache: "no-store",
     redirect: "error",
