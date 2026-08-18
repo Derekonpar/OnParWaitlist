@@ -98,7 +98,12 @@ async function refreshSingaPublicStageWait(): Promise<SingaPublicStageWait> {
       `${SINGA_PUBLIC_ZONE_URL}/${encodeURIComponent(zoneId)}`,
       {
         method: "GET",
-        headers: { accept: "application/json" },
+        // Singa rejects requests without a User-Agent. OpenNext's production
+        // Worker fetch can omit it even though local Node fetch supplies one.
+        headers: {
+          accept: "application/json",
+          "user-agent": "OnPar-Waitlist/1.0",
+        },
         cache: "no-store",
         redirect: "error",
         signal: controller.signal,
