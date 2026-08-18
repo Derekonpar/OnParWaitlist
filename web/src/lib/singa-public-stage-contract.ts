@@ -2,6 +2,8 @@ export const DEFAULT_SINGA_PUBLIC_STAGE_ZONE_ID =
   "zone_01kagmx6mnf4ate09115a73cys";
 export const DEFAULT_SINGA_PUBLIC_STAGE_VENUE_ID =
   "ven_01he2x75nmeey8m93b5madk9et";
+export const DEFAULT_SINGA_PUBLIC_STAGE_RELAY_URL =
+  "https://onpar-singa-relay.vercel.app/api/wait";
 export const SINGA_PUBLIC_STAGE_TIMEOUT_MS = 5_000;
 export const SINGA_PUBLIC_STAGE_CACHE_MS = 10_000;
 export const SINGA_PUBLIC_STAGE_LAST_KNOWN_MAX_AGE_MS = 60_000;
@@ -102,6 +104,52 @@ export function parseSingaPublicStagePayload(
     checkedAt,
     dataUpdatedAt: checkedAt,
   };
+}
+
+/** Validate the deliberately narrow response from the server-only relay. */
+export function parseSingaPublicStageRelayPayload(
+  payload: unknown,
+  receivedAt: string,
+): SingaPublicStageFreshWait | null {
+  if (!isRecord(payload) || typeof payload.checkedAt !== "string") return null;
+
+  const receivedAtMs = Date.parse(receivedAt);
+  const dataUpdatedAtMs = Date.parse(payload.checkedAt);
+  const ageMs = receivedAtMs - dataUpdatedAtMs;
+  if (
+    !Number.isFinite(receivedAtMs) ||
+    !Number.isFinite(dataUpdatedAtMs) ||
+    ageMs < -5_000 ||
+    ageMs > SINGA_PUBLIC_STAGE_LAST_KNOWN_MAX_AGE_MS
+  ) {
+    return null;
+  }
+
+  if (payload.status === "inactive" && payload.waitMinutes === null) {
+    return {
+      status: "inactive",
+      waitMinutes: null,
+      stale: false,
+      checkedAt: receivedAt,
+      dataUpdatedAt: payload.checkedAt,
+    };
+  }
+
+  if (
+    payload.status === "active" &&
+    Number.isSafeInteger(payload.waitMinutes) &&
+    (payload.waitMinutes as number) >= 0
+  ) {
+    return {
+      status: "active",
+      waitMinutes: payload.waitMinutes as number,
+      stale: false,
+      checkedAt: receivedAt,
+      dataUpdatedAt: payload.checkedAt,
+    };
+  }
+
+  return null;
 }
 
 export function unavailableSingaPublicStageWait(

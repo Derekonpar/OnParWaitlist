@@ -4,12 +4,14 @@ import { readFileSync } from "node:fs";
 import {
   DEFAULT_SINGA_PUBLIC_STAGE_VENUE_ID,
   DEFAULT_SINGA_PUBLIC_STAGE_ZONE_ID,
+  DEFAULT_SINGA_PUBLIC_STAGE_RELAY_URL,
   SINGA_PUBLIC_STAGE_CACHE_MS,
   SINGA_PUBLIC_STAGE_LAST_KNOWN_MAX_AGE_MS,
   SINGA_PUBLIC_STAGE_TIMEOUT_MS,
   isValidSingaVenueId,
   isValidSingaZoneId,
   parseSingaPublicStagePayload,
+  parseSingaPublicStageRelayPayload,
   unavailableSingaPublicStageWait,
 } from "../src/lib/singa-public-stage-contract.ts";
 
@@ -26,6 +28,10 @@ assert.equal(isValidSingaVenueId(zoneId), false);
 assert.equal(SINGA_PUBLIC_STAGE_TIMEOUT_MS, 5_000);
 assert.equal(SINGA_PUBLIC_STAGE_CACHE_MS, 10_000);
 assert.equal(SINGA_PUBLIC_STAGE_LAST_KNOWN_MAX_AGE_MS, 60_000);
+assert.equal(
+  DEFAULT_SINGA_PUBLIC_STAGE_RELAY_URL,
+  "https://onpar-singa-relay.vercel.app/api/wait",
+);
 
 const active = parseSingaPublicStagePayload(
   {
@@ -79,6 +85,55 @@ assert.deepEqual(inactive, {
   checkedAt,
   dataUpdatedAt: checkedAt,
 });
+
+assert.deepEqual(
+  parseSingaPublicStageRelayPayload(
+    { status: "active", waitMinutes: 66, checkedAt },
+    "2026-08-18T16:00:04.000Z",
+  ),
+  {
+    status: "active",
+    waitMinutes: 66,
+    stale: false,
+    checkedAt: "2026-08-18T16:00:04.000Z",
+    dataUpdatedAt: checkedAt,
+  },
+);
+assert.deepEqual(
+  parseSingaPublicStageRelayPayload(
+    { status: "inactive", waitMinutes: null, checkedAt },
+    "2026-08-18T16:00:04.000Z",
+  ),
+  {
+    status: "inactive",
+    waitMinutes: null,
+    stale: false,
+    checkedAt: "2026-08-18T16:00:04.000Z",
+    dataUpdatedAt: checkedAt,
+  },
+);
+for (const malformedRelay of [
+  null,
+  {},
+  { status: "inactive", waitMinutes: 0, checkedAt },
+  { status: "active", waitMinutes: null, checkedAt },
+  { status: "active", waitMinutes: -1, checkedAt },
+  { status: "active", waitMinutes: 1.5, checkedAt },
+  { status: "unavailable", waitMinutes: null, checkedAt },
+  {
+    status: "active",
+    waitMinutes: 5,
+    checkedAt: "2026-08-18T15:58:59.999Z",
+  },
+]) {
+  assert.equal(
+    parseSingaPublicStageRelayPayload(
+      malformedRelay,
+      "2026-08-18T16:00:00.000Z",
+    ),
+    null,
+  );
+}
 
 for (const queueLength of [-1, 1.5, "5", null, Number.MAX_SAFE_INTEGER + 1]) {
   assert.equal(
@@ -184,8 +239,17 @@ assert.match(
   "The Worker request must identify itself because Singa rejects a missing User-Agent",
 );
 assert.match(client, /request\.headers\.delete\("cf-workers-preview-token"\)/);
+assert.match(client, /SINGA_PUBLIC_STAGE_RELAY_TOKEN/);
+assert.match(client, /DEFAULT_SINGA_PUBLIC_STAGE_RELAY_URL/);
+assert.match(client, /authorization: `Bearer \$\{token\}`/);
+assert.match(client, /parseSingaPublicStageRelayPayload/);
 assert.match(client, /SINGA_PUBLIC_STAGE_VENUE_ID/);
 assert.match(client, /refreshInFlight/);
-assert.doesNotMatch(client, /Authorization|SINGA_(USERNAME|PASSWORD)|console\./i);
+const relayRequestSource = client.slice(
+  client.indexOf("function singaPublicStageRelayRequest"),
+  client.indexOf("async function refreshSingaPublicStageWait"),
+);
+assert.doesNotMatch(relayRequestSource, /requestContext/);
+assert.doesNotMatch(client, /SINGA_(USERNAME|PASSWORD)|console\./i);
 
 console.log("Singa public-stage regression test passed.");

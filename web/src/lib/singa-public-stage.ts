@@ -2,12 +2,14 @@ import { readEnv } from "./env";
 import {
   DEFAULT_SINGA_PUBLIC_STAGE_VENUE_ID,
   DEFAULT_SINGA_PUBLIC_STAGE_ZONE_ID,
+  DEFAULT_SINGA_PUBLIC_STAGE_RELAY_URL,
   SINGA_PUBLIC_STAGE_CACHE_MS,
   SINGA_PUBLIC_STAGE_LAST_KNOWN_MAX_AGE_MS,
   SINGA_PUBLIC_STAGE_TIMEOUT_MS,
   isValidSingaVenueId,
   isValidSingaZoneId,
   parseSingaPublicStagePayload,
+  parseSingaPublicStageRelayPayload,
   unavailableSingaPublicStageWait,
   type SingaPublicStageFreshWait,
   type SingaPublicStageUnavailableWait,
@@ -17,12 +19,14 @@ import {
 export {
   DEFAULT_SINGA_PUBLIC_STAGE_VENUE_ID,
   DEFAULT_SINGA_PUBLIC_STAGE_ZONE_ID,
+  DEFAULT_SINGA_PUBLIC_STAGE_RELAY_URL,
   SINGA_PUBLIC_STAGE_CACHE_MS,
   SINGA_PUBLIC_STAGE_LAST_KNOWN_MAX_AGE_MS,
   SINGA_PUBLIC_STAGE_TIMEOUT_MS,
   isValidSingaVenueId,
   isValidSingaZoneId,
   parseSingaPublicStagePayload,
+  parseSingaPublicStageRelayPayload,
   unavailableSingaPublicStageWait,
   type SingaPublicStageFreshWait,
   type SingaPublicStageLastKnown,
@@ -51,6 +55,11 @@ function configuredVenueId(): string {
     readEnv("SINGA_PUBLIC_STAGE_VENUE_ID") ??
     DEFAULT_SINGA_PUBLIC_STAGE_VENUE_ID
   ).trim();
+}
+
+function configuredRelayToken(): string | null {
+  const value = readEnv("SINGA_PUBLIC_STAGE_RELAY_TOKEN")?.trim() ?? "";
+  return value.length > 0 ? value : null;
 }
 
 function remember(value: SingaPublicStageWait): SingaPublicStageWait {
@@ -103,6 +112,18 @@ function singaPublicStageRequest(
   return request;
 }
 
+function singaPublicStageRelayRequest(token: string): Request {
+  return new Request(DEFAULT_SINGA_PUBLIC_STAGE_RELAY_URL, {
+    method: "GET",
+    headers: {
+      accept: "application/json",
+      authorization: `Bearer ${token}`,
+    },
+    cache: "no-store",
+    redirect: "error",
+  });
+}
+
 async function refreshSingaPublicStageWait(
   requestContext: Request,
 ): Promise<SingaPublicStageWait> {
@@ -119,19 +140,25 @@ async function refreshSingaPublicStageWait(
   );
 
   try {
+    const relayToken = configuredRelayToken();
     const response = await fetch(
-      singaPublicStageRequest(requestContext, zoneId),
+      relayToken
+        ? singaPublicStageRelayRequest(relayToken)
+        : singaPublicStageRequest(requestContext, zoneId),
       { signal: controller.signal },
     );
     if (!response.ok) return remember(unavailableNow());
 
     const checkedAt = new Date().toISOString();
-    const fresh = parseSingaPublicStagePayload(
-      (await response.json()) as unknown,
-      zoneId,
-      venueId,
-      checkedAt,
-    );
+    const payload = (await response.json()) as unknown;
+    const fresh = relayToken
+      ? parseSingaPublicStageRelayPayload(payload, checkedAt)
+      : parseSingaPublicStagePayload(
+          payload,
+          zoneId,
+          venueId,
+          checkedAt,
+        );
     if (!fresh) return remember(unavailableNow());
 
     lastKnownGood = fresh;
@@ -144,8 +171,10 @@ async function refreshSingaPublicStageWait(
 }
 
 /**
- * Read the public Singa stage wait. This server-side call never authenticates,
- * never mutates Singa, and never exposes or logs upstream response details.
+ * Read the public Singa stage wait. This server-side call never authenticates
+ * to a guest or staff Singa account, never mutates Singa, and never exposes or
+ * logs upstream response details. Production uses a fixed, token-protected
+ * read relay; local development can read Singa's public endpoint directly.
  */
 export async function getSingaPublicStageWait(
   requestContext: Request,
