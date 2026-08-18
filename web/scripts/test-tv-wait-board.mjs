@@ -37,12 +37,32 @@ assert.match(
 assert.match(
   board,
   /"Not Open"/,
-  "An inactive Singa session must not be presented as a zero-minute wait",
+  "An inactive Singa session after closing must show Not Open",
 );
 assert.match(
   board,
-  /Public karaoke requests are not open/,
-  "The TV card must explain a healthy inactive Main Stage session",
+  /karaokeInactiveDisplayStatus\(nowMs\)/,
+  "A healthy inactive Singa session must use the New York operating-hours policy",
+);
+assert.match(
+  board,
+  /karaokeInactiveNoWait[\s\S]*?"No Wait"[\s\S]*?karaokeNotOpen[\s\S]*?"Not Open"/,
+  "Inactive Karaoke must show No Wait before closing and Not Open after closing",
+);
+assert.match(
+  board,
+  /status=\{\s*karaokeActive \?[\s\S]*?: karaokeInactiveNoWait \?/,
+  "An active Singa session must remain authoritative even after the display cutoff",
+);
+assert.match(
+  board,
+  /: karaokeWait \? \(\s*"Updating"\s*\) : \(\s*"Connecting"/,
+  "An unavailable Singa response must keep showing Updating rather than No Wait",
+);
+assert.match(
+  board,
+  /No current Main Stage wait/,
+  "The pre-close inactive Karaoke state must explain that there is no current wait",
 );
 assert.match(
   board,
@@ -53,6 +73,11 @@ assert.doesNotMatch(
   board,
   /detail="Hosted rotation"/,
   "Karaoke must no longer use the fixed placeholder status",
+);
+assert.equal(
+  (board.match(/<TvWaitDuration /g) ?? []).length,
+  2,
+  "All four activity cards and Karaoke must share the TV wait-duration formatter",
 );
 assert.match(
   board,

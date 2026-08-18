@@ -40,6 +40,10 @@ const confirmedPublisher = dartsee.slice(
   dartsee.indexOf("async function publishConfirmedDartseeLaneStateWithToken"),
   dartsee.indexOf("export async function publishConfirmedDartseeStart"),
 );
+const controlTimingLogger = dartsee.slice(
+  dartsee.indexOf("function logDartseeControlTiming"),
+  dartsee.indexOf("let authCache"),
+);
 
 assert.match(
   component,
@@ -193,8 +197,23 @@ assert.match(dartsee, /dartseeCommandDurationMinutes\(\s*input\.durationMinutes/
 assert.match(dartsee, /START_LOCK_PREFIX/);
 assert.match(
   dartsee,
+  /const START_LEASE_WINDOW_MS = 10_000;/,
+  "Each of four durable lease buckets must be ten seconds",
+);
+assert.match(
+  dartsee,
+  /const CONTROL_CONFIRM_TIMEOUT_MS = 4_000;/,
+  "A healthy but slightly delayed Dartsee event gets four seconds to confirm",
+);
+assert.match(
+  dartsee,
   /const paths = \[bucket, bucket \+ 1, bucket \+ 2, bucket \+ 3\]/,
-  "A control lease must cover the full client timeout and verification window",
+  "Four adjacent ten-second buckets must provide 30-40 seconds of durable coverage",
+);
+assert.match(
+  dartsee,
+  /localStartGuards\.set\(lane, now \+ START_LEASE_WINDOW_MS \* 3\)/,
+  "The in-isolate guard must match the client's 30-second verification lock",
 );
 assert.match(dartsee, /upsert: false/);
 assert.match(
@@ -260,6 +279,37 @@ assert.match(
   dartsee,
   /const reading = await observer\.waitForLane\(/,
   "The same live observer must confirm a control event",
+);
+assert.match(
+  controlTimingLogger,
+  /outcome: timing\.outcome/,
+  "Control timing logs must include only the sanitized outcome category",
+);
+assert.doesNotMatch(
+  controlTimingLogger,
+  /token|sessionId|response\.body|error\b/,
+  "Control timing logs must not include secrets, session identifiers, bodies, or raw errors",
+);
+for (const outcome of [
+  "confirmed",
+  "unconfirmed",
+  "control-rejected",
+]) {
+  assert.match(
+    dartsee,
+    new RegExp(`timing\\.outcome = "${outcome}"`),
+    `Control paths must record the sanitized ${outcome} outcome`,
+  );
+}
+assert.doesNotMatch(
+  route,
+  /console\.error\([^\n]*,\s*error\)/,
+  "The Start route must not log raw caught errors",
+);
+assert.doesNotMatch(
+  endRoute,
+  /console\.error\([^\n]*,\s*error\)/,
+  "The End route must not log raw caught errors",
 );
 assert.match(
   staffPage,

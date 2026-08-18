@@ -170,17 +170,20 @@ const client = readFileSync(
   "utf8",
 );
 
-assert.match(route, /export async function GET\(\)/);
+assert.match(route, /export async function GET\(request: Request\)/);
+assert.match(route, /getSingaPublicStageWait\(request\)/);
 assert.doesNotMatch(route, /export async function (POST|PUT|PATCH|DELETE)/);
 assert.doesNotMatch(route, /public_code|username|password|credential/i);
 assert.match(route, /"cache-control": "private, no-store"/);
-assert.match(client, /method: "GET"/);
+assert.match(client, /new Request\([\s\S]*?requestContext as unknown as RequestInit/);
+assert.match(client, /inheritedHeaderNames/);
+assert.match(client, /request\.headers\.delete\(name\)/);
 assert.match(
   client,
-  /"user-agent": "OnPar-Waitlist\/1\.0"/,
+  /request\.headers\.set\("user-agent", "OnPar-Waitlist\/1\.0"\)/,
   "The Worker request must identify itself because Singa rejects a missing User-Agent",
 );
-assert.match(client, /redirect: "error"/);
+assert.match(client, /request\.headers\.delete\("cf-workers-preview-token"\)/);
 assert.match(client, /SINGA_PUBLIC_STAGE_VENUE_ID/);
 assert.match(client, /refreshInFlight/);
 assert.doesNotMatch(client, /Authorization|SINGA_(USERNAME|PASSWORD)|console\./i);

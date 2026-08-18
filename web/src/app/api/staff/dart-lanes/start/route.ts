@@ -179,8 +179,8 @@ export async function POST(request: Request) {
       lane: result.lane,
       snapshot: result.snapshot,
     });
-  } catch (error) {
-    console.error("[dartsee lane:start]", error);
+  } catch {
+    console.error("[dartsee lane:start] unhandled control failure");
     return privateJson(
       {
         error: "Dartsee lane controls are unavailable.",

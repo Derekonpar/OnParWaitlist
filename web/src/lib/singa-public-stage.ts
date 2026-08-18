@@ -80,7 +80,32 @@ function unavailableNow(): SingaPublicStageUnavailableWait {
   return value;
 }
 
-async function refreshSingaPublicStageWait(): Promise<SingaPublicStageWait> {
+function singaPublicStageRequest(
+  requestContext: Request,
+  zoneId: string,
+): Request {
+  // Cloudflare can reject a cross-zone subrequest when it is created without
+  // the incoming request context. Clone only that routing context, then remove
+  // every browser-supplied header before the request leaves On Par.
+  const request = new Request(
+    `${SINGA_PUBLIC_ZONE_URL}/${encodeURIComponent(zoneId)}`,
+    requestContext as unknown as RequestInit,
+  );
+  const inheritedHeaderNames: string[] = [];
+  request.headers.forEach((_value, name) => inheritedHeaderNames.push(name));
+  for (const name of inheritedHeaderNames) request.headers.delete(name);
+  request.headers.set("accept", "application/json");
+  request.headers.set("cache-control", "no-cache");
+  request.headers.set("user-agent", "OnPar-Waitlist/1.0");
+  // Wrangler remote preview adds this header automatically. Other Cloudflare
+  // zones reject it, and production never needs it.
+  request.headers.delete("cf-workers-preview-token");
+  return request;
+}
+
+async function refreshSingaPublicStageWait(
+  requestContext: Request,
+): Promise<SingaPublicStageWait> {
   const zoneId = configuredZoneId();
   const venueId = configuredVenueId();
   if (!isValidSingaZoneId(zoneId) || !isValidSingaVenueId(venueId)) {
@@ -95,19 +120,8 @@ async function refreshSingaPublicStageWait(): Promise<SingaPublicStageWait> {
 
   try {
     const response = await fetch(
-      `${SINGA_PUBLIC_ZONE_URL}/${encodeURIComponent(zoneId)}`,
-      {
-        method: "GET",
-        // Singa rejects requests without a User-Agent. OpenNext's production
-        // Worker fetch can omit it even though local Node fetch supplies one.
-        headers: {
-          accept: "application/json",
-          "user-agent": "OnPar-Waitlist/1.0",
-        },
-        cache: "no-store",
-        redirect: "error",
-        signal: controller.signal,
-      },
+      singaPublicStageRequest(requestContext, zoneId),
+      { signal: controller.signal },
     );
     if (!response.ok) return remember(unavailableNow());
 
@@ -133,14 +147,16 @@ async function refreshSingaPublicStageWait(): Promise<SingaPublicStageWait> {
  * Read the public Singa stage wait. This server-side call never authenticates,
  * never mutates Singa, and never exposes or logs upstream response details.
  */
-export async function getSingaPublicStageWait(): Promise<SingaPublicStageWait> {
+export async function getSingaPublicStageWait(
+  requestContext: Request,
+): Promise<SingaPublicStageWait> {
   const nowMs = Date.now();
   if (responseCache && nowMs < responseCache.expiresAt) {
     return responseCache.value;
   }
   if (refreshInFlight) return refreshInFlight;
 
-  const refresh = refreshSingaPublicStageWait();
+  const refresh = refreshSingaPublicStageWait(requestContext);
   refreshInFlight = refresh;
   try {
     return await refresh;

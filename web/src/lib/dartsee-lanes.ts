@@ -131,11 +131,11 @@ const REFRESH_LEASE_WINDOW_MS = 15_000;
 // Staff and TV pages poll every 15 seconds. Refresh slightly ahead of that
 // cadence while the durable 15-second lease remains the global fanout cap.
 const REFRESH_TARGET_AGE_MS = 10_000;
-const START_LEASE_WINDOW_MS = 30_000;
+const START_LEASE_WINDOW_MS = 10_000;
 const START_STORAGE_DEADLINE_MS = 1_500;
 const START_SCHEDULE_READ_DEADLINE_MS = 1_800;
 const START_POST_TIMEOUT_MS = 5_000;
-const CONTROL_CONFIRM_TIMEOUT_MS = 1_500;
+const CONTROL_CONFIRM_TIMEOUT_MS = 4_000;
 const START_SCHEDULE_MAX_AGE_MS = 2 * 60_000;
 const START_CONFIRM_END_TOLERANCE_MS = 3 * 60_000;
 const PUBLISH_STORAGE_DEADLINE_MS = 1_000;
@@ -166,6 +166,11 @@ interface DartseeControlTiming {
   postStartedAtMs?: number;
   postFinishedAtMs?: number;
   confirmationFinishedAtMs?: number;
+  outcome:
+    | "confirmed"
+    | "unconfirmed"
+    | DartseeLaneStartFailureCode
+    | DartseeLaneEndFailureCode;
 }
 
 function logDartseeControlTiming(
@@ -179,6 +184,7 @@ function logDartseeControlTiming(
   const confirmationFinishedAtMs = timing.confirmationFinishedAtMs;
   console.info("[dartsee control:timing]", {
     action,
+    outcome: timing.outcome,
     parallelPrepareMs: parallelReadyAtMs === undefined
       ? null
       : Math.max(0, parallelReadyAtMs - timing.startedAtMs),
@@ -1124,9 +1130,11 @@ async function acquireStartLease(
   }
 
   // Claim this time bucket and the next three. Adjacent requests on opposite
-  // boundaries still contend for a shared object, and the 90–120 second lease
-  // safely outlives the bounded full-board End preflight. A crashed request
-  // then expires without permanent cleanup or manual intervention.
+  // boundaries still contend for a shared object. Four adjacent 10-second
+  // buckets provide 30–40 seconds of durable coverage, matching the staff
+  // client's 30-second verification lock while safely outliving the bounded
+  // full-board End preflight. A crashed request then expires without permanent
+  // cleanup or manual intervention.
   const bucket = Math.floor(now / START_LEASE_WINDOW_MS);
   const paths = [bucket, bucket + 1, bucket + 2, bucket + 3].map(
     (value) => `${START_LOCK_PREFIX}/lane-${lane}-${value}.json`,
@@ -1480,16 +1488,21 @@ export async function startDartseeLaneSession(input: {
   lane: number;
   durationMinutes: DartseeStartDuration;
 }): Promise<DartseeLaneStartResult> {
+  const timing: DartseeControlTiming = {
+    startedAtMs: Date.now(),
+    outcome: "invalid-configuration",
+  };
   const boardId = dartseeBoardIdForLane(input.lane);
   const configuredDuration = DARTSEE_START_DURATIONS.includes(
     input.durationMinutes,
   );
   const venueId = readEnv("DARTSEE_VENUE_ID");
   if (!boardId || !configuredDuration || !venueId) {
+    logDartseeControlTiming("start", timing);
     return { ok: false, code: "invalid-configuration" };
   }
 
-  const timing: DartseeControlTiming = { startedAtMs: Date.now() };
+  timing.outcome = "control-unavailable";
   let lease: DartseeStartLease | null = null;
   let commandMayHaveBeenSent = false;
   let retainLease = false;
@@ -1515,20 +1528,27 @@ export async function startDartseeLaneSession(input: {
     controlObserver = preflight?.observer ?? null;
 
     if (leaseAcquisition === DARTSEE_CONTROL_LEASE_UNAVAILABLE) {
+      timing.outcome = "control-unavailable";
       return { ok: false, code: "control-unavailable" };
     }
     lease = leaseAcquisition;
-    if (!lease) return { ok: false, code: "already-in-progress" };
+    if (!lease) {
+      timing.outcome = "already-in-progress";
+      return { ok: false, code: "already-in-progress" };
+    }
     if (!preflight) {
+      timing.outcome = "feed-unavailable";
       return { ok: false, code: "feed-unavailable" };
     }
     const { token, observer } = preflight;
     const before = observer.lanes()[0];
     if (before.status !== "open") {
+      const code: DartseeLaneStartFailureCode =
+        before.status === "occupied" ? "lane-occupied" : "feed-unavailable";
+      timing.outcome = code;
       return {
         ok: false,
-        code:
-          before.status === "occupied" ? "lane-occupied" : "feed-unavailable",
+        code,
       };
     }
 
@@ -1542,6 +1562,7 @@ export async function startDartseeLaneSession(input: {
       !Number.isFinite(scheduleAt) ||
       Date.now() - scheduleAt > START_SCHEDULE_MAX_AGE_MS
     ) {
+      timing.outcome = "schedule-unavailable";
       return { ok: false, code: "schedule-unavailable" };
     }
     const startMs = Date.now();
@@ -1556,6 +1577,7 @@ export async function startDartseeLaneSession(input: {
         reservationConflictsWithSession(reservation, startMs, expectedEndMs),
     );
     if (conflict) {
+      timing.outcome = "reservation-conflict";
       return {
         ok: false,
         code: "reservation-conflict",
@@ -1572,12 +1594,14 @@ export async function startDartseeLaneSession(input: {
       (lane) => lane.boardId === boardId,
     );
     if (immediatelyBeforeWrite?.status !== "open") {
+      const code: DartseeLaneStartFailureCode =
+        immediatelyBeforeWrite?.status === "occupied"
+          ? "lane-occupied"
+          : "feed-unavailable";
+      timing.outcome = code;
       return {
         ok: false,
-        code:
-          immediatelyBeforeWrite?.status === "occupied"
-            ? "lane-occupied"
-            : "feed-unavailable",
+        code,
       };
     }
 
@@ -1623,6 +1647,7 @@ export async function startDartseeLaneSession(input: {
 
     if (response && response.status >= 400 && response.status < 500) {
       if (response.status === 401 || response.status === 403) authCache = null;
+      timing.outcome = "control-rejected";
       return { ok: false, code: "control-rejected" };
     }
 
@@ -1640,6 +1665,7 @@ export async function startDartseeLaneSession(input: {
       // Keep the lease until its time buckets expire. The command may have
       // reached Dartsee, so staff must refresh/check the lane before retrying.
       retainLease = true;
+      timing.outcome = "unconfirmed";
       return {
         ok: true,
         confirmed: false,
@@ -1649,6 +1675,7 @@ export async function startDartseeLaneSession(input: {
       };
     }
 
+    timing.outcome = "confirmed";
     return {
       ok: true,
       confirmed: true,
@@ -1658,11 +1685,13 @@ export async function startDartseeLaneSession(input: {
     };
   } catch {
     if (!commandMayHaveBeenSent) {
+      timing.outcome = "control-unavailable";
       return { ok: false, code: "control-unavailable" };
     }
     // Once the POST may have left this process, errors are ambiguous and must
     // never trigger an automatic retry.
     retainLease = true;
+    timing.outcome = "unconfirmed";
     return {
       ok: true,
       confirmed: false,
@@ -1681,10 +1710,17 @@ export async function endDartseeLaneSession(input: {
   requestId: string;
   lane: number;
 }): Promise<DartseeLaneEndResult> {
+  const timing: DartseeControlTiming = {
+    startedAtMs: Date.now(),
+    outcome: "invalid-configuration",
+  };
   const boardId = dartseeBoardIdForLane(input.lane);
-  if (!boardId) return { ok: false, code: "invalid-configuration" };
+  if (!boardId) {
+    logDartseeControlTiming("end", timing);
+    return { ok: false, code: "invalid-configuration" };
+  }
 
-  const timing: DartseeControlTiming = { startedAtMs: Date.now() };
+  timing.outcome = "control-unavailable";
   let lease: DartseeStartLease | null = null;
   let commandMayHaveBeenSent = false;
   let retainLease = false;
@@ -1705,11 +1741,16 @@ export async function endDartseeLaneSession(input: {
     controlObserver = fullPreflight?.observer ?? null;
 
     if (leaseAcquisition === DARTSEE_CONTROL_LEASE_UNAVAILABLE) {
+      timing.outcome = "control-unavailable";
       return { ok: false, code: "control-unavailable" };
     }
     lease = leaseAcquisition;
-    if (!lease) return { ok: false, code: "already-in-progress" };
+    if (!lease) {
+      timing.outcome = "already-in-progress";
+      return { ok: false, code: "already-in-progress" };
+    }
     if (!fullPreflight) {
+      timing.outcome = "feed-unavailable";
       return { ok: false, code: "feed-unavailable" };
     }
     const { token, observer } = fullPreflight;
@@ -1719,6 +1760,7 @@ export async function endDartseeLaneSession(input: {
     // session frame cannot trail the first known status into an unsafe End.
     await new Promise((resolve) => setTimeout(resolve, 250));
     if (!observer.isActive()) {
+      timing.outcome = "feed-unavailable";
       return { ok: false, code: "feed-unavailable" };
     }
 
@@ -1731,14 +1773,17 @@ export async function endDartseeLaneSession(input: {
     );
     if (!inspection.ok) {
       if (inspection.reason === "target-missing") {
+        timing.outcome = "feed-unavailable";
         return { ok: false, code: "feed-unavailable" };
       }
+      const code: DartseeLaneEndFailureCode =
+        inspection.reason === "lane-open"
+          ? "lane-open"
+          : inspection.reason;
+      timing.outcome = code;
       return {
         ok: false,
-        code:
-          inspection.reason === "lane-open"
-            ? "lane-open"
-            : inspection.reason,
+        code,
       };
     }
     const sessionId = inspection.sessionId;
@@ -1779,6 +1824,7 @@ export async function endDartseeLaneSession(input: {
     }
     if (response && response.status >= 400 && response.status < 500) {
       if (response.status === 401 || response.status === 403) authCache = null;
+      timing.outcome = "control-rejected";
       return { ok: false, code: "control-rejected" };
     }
 
@@ -1795,6 +1841,7 @@ export async function endDartseeLaneSession(input: {
       // Keep the short lease until its buckets expire. The End may have reached
       // Dartsee, so the staff UI must verify rather than offer an immediate retry.
       retainLease = true;
+      timing.outcome = "unconfirmed";
       return {
         ok: true,
         confirmed: false,
@@ -1804,6 +1851,7 @@ export async function endDartseeLaneSession(input: {
       };
     }
 
+    timing.outcome = "confirmed";
     return {
       ok: true,
       confirmed: true,
@@ -1813,9 +1861,11 @@ export async function endDartseeLaneSession(input: {
     };
   } catch {
     if (!commandMayHaveBeenSent) {
+      timing.outcome = "control-unavailable";
       return { ok: false, code: "control-unavailable" };
     }
     retainLease = true;
+    timing.outcome = "unconfirmed";
     return {
       ok: true,
       confirmed: false,

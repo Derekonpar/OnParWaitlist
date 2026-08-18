@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import {
   TIMED_RESOURCES,
   type TimedResourceSession,
@@ -15,11 +15,7 @@ import {
 } from "@/lib/reservation-policy";
 
 const WALK_TO_RESOURCE_BUFFER_MS = 3 * 60_000;
-
-function localDateTimeValue(date = new Date()) {
-  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
-  return local.toISOString().slice(0, 16);
-}
+type TimedResourceDuration = 30 | 60 | 120;
 
 function formatTime(iso: string) {
   return new Date(iso).toLocaleTimeString([], {
@@ -54,143 +50,29 @@ export function TimedResourcePlanner({
     resourceId: string;
     guestName: string;
     startsAt: string;
-    durationMinutes: 30 | 60 | 120;
+    durationMinutes: TimedResourceDuration;
   }) => Promise<boolean>;
   onClear: (resourceType: TimedResourceType, resourceId: string) => Promise<void>;
 }) {
   const resources = TIMED_RESOURCES[resourceType];
-  const [resourceId, setResourceId] = useState(resources[0].id);
-  const [guestName, setGuestName] = useState("");
-  const [startsAt, setStartsAt] = useState(() =>
-    localDateTimeValue(new Date(Date.now() + WALK_TO_RESOURCE_BUFFER_MS)),
-  );
-  const [durationMinutes, setDurationMinutes] = useState<60 | 120>(60);
-  const [poolDurations, setPoolDurations] = useState<Record<string, 30 | 60 | 120>>(
-    () => Object.fromEntries(TIMED_RESOURCES.pool.map((resource) => [resource.id, 60])),
-  );
+  const [resourceDurations, setResourceDurations] = useState<
+    Record<string, TimedResourceDuration>
+  >(() => Object.fromEntries(resources.map((resource) => [resource.id, 60])));
   const title = resourceType === "pool" ? "Pool tables" : "Shuffleboards";
   const equipment = resourceType === "pool" ? "balls" : "pucks";
-  const selectedEnd = useMemo(() => {
-    const start = new Date(startsAt);
-    if (!Number.isFinite(start.getTime())) return "—";
-    return formatTime(
-      new Date(start.getTime() + durationMinutes * 60_000).toISOString(),
-    );
-  }, [startsAt, durationMinutes]);
-  const selectedConflict = useMemo(() => {
-    const startMs = new Date(startsAt).getTime();
-    if (!Number.isFinite(startMs)) return undefined;
-    const endMs = startMs + durationMinutes * 60_000;
-    const ids = timedResourceReservationIds(resourceType, resourceId);
-    return reservations.find(
-      (reservation) =>
-        ids.includes(reservation.resourceId.toLowerCase()) &&
-        reservationConflictsWithSession(reservation, startMs, endMs),
-    );
-  }, [durationMinutes, reservations, resourceId, resourceType, startsAt]);
 
-  async function submit(event: React.FormEvent) {
-    event.preventDefault();
-    const ok = await onAdd({
+  async function startResourceSession(resourceId: string) {
+    await onAdd({
       resourceType,
       resourceId,
-      guestName,
-      startsAt: new Date(startsAt).toISOString(),
-      durationMinutes,
-    });
-    if (ok) {
-      setGuestName("");
-      setStartsAt(
-        localDateTimeValue(new Date(Date.now() + WALK_TO_RESOURCE_BUFFER_MS)),
-      );
-    }
-  }
-
-  async function startPoolRack(poolResourceId: string) {
-    await onAdd({
-      resourceType: "pool",
-      resourceId: poolResourceId,
       guestName: "Walk-in",
       startsAt: new Date(nowMs + WALK_TO_RESOURCE_BUFFER_MS).toISOString(),
-      durationMinutes: poolDurations[poolResourceId] ?? 60,
+      durationMinutes: resourceDurations[resourceId] ?? 60,
     });
   }
 
   return (
     <div className="space-y-6">
-      {resourceType === "shuffleboard" && (
-        <section className="rounded-2xl border border-white/10 bg-[#141414] p-5">
-        <h2 className="text-lg font-semibold text-white">Start {title.toLowerCase()} time</h2>
-        <p className="mt-1 text-sm text-neutral-500">
-          Start time defaults to 3 minutes from now for the walk back. End time updates from the selected duration.
-        </p>
-        <form onSubmit={submit} className="mt-5 grid gap-3 md:grid-cols-2">
-          <select
-            value={resourceId}
-            onChange={(event) => setResourceId(event.target.value)}
-            className="rounded-xl border border-neutral-700 bg-neutral-900 px-4 py-3 text-sm text-white"
-          >
-            {resources.map((resource) => (
-              <option key={resource.id} value={resource.id}>
-                {resource.label}
-              </option>
-            ))}
-          </select>
-          <input
-            required
-            value={guestName}
-            onChange={(event) => setGuestName(event.target.value)}
-            placeholder="Guest name"
-            className="rounded-xl border border-neutral-700 bg-neutral-900 px-4 py-3 text-sm text-white"
-          />
-          <label className="text-xs font-medium text-neutral-400">
-            Start time
-            <input
-              required
-              type="datetime-local"
-              value={startsAt}
-              onChange={(event) => setStartsAt(event.target.value)}
-              className="mt-1 w-full rounded-xl border border-neutral-700 bg-neutral-900 px-4 py-3 text-sm text-white"
-            />
-          </label>
-          <div>
-            <p className="text-xs font-medium text-neutral-400">Duration</p>
-            <div className="mt-1 grid grid-cols-2 gap-2">
-              {([60, 120] as const).map((minutes) => (
-                <button
-                  key={minutes}
-                  type="button"
-                  onClick={() => setDurationMinutes(minutes)}
-                  className={`rounded-xl border px-4 py-3 text-sm font-semibold ${
-                    durationMinutes === minutes
-                      ? "border-white bg-white text-neutral-950"
-                      : "border-neutral-700 bg-neutral-900 text-neutral-300"
-                  }`}
-                >
-                  {minutes / 60} hour{minutes === 120 ? "s" : ""}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="rounded-xl border border-white/10 bg-neutral-950 px-4 py-3 text-sm text-neutral-300">
-            Scheduled end: <strong className="text-white">{selectedEnd}</strong>
-          </div>
-          {selectedConflict && (
-            <div className="rounded-xl border border-red-400 bg-red-700 px-4 py-3 text-sm font-semibold text-white" role="alert">
-              Cannot book: protect this table starting 1 hour 5 minutes before {formatTime(selectedConflict.startAt)} for {selectedConflict.eventName}.
-            </div>
-          )}
-          <button
-            type="submit"
-            disabled={busyKey !== null || Boolean(selectedConflict)}
-            className="rounded-xl bg-white px-4 py-3 text-sm font-semibold text-neutral-950 disabled:opacity-60"
-          >
-            Add session
-          </button>
-        </form>
-        </section>
-      )}
-
       <section>
         <h2 className="mb-3 text-base font-semibold text-white">{title}</h2>
         <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
@@ -225,19 +107,19 @@ export function TimedResourcePlanner({
             const reservationWarning = Boolean(
               activeReservation || protectedReservation,
             );
-            const poolDuration = poolDurations[resource.id] ?? 60;
-            const poolStartMs = nowMs + WALK_TO_RESOURCE_BUFFER_MS;
-            const poolEndMs = poolStartMs + poolDuration * 60_000;
-            const poolConflict =
-              resourceType === "pool"
-                ? upcomingReservations.find((reservation) =>
-                    reservationConflictsWithSession(
-                      reservation,
-                      poolStartMs,
-                      poolEndMs,
-                    ),
-                  )
-                : undefined;
+            const resourceDuration = resourceDurations[resource.id] ?? 60;
+            const resourceStartMs = nowMs + WALK_TO_RESOURCE_BUFFER_MS;
+            const resourceEndMs =
+              resourceStartMs + resourceDuration * 60_000;
+            const resourceConflict = upcomingReservations.find((reservation) =>
+              reservationConflictsWithSession(
+                reservation,
+                resourceStartMs,
+                resourceEndMs,
+              ),
+            );
+            const startLabel =
+              resourceType === "pool" ? "Start rack" : "Start shuffleboard";
             return (
               <article
                 key={resource.id}
@@ -272,54 +154,50 @@ export function TimedResourcePlanner({
                   </div>
                 )}
                 {!session ? (
-                  resourceType === "pool" ? (
-                    <div className="mt-3 space-y-3">
-                      <p className="text-sm font-medium text-emerald-300">Available</p>
-                      <label className="block text-xs font-medium text-neutral-400">
-                        Duration
-                        <select
-                          aria-label={`${resource.label} duration`}
-                          value={poolDuration}
-                          onChange={(event) =>
-                            setPoolDurations((current) => ({
-                              ...current,
-                              [resource.id]: Number(event.target.value) as
-                                | 30
-                                | 60
-                                | 120,
-                            }))
-                          }
-                          className="mt-1 w-full rounded-xl border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-white"
-                        >
-                          <option value={30}>30 minutes</option>
-                          <option value={60}>1 hour</option>
-                          <option value={120}>2 hours</option>
-                        </select>
-                      </label>
-                      {poolConflict && (
-                        <p
-                          className="rounded-lg border border-red-400 bg-red-700 px-3 py-2 text-xs font-semibold text-white"
-                          role="alert"
-                        >
-                          Reserved at {formatTime(poolConflict.startAt)} — this time would overlap.
-                        </p>
-                      )}
-                      <button
-                        type="button"
-                        disabled={busyKey !== null || Boolean(poolConflict)}
-                        onClick={() => void startPoolRack(resource.id)}
-                        className="w-full rounded-xl bg-white px-3 py-2 text-sm font-semibold text-neutral-950 disabled:opacity-60"
+                  <div className="mt-3 space-y-3">
+                    <p className="text-sm font-medium text-emerald-300">Available</p>
+                    <label className="block text-xs font-medium text-neutral-400">
+                      Duration
+                      <select
+                        aria-label={`${resource.label} duration`}
+                        value={resourceDuration}
+                        onChange={(event) =>
+                          setResourceDurations((current) => ({
+                            ...current,
+                            [resource.id]: Number(event.target.value) as
+                              TimedResourceDuration,
+                          }))
+                        }
+                        className="mt-1 w-full rounded-xl border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-white"
                       >
-                        Start rack
-                      </button>
-                    </div>
-                  ) : (
-                    <p className="mt-3 text-sm font-medium text-emerald-300">Available</p>
-                  )
+                        <option value={30}>30 minutes</option>
+                        <option value={60}>1 hour</option>
+                        <option value={120}>2 hours</option>
+                      </select>
+                    </label>
+                    {resourceConflict && (
+                      <p
+                        className="rounded-lg border border-red-400 bg-red-700 px-3 py-2 text-xs font-semibold text-white"
+                        role="alert"
+                      >
+                        Reserved at {formatTime(resourceConflict.startAt)} — this time would overlap.
+                      </p>
+                    )}
+                    <button
+                      type="button"
+                      disabled={busyKey !== null || Boolean(resourceConflict)}
+                      onClick={() => void startResourceSession(resource.id)}
+                      className="w-full rounded-xl bg-white px-3 py-2 text-sm font-semibold text-neutral-950 disabled:opacity-60"
+                    >
+                      {startLabel}
+                    </button>
+                  </div>
                 ) : (
                   <>
-                    {resourceType !== "pool" && (
-                      <p className="mt-3 text-sm text-white">{session.guestName}</p>
+                    {session.guestName.trim().toLowerCase() !== "walk-in" && (
+                      <p className="mt-3 text-sm text-white">
+                        {session.guestName}
+                      </p>
                     )}
                     <p className="mt-1 text-xs text-neutral-400">
                       {formatTime(session.startsAt)}–{formatTime(session.endsAt)}

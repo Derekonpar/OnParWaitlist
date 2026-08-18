@@ -7,6 +7,8 @@ import type {
   SingaPublicStageLastKnown,
   SingaPublicStageWait,
 } from "@/lib/singa-public-stage-contract";
+import { karaokeInactiveDisplayStatus } from "@/lib/karaoke-display-hours";
+import { formatTvWaitDuration } from "@/lib/tv-wait-format";
 import { ACTIVITY_THEME } from "@/lib/types";
 import { ActivityIcon } from "./ActivityIcon";
 
@@ -127,6 +129,18 @@ function KaraokeIcon() {
       <path d="m11.7 10.5-6.2 6.2 1.8 1.8 6.2-6.2" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
       <path d="M5 20h7" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
     </svg>
+  );
+}
+
+function TvWaitDuration({ minutes }: { minutes: number }) {
+  const wait = formatTvWaitDuration(minutes);
+  return (
+    <>
+      {wait.value}
+      <span className="ml-[0.3em] text-[0.28em] font-bold uppercase tracking-wider text-white/70">
+        {wait.unit}
+      </span>
+    </>
   );
 }
 
@@ -326,7 +340,13 @@ export function TvWaitBoard({ initialBoard }: TvWaitBoardProps) {
 
   const karaokeActive = karaokeWait?.status === "active";
   const karaokeInactive = karaokeWait?.status === "inactive";
-  const karaokeNoWait = karaokeActive && karaokeWait.waitMinutes === 0;
+  const inactiveDisplayStatus = karaokeInactive
+    ? karaokeInactiveDisplayStatus(nowMs)
+    : null;
+  const karaokeInactiveNoWait = inactiveDisplayStatus === "no-wait";
+  const karaokeNotOpen = inactiveDisplayStatus === "not-open";
+  const karaokeNoWait =
+    (karaokeActive && karaokeWait.waitMinutes === 0) || karaokeInactiveNoWait;
 
   return (
     <main className="flex h-screen max-h-screen flex-col overflow-hidden bg-[#090909] p-[clamp(0.75rem,1.6vw,2rem)] text-white">
@@ -382,12 +402,7 @@ export function TvWaitBoard({ initialBoard }: TvWaitBoardProps) {
                 ) : open ? (
                   "No Wait"
                 ) : (
-                  <>
-                    {stats.estimatedWaitMinutes}
-                    <span className="ml-[0.3em] text-[0.28em] font-bold uppercase tracking-wider text-white/70">
-                      min
-                    </span>
-                  </>
+                  <TvWaitDuration minutes={stats.estimatedWaitMinutes} />
                 )
               }
               statusTone={
@@ -423,14 +438,11 @@ export function TvWaitBoard({ initialBoard }: TvWaitBoardProps) {
               karaokeNoWait ? (
                 "No Wait"
               ) : (
-                <>
-                  {karaokeWait.waitMinutes}
-                  <span className="ml-[0.3em] text-[0.28em] font-bold uppercase tracking-wider text-white/70">
-                    min
-                  </span>
-                </>
+                <TvWaitDuration minutes={karaokeWait.waitMinutes} />
               )
-            ) : karaokeInactive ? (
+            ) : karaokeInactiveNoWait ? (
+              "No Wait"
+            ) : karaokeNotOpen ? (
               "Not Open"
             ) : karaokeWait ? (
               "Updating"
@@ -449,9 +461,11 @@ export function TvWaitBoard({ initialBoard }: TvWaitBoardProps) {
           detail={
             karaokeActive
               ? "Public karaoke requests are open"
-              : karaokeInactive
-                ? "Public karaoke requests are not open"
-                : "Wait time temporarily unavailable"
+              : karaokeInactiveNoWait
+                ? "No current Main Stage wait"
+                : karaokeNotOpen
+                  ? "Public karaoke requests are not open"
+                  : "Wait time temporarily unavailable"
           }
         />
 
