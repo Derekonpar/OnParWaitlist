@@ -1,13 +1,22 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-import { parseSingaPayload } from "./api/wait.js";
+import { parseSingaPayload, singaWaitUrl } from "./api/wait.js";
 
 const venueId = 8470;
 const venueResourceId = "ven_01he2x75nmeey8m93b5madk9et";
 const queueId = 8418;
 const queueResourceId = "que_01he2x7e45esq8r2fve7vh3c88";
 const checkedAt = "2026-08-18T17:30:00.000Z";
+
+assert.equal(
+  singaWaitUrl(0),
+  "https://api.singa.com/v1.4/venues/8470/?onpar_wait_status=0",
+);
+assert.match(singaWaitUrl(29_999), /onpar_wait_status=0$/);
+assert.match(singaWaitUrl(30_000), /onpar_wait_status=1$/);
+assert.match(singaWaitUrl(59_999), /onpar_wait_status=1$/);
+assert.match(singaWaitUrl(60_000), /onpar_wait_status=0$/);
 
 function payload(queue) {
   return {
@@ -91,6 +100,8 @@ assert.match(source, /SINGA_PUBLIC_STAGE_RELAY_TOKEN/);
 assert.match(source, /timingSafeEqual/);
 assert.match(source, /UPSTREAM_TIMEOUT_MS = 5_000/);
 assert.match(source, /CACHE_MS = 10_000/);
+assert.match(source, /UPSTREAM_CACHE_BUCKET_MS = 30_000/);
+assert.match(source, /Math\.floor\(nowMs \/ UPSTREAM_CACHE_BUCKET_MS\) % 2/);
 assert.match(source, /headers\?\.get\?\.\("age"\)/);
 assert.match(source, /headers\?\.get\?\.\("date"\)/);
 assert.doesNotMatch(source, /SINGA_(USERNAME|PASSWORD)|console\.|response\.text\(/i);

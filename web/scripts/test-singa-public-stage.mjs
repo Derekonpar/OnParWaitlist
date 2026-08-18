@@ -339,6 +339,12 @@ assert.match(client, /parseLegacySingaPublicStagePayload/);
 assert.match(client, /https:\/\/api\.singa\.com\/v1\.4\/venues/);
 assert.match(client, /DEFAULT_SINGA_PUBLIC_STAGE_LEGACY_VENUE_ID/);
 assert.match(client, /DEFAULT_SINGA_PUBLIC_STAGE_QUEUE_ID/);
+assert.match(client, /SINGA_PUBLIC_STAGE_CACHE_BUCKET_MS = 30_000/);
+assert.match(
+  client,
+  /Math\.floor\(Date\.now\(\) \/ SINGA_PUBLIC_STAGE_CACHE_BUCKET_MS\) % 2/,
+);
+assert.match(client, /\?onpar_wait_status=\$\{cacheBucket\}/);
 assert.match(client, /transportDiagnostic\.outcome = "request-failed"/);
 assert.match(client, /SINGA_PUBLIC_STAGE_VENUE_ID/);
 assert.match(client, /refreshInFlight/);

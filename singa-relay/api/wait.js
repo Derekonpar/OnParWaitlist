@@ -7,6 +7,7 @@ const SINGA_QUEUE_RESOURCE_ID = "que_01he2x7e45esq8r2fve7vh3c88";
 const SINGA_URL = `https://api.singa.com/v1.4/venues/${SINGA_VENUE_ID}/`;
 const UPSTREAM_TIMEOUT_MS = 5_000;
 const CACHE_MS = 10_000;
+const UPSTREAM_CACHE_BUCKET_MS = 30_000;
 
 let cached = null;
 let refreshInFlight = null;
@@ -48,6 +49,11 @@ function upstreamCheckedAt(upstream) {
     }
   }
   return new Date(Math.min(...candidates)).toISOString();
+}
+
+export function singaWaitUrl(nowMs = Date.now()) {
+  const bucket = Math.floor(nowMs / UPSTREAM_CACHE_BUCKET_MS) % 2;
+  return `${SINGA_URL}?onpar_wait_status=${bucket}`;
 }
 
 export function parseSingaPayload(payload, checkedAt) {
@@ -100,7 +106,7 @@ async function refresh() {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
   try {
-    const upstream = await fetch(SINGA_URL, {
+    const upstream = await fetch(singaWaitUrl(), {
       method: "GET",
       headers: {
         accept: "application/json",

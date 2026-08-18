@@ -38,6 +38,7 @@ export {
 } from "./singa-public-stage-contract";
 
 const SINGA_PUBLIC_VENUE_URL = "https://api.singa.com/v1.4/venues";
+const SINGA_PUBLIC_STAGE_CACHE_BUCKET_MS = 30_000;
 
 let responseCache:
   | { value: SingaPublicStageWait; expiresAt: number }
@@ -100,8 +101,10 @@ function singaPublicStageRequest(
   // Cloudflare can reject a cross-zone subrequest when it is created without
   // the incoming request context. Clone only that routing context, then remove
   // every browser-supplied header before the request leaves On Par.
+  const cacheBucket =
+    Math.floor(Date.now() / SINGA_PUBLIC_STAGE_CACHE_BUCKET_MS) % 2;
   const request = new Request(
-    `${SINGA_PUBLIC_VENUE_URL}/${DEFAULT_SINGA_PUBLIC_STAGE_LEGACY_VENUE_ID}/`,
+    `${SINGA_PUBLIC_VENUE_URL}/${DEFAULT_SINGA_PUBLIC_STAGE_LEGACY_VENUE_ID}/?onpar_wait_status=${cacheBucket}`,
     requestContext as unknown as RequestInit,
   );
   const inheritedHeaderNames: string[] = [];
