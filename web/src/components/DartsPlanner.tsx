@@ -32,6 +32,10 @@ interface DartsPlannerProps {
     lane: number,
     durationMinutes: DartStartDuration,
   ) => Promise<boolean>;
+  onOverrideStartLane: (
+    lane: number,
+    durationMinutes: DartStartDuration,
+  ) => Promise<boolean>;
   onEndLane: (lane: number) => Promise<boolean>;
 }
 
@@ -83,12 +87,19 @@ export function DartsPlanner({
   pendingControls,
   reservationProtectionReady,
   onStartLane,
+  onOverrideStartLane,
   onEndLane,
 }: DartsPlannerProps) {
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [startDurations, setStartDurations] = useState<
     Record<number, DartStartDuration>
   >({});
+  const [reservationOverrideOpen, setReservationOverrideOpen] = useState(false);
+  const [reservationOverrideLane, setReservationOverrideLane] = useState<
+    number | ""
+  >("");
+  const [reservationOverrideDuration, setReservationOverrideDuration] =
+    useState<DartStartDuration>(60);
   const capturedAtMs = snapshot
     ? new Date(snapshot.capturedAt).getTime()
     : Number.NaN;
@@ -128,6 +139,62 @@ export function DartsPlanner({
     (lane) => feedPresentationForBoard(lane.boardId).tone === "refreshing",
   );
 
+  const selectedOverrideLane =
+    reservationOverrideLane === ""
+      ? null
+      : plan.lanes.find((lane) => lane.lane === reservationOverrideLane) ?? null;
+  const selectedOverrideFeed = selectedOverrideLane
+    ? feedPresentationForBoard(selectedOverrideLane.boardId)
+    : null;
+  const selectedOverridePending =
+    reservationOverrideLane === ""
+      ? null
+      : pendingControls.find(
+          (pending) => pending.lane === reservationOverrideLane,
+        ) ?? null;
+  const reservationOverrideDisabled =
+    reservationOverrideLane === "" ||
+    controllingLane !== null ||
+    Boolean(selectedOverridePending) ||
+    !reservationProtectionReady ||
+    !selectedOverrideLane ||
+    selectedOverrideLane.status !== "open" ||
+    Boolean(selectedOverrideFeed?.safetyUnavailable);
+
+  function openReservationOverride() {
+    setReservationOverrideLane("");
+    setReservationOverrideDuration(60);
+    setReservationOverrideOpen(true);
+  }
+
+  function closeReservationOverride() {
+    setReservationOverrideOpen(false);
+    setReservationOverrideLane("");
+    setReservationOverrideDuration(60);
+  }
+
+  async function submitReservationOverride() {
+    if (reservationOverrideLane === "" || reservationOverrideDisabled) return;
+    const durationLabel =
+      reservationOverrideDuration === 60
+        ? "1 hour"
+        : reservationOverrideDuration === 120
+          ? "2 hours"
+          : "30 minutes";
+    if (
+      !window.confirm(
+        `Start Dart ${reservationOverrideLane} for ${durationLabel} despite its reservation conflict?`,
+      )
+    ) {
+      return;
+    }
+    const started = await onOverrideStartLane(
+      reservationOverrideLane,
+      reservationOverrideDuration,
+    );
+    if (started) closeReservationOverride();
+  }
+
   const activeQueueCount = entries.filter(
     (entry) =>
       entry.activity === "darts" &&
@@ -144,17 +211,142 @@ export function DartsPlanner({
             {activeQueueCount} waiting
           </p>
         </div>
-        <div className="rounded-xl border border-white/10 bg-neutral-950 px-3 py-2 text-right">
-          <p className="text-[10px] uppercase tracking-wide text-neutral-500">
-            Next start
-          </p>
-          <p className="text-sm font-semibold text-white">
-            {plan.assignments[0]
-              ? formatDuration(plan.assignments[0].startInSeconds)
-              : "No queue"}
-          </p>
+        <div className="flex items-stretch gap-2">
+          <button
+            type="button"
+            aria-expanded={reservationOverrideOpen}
+            aria-controls="dart-reservation-override"
+            onClick={
+              reservationOverrideOpen
+                ? closeReservationOverride
+                : openReservationOverride
+            }
+            className="rounded-xl border border-red-400/60 bg-red-950/70 px-4 py-2 text-sm font-bold text-red-50 hover:bg-red-900"
+          >
+            Override reservation
+          </button>
+          <div className="rounded-xl border border-white/10 bg-neutral-950 px-3 py-2 text-right">
+            <p className="text-[10px] uppercase tracking-wide text-neutral-500">
+              Next start
+            </p>
+            <p className="text-sm font-semibold text-white">
+              {plan.assignments[0]
+                ? formatDuration(plan.assignments[0].startInSeconds)
+                : "No queue"}
+            </p>
+          </div>
         </div>
       </div>
+
+      {reservationOverrideOpen && (
+        <div
+          id="dart-reservation-override"
+          role="dialog"
+          aria-labelledby="dart-reservation-override-title"
+          className="rounded-2xl border-2 border-red-400/70 bg-red-950/80 p-4 shadow-lg shadow-red-950/40"
+        >
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h3
+                id="dart-reservation-override-title"
+                className="text-base font-bold text-white"
+              >
+                Start a reserved dart lane
+              </h3>
+              <p className="mt-1 max-w-2xl text-xs text-red-100/90">
+                This bypasses only the reservation conflict. The lane must still
+                be open, the live Dartsee feed must be healthy, and the schedule
+                must be current.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={closeReservationOverride}
+              className="rounded-lg border border-white/20 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/10"
+            >
+              Cancel
+            </button>
+          </div>
+          <form
+            className="mt-4 grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-end"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void submitReservationOverride();
+            }}
+          >
+            <label className="text-xs font-semibold text-white">
+              Dart lane
+              <select
+                required
+                aria-label="Override dart lane"
+                value={reservationOverrideLane}
+                onChange={(event) =>
+                  setReservationOverrideLane(
+                    event.target.value === ""
+                      ? ""
+                      : Number(event.target.value),
+                  )
+                }
+                className="mt-1 w-full rounded-lg border border-white/20 bg-neutral-950 px-3 py-2.5 text-sm text-white"
+              >
+                <option value="">Select a lane</option>
+                {plan.lanes.map((lane) => {
+                  const feed = feedPresentationForBoard(lane.boardId);
+                  const pending = pendingControls.some(
+                    (control) => control.lane === lane.lane,
+                  );
+                  const unavailable =
+                    lane.status !== "open" ||
+                    feed.safetyUnavailable ||
+                    pending;
+                  return (
+                    <option
+                      key={lane.boardId}
+                      value={lane.lane}
+                      disabled={unavailable}
+                    >
+                      Dart {lane.lane}
+                      {unavailable
+                        ? lane.status === "occupied"
+                          ? " — in use"
+                          : " — unavailable"
+                        : " — open"}
+                    </option>
+                  );
+                })}
+              </select>
+            </label>
+            <label className="text-xs font-semibold text-white">
+              Session time
+              <select
+                aria-label="Override dart session time"
+                value={reservationOverrideDuration}
+                onChange={(event) =>
+                  setReservationOverrideDuration(
+                    Number(event.target.value) as DartStartDuration,
+                  )
+                }
+                className="mt-1 w-full rounded-lg border border-white/20 bg-neutral-950 px-3 py-2.5 text-sm text-white"
+              >
+                <option value={30}>30 minutes</option>
+                <option value={60}>1 hour</option>
+                <option value={120}>2 hours</option>
+              </select>
+            </label>
+            <button
+              type="submit"
+              disabled={reservationOverrideDisabled}
+              className="rounded-lg bg-red-500 px-4 py-2.5 text-sm font-bold text-white hover:bg-red-400 disabled:bg-neutral-600 disabled:text-neutral-300"
+            >
+              {controllingLane !== null || selectedOverridePending
+                ? "Please wait"
+                : !reservationProtectionReady
+                  ? "Schedule updating"
+                  : "Start despite reservation"}
+            </button>
+          </form>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
         {plan.lanes.map((lane) => {

@@ -61,6 +61,57 @@ for (const [minutes, label] of [
     `Dart start controls must offer ${label}`,
   );
 }
+const dartsHeadingAt = component.indexOf(">Dart lanes</h2>");
+const dartLaneGridAt = component.indexOf(
+  'className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5"',
+  dartsHeadingAt,
+);
+const overrideTriggerAt = component.indexOf(
+  "Override reservation",
+  dartsHeadingAt,
+);
+assert.ok(
+  dartsHeadingAt >= 0 &&
+    overrideTriggerAt > dartsHeadingAt &&
+    overrideTriggerAt < dartLaneGridAt,
+  "The reservation override trigger must be in the Dart-tab header above the lane cards",
+);
+assert.match(
+  component,
+  /useState<DartStartDuration>\(60\)/,
+  "The reservation override must default to one hour",
+);
+assert.match(
+  component,
+  /function openReservationOverride\(\) \{[\s\S]*?setReservationOverrideLane\(""\);[\s\S]*?setReservationOverrideDuration\(60\);[\s\S]*?setReservationOverrideOpen\(true\);/,
+  "Opening the override must require a lane choice and reset time to one hour",
+);
+assert.match(component, /role="dialog"/);
+assert.match(component, /aria-label="Override dart lane"/);
+assert.match(component, /aria-label="Override dart session time"/);
+assert.match(component, /<option value="">Select a lane<\/option>/);
+assert.match(
+  component,
+  /plan\.lanes\.map\(\(lane\) => \{[\s\S]*?value=\{lane\.lane\}[\s\S]*?Dart \{lane\.lane\}/,
+  "The override must select from the live mapped Dart lanes",
+);
+assert.match(
+  component,
+  /This bypasses only the reservation conflict\./,
+  "Staff must be told exactly what the exceptional action bypasses",
+);
+assert.match(
+  component,
+  /onOverrideStartLane\([\s\S]*?reservationOverrideLane,[\s\S]*?reservationOverrideDuration/,
+  "The dedicated control must use the dedicated override callback",
+);
+assert.match(
+  component,
+  /onStartLane\(lane\.lane, startDuration\)/,
+  "Ordinary lane-card starts must stay on the protected callback",
+);
+assert.match(component, /despite its reservation conflict\?/);
+assert.match(component, /Start despite reservation/);
 assert.match(component, /reservationConflictsWithSession\(/);
 assert.match(
   component,
@@ -127,6 +178,21 @@ assert.match(staffPage, /const controller = new AbortController\(\)/);
 assert.match(staffPage, /signal: controller\.signal/);
 assert.match(staffPage, /requestId: window\.crypto\.randomUUID\(\)/);
 assert.match(staffPage, /lane,\s*durationMinutes,/);
+assert.match(
+  staffPage,
+  /async function startDartLane\([\s\S]*?reservationOverride = false,[\s\S]*?\): Promise<boolean>/,
+  "Ordinary Dart starts must default to reservation protection",
+);
+assert.match(
+  staffPage,
+  /requestId: window\.crypto\.randomUUID\(\),\s*lane,\s*durationMinutes,\s*reservationOverride,/,
+  "The existing start request must carry the explicit reservation decision",
+);
+assert.match(
+  staffPage,
+  /onOverrideStartLane=\{\(lane, durationMinutes\) =>\s*startDartLane\(lane, durationMinutes, true\)/,
+  "Only the dedicated override callback may opt out of reservation conflict rejection",
+);
 assert.match(staffPage, /headers: headers\(\)/);
 assert.doesNotMatch(
   staffPage.slice(staffPage.indexOf("async function startDartLane"), staffPage.indexOf("const selectedEntry")),
@@ -141,6 +207,11 @@ for (const lane of [1, 2, 3, 4, 5]) {
   assert.match(route, new RegExp(`z\\.literal\\(${lane}\\)`));
 }
 assert.match(route, /\.strict\(\)/, "Unexpected client control fields must be rejected");
+assert.match(
+  route,
+  /reservationOverride:\s*z\.boolean\(\)\.optional\(\)\.default\(false\)/,
+  "Omitted and ordinary Start requests must retain reservation protection",
+);
 assert.match(route, /verifyStaffHeaderSecret/);
 assert.match(route, /isSameOrigin/);
 assert.match(route, /cache-control": "private, no-store"/);
@@ -193,6 +264,42 @@ assert.match(
 );
 assert.match(dartsee, /before\.status !== "open"/);
 assert.match(dartsee, /reservationConflictsWithSession\(/);
+assert.match(startImplementation, /reservationOverride:\s*boolean;/);
+assert.match(
+  startImplementation,
+  /if \(conflict && !input\.reservationOverride\)/,
+  "Only an explicit reservation override may pass a detected conflict",
+);
+assert.equal(
+  (startImplementation.match(/input\.reservationOverride/g) ?? []).length,
+  1,
+  "Reservation override may affect only the reservation-conflict gate",
+);
+const initialOpenGuardAt = startImplementation.indexOf(
+  'before.status !== "open"',
+);
+const scheduleUnavailableAt = startImplementation.indexOf(
+  'code: "schedule-unavailable"',
+);
+const conflictReadAt = startImplementation.indexOf(
+  "const conflict = schedule.reservations.find",
+);
+const conflictOverrideGateAt = startImplementation.indexOf(
+  "if (conflict && !input.reservationOverride)",
+);
+const finalOpenGuardAt = startImplementation.indexOf(
+  'immediatelyBeforeWrite?.status !== "open"',
+);
+const physicalStartAt = startImplementation.indexOf("response = await fetch(");
+assert.ok(
+  initialOpenGuardAt >= 0 &&
+    initialOpenGuardAt < scheduleUnavailableAt &&
+    scheduleUnavailableAt < conflictReadAt &&
+    conflictReadAt < conflictOverrideGateAt &&
+    conflictOverrideGateAt < finalOpenGuardAt &&
+    finalOpenGuardAt < physicalStartAt,
+  "Override must bypass only a known reservation conflict, never lane, feed, schedule freshness, or final pre-write safety",
+);
 assert.match(dartsee, /dartseeCommandDurationMinutes\(\s*input\.durationMinutes/);
 assert.match(dartsee, /START_LOCK_PREFIX/);
 assert.match(

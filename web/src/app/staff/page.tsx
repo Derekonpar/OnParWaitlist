@@ -937,6 +937,7 @@ export default function StaffPage() {
   async function startDartLane(
     lane: number,
     durationMinutes: 30 | 60 | 120,
+    reservationOverride = false,
   ): Promise<boolean> {
     setDartControlBusyLane(lane);
     try {
@@ -947,6 +948,7 @@ export default function StaffPage() {
           requestId: window.crypto.randomUUID(),
           lane,
           durationMinutes,
+          reservationOverride,
         },
       );
       const data = (await response.json()) as {
@@ -1424,6 +1426,9 @@ export default function StaffPage() {
             pendingControls={dartPendingControls}
             reservationProtectionReady={reservationProtectionReady}
             onStartLane={startDartLane}
+            onOverrideStartLane={(lane, durationMinutes) =>
+              startDartLane(lane, durationMinutes, true)
+            }
             onEndLane={endDartLane}
           />
           <div className="mt-5">

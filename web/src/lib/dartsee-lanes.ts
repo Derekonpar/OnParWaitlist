@@ -1494,6 +1494,7 @@ export async function startDartseeLaneSession(input: {
   requestId: string;
   lane: number;
   durationMinutes: DartseeStartDuration;
+  reservationOverride: boolean;
 }): Promise<DartseeLaneStartResult> {
   const timing: DartseeControlTiming = {
     startedAtMs: Date.now(),
@@ -1583,7 +1584,7 @@ export async function startDartseeLaneSession(input: {
         resourceIds.includes(reservation.resourceId.toLowerCase()) &&
         reservationConflictsWithSession(reservation, startMs, expectedEndMs),
     );
-    if (conflict) {
+    if (conflict && !input.reservationOverride) {
       timing.outcome = "reservation-conflict";
       return {
         ok: false,

@@ -56,5 +56,29 @@ assert.equal(
   true,
   "A session extending beyond the protection boundary must be rejected",
 );
+assert.doesNotMatch(
+  source,
+  /override/i,
+  "The shared reservation policy must remain authoritative; override belongs only to the staff Dart Start caller",
+);
+const reservationEndMs = Date.parse(reservation.endAt);
+assert.equal(
+  policy.reservationConflictsWithSession(
+    reservation,
+    reservationStartMs,
+    reservationStartMs + 30 * 60 * 1000,
+  ),
+  true,
+  "A normal Start during an active reservation must remain blocked",
+);
+assert.equal(
+  policy.reservationConflictsWithSession(
+    reservation,
+    reservationEndMs,
+    reservationEndMs + 60 * 60 * 1000,
+  ),
+  false,
+  "The reservation must stop blocking exactly at its end",
+);
 
 console.log("65-minute reservation protection regression test passed.");

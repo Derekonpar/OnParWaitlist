@@ -26,6 +26,7 @@ const startSchema = z
       z.literal(60),
       z.literal(120),
     ]),
+    reservationOverride: z.boolean().optional().default(false),
   })
   .strict();
 
