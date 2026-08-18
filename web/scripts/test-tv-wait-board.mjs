@@ -14,14 +14,45 @@ assert.doesNotMatch(board, /Walk on/i, "Zero-minute live activities must not say
 assert.match(board, /["']No Wait["']/, "Zero-minute live activities must say No Wait");
 assert.match(board, /Mini Golf/, "The TV board must include Mini Golf");
 assert.match(board, /Karaoke/, "The TV board must include Karaoke");
-const karaokeCard = board.match(
-  /<EntertainmentCard\s+[\s\S]*?label="Karaoke"[\s\S]*?detail="Hosted rotation"[\s\S]*?\/>/,
-)?.[0];
-assert.ok(karaokeCard, "The Karaoke status card must be present");
 assert.match(
-  karaokeCard,
-  /status="No Wait"/,
-  "Karaoke must show the approved fixed No Wait status",
+  board,
+  /fetch\("\/api\/karaoke\/public-stage"/,
+  "The Karaoke card must read the sanitized same-origin Singa endpoint",
+);
+assert.match(
+  board,
+  /karaokeRefreshController/,
+  "Singa must use a controller independent from the four-activity board",
+);
+assert.match(
+  board,
+  /window\.setInterval\([\s\S]*?refreshKaraoke\(\)[\s\S]*?15_000/,
+  "The Singa status must refresh no faster than every 15 seconds",
+);
+assert.match(
+  board,
+  /document\.hidden/,
+  "The Singa poll must pause while the TV page is hidden",
+);
+assert.match(
+  board,
+  /"Not Open"/,
+  "An inactive Singa session must not be presented as a zero-minute wait",
+);
+assert.match(
+  board,
+  /Public karaoke requests are not open/,
+  "The TV card must explain a healthy inactive Main Stage session",
+);
+assert.match(
+  board,
+  /Wait time temporarily unavailable/,
+  "The TV card must distinguish an upstream failure from no wait",
+);
+assert.doesNotMatch(
+  board,
+  /detail="Hosted rotation"/,
+  "Karaoke must no longer use the fixed placeholder status",
 );
 assert.match(
   board,

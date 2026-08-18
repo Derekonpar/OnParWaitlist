@@ -3,6 +3,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type { ActivityBoard } from "@/lib/store";
+import type {
+  SingaPublicStageLastKnown,
+  SingaPublicStageWait,
+} from "@/lib/singa-public-stage-contract";
 import { ACTIVITY_THEME } from "@/lib/types";
 import { ActivityIcon } from "./ActivityIcon";
 
@@ -28,6 +32,81 @@ function clockLabel(nowMs: number) {
     hour: "numeric",
     minute: "2-digit",
   }).format(new Date(nowMs));
+}
+
+function validDate(value: unknown): value is string {
+  return typeof value === "string" && Number.isFinite(new Date(value).getTime());
+}
+
+function validLastKnown(value: unknown): value is SingaPublicStageLastKnown {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<SingaPublicStageLastKnown>;
+  if (!validDate(candidate.dataUpdatedAt)) return false;
+  if (candidate.status === "inactive") return candidate.waitMinutes === null;
+  return (
+    candidate.status === "active" &&
+    typeof candidate.waitMinutes === "number" &&
+    Number.isSafeInteger(candidate.waitMinutes) &&
+    candidate.waitMinutes >= 0
+  );
+}
+
+function validSingaWait(value: unknown): value is SingaPublicStageWait {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Record<string, unknown>;
+  if (!validDate(candidate.checkedAt)) return false;
+  if (candidate.status === "active") {
+    return (
+      candidate.stale === false &&
+      validDate(candidate.dataUpdatedAt) &&
+      typeof candidate.waitMinutes === "number" &&
+      Number.isSafeInteger(candidate.waitMinutes) &&
+      candidate.waitMinutes >= 0
+    );
+  }
+  if (candidate.status === "inactive") {
+    return (
+      candidate.stale === false &&
+      candidate.waitMinutes === null &&
+      validDate(candidate.dataUpdatedAt)
+    );
+  }
+  return (
+    candidate.status === "unavailable" &&
+    candidate.waitMinutes === null &&
+    typeof candidate.stale === "boolean" &&
+    (candidate.dataUpdatedAt === null || validDate(candidate.dataUpdatedAt)) &&
+    (candidate.lastKnown === null || validLastKnown(candidate.lastKnown))
+  );
+}
+
+function unavailableSingaWait(
+  current: SingaPublicStageWait | null,
+): SingaPublicStageWait {
+  const checkedAt = new Date().toISOString();
+  const lastKnown =
+    current?.status === "active" || current?.status === "inactive"
+      ? {
+          status: current.status,
+          waitMinutes: current.waitMinutes,
+          dataUpdatedAt: current.dataUpdatedAt,
+        }
+      : current?.lastKnown ?? null;
+  const lastKnownAt = lastKnown
+    ? new Date(lastKnown.dataUpdatedAt).getTime()
+    : Number.NaN;
+  const recentLastKnown =
+    lastKnown && Number.isFinite(lastKnownAt) && Date.now() - lastKnownAt <= 60_000
+      ? lastKnown
+      : null;
+  return {
+    status: "unavailable",
+    waitMinutes: null,
+    stale: recentLastKnown !== null,
+    checkedAt,
+    dataUpdatedAt: recentLastKnown?.dataUpdatedAt ?? null,
+    lastKnown: recentLastKnown,
+  };
 }
 
 function MiniGolfIcon() {
@@ -145,11 +224,14 @@ function EntertainmentCard({
 
 export function TvWaitBoard({ initialBoard }: TvWaitBoardProps) {
   const [board, setBoard] = useState(initialBoard);
+  const [karaokeWait, setKaraokeWait] =
+    useState<SingaPublicStageWait | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [connected, setConnected] = useState(true);
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
   const refreshSequence = useRef(0);
   const refreshController = useRef<AbortController | null>(null);
+  const karaokeRefreshController = useRef<AbortController | null>(null);
   const hasUnknownWaits = board.some(
     ({ stats }) => stats.availabilityStatus === "unknown",
   );
@@ -189,19 +271,62 @@ export function TvWaitBoard({ initialBoard }: TvWaitBoardProps) {
     }
   }, []);
 
+  const refreshKaraoke = useCallback(async () => {
+    if (document.hidden || karaokeRefreshController.current) return;
+
+    const controller = new AbortController();
+    karaokeRefreshController.current = controller;
+    const timeout = window.setTimeout(() => controller.abort(), 6_000);
+    try {
+      const response = await fetch("/api/karaoke/public-stage", {
+        cache: "no-store",
+        signal: controller.signal,
+      });
+      if (!response.ok) throw new Error("karaoke refresh failed");
+      const data = (await response.json()) as unknown;
+      if (!validSingaWait(data)) throw new Error("invalid karaoke response");
+      setKaraokeWait(data);
+    } catch {
+      setKaraokeWait((current) => unavailableSingaWait(current));
+    } finally {
+      window.clearTimeout(timeout);
+      if (karaokeRefreshController.current === controller) {
+        karaokeRefreshController.current = null;
+      }
+    }
+  }, []);
+
   useEffect(() => {
     const initial = window.setTimeout(() => void refresh(), 0);
     const refreshTimer = window.setInterval(() => void refresh(), 15_000);
+    const initialKaraoke = window.setTimeout(() => void refreshKaraoke(), 0);
+    const karaokeRefreshTimer = window.setInterval(
+      () => void refreshKaraoke(),
+      15_000,
+    );
     const clockTimer = window.setInterval(() => setNowMs(Date.now()), 1_000);
+    const handleVisibility = () => {
+      if (!document.hidden) void refreshKaraoke();
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
     return () => {
       window.clearTimeout(initial);
+      window.clearTimeout(initialKaraoke);
       window.clearInterval(refreshTimer);
+      window.clearInterval(karaokeRefreshTimer);
       window.clearInterval(clockTimer);
+      document.removeEventListener("visibilitychange", handleVisibility);
       refreshSequence.current += 1;
       refreshController.current?.abort();
       refreshController.current = null;
+      karaokeRefreshController.current?.abort();
+      karaokeRefreshController.current = null;
     };
-  }, [refresh]);
+  }, [refresh, refreshKaraoke]);
+
+  const karaokeActive = karaokeWait?.status === "active";
+  const karaokeInactive = karaokeWait?.status === "inactive";
+  const karaokeNoWait = karaokeActive && karaokeWait.waitMinutes === 0;
 
   return (
     <main className="flex h-screen max-h-screen flex-col overflow-hidden bg-[#090909] p-[clamp(0.75rem,1.6vw,2rem)] text-white">
@@ -293,10 +418,41 @@ export function TvWaitBoard({ initialBoard }: TvWaitBoardProps) {
           label="Karaoke"
           icon={<KaraokeIcon />}
           gradient="from-violet-700 via-fuchsia-700 to-pink-700"
-          status="No Wait"
-          statusTone="text-emerald-200"
-          statusLabel="Current status"
-          detail="Hosted rotation"
+          status={
+            karaokeActive ? (
+              karaokeNoWait ? (
+                "No Wait"
+              ) : (
+                <>
+                  {karaokeWait.waitMinutes}
+                  <span className="ml-[0.3em] text-[0.28em] font-bold uppercase tracking-wider text-white/70">
+                    min
+                  </span>
+                </>
+              )
+            ) : karaokeInactive ? (
+              "Not Open"
+            ) : karaokeWait ? (
+              "Updating"
+            ) : (
+              "Connecting"
+            )
+          }
+          statusTone={
+            karaokeNoWait
+              ? "text-emerald-200"
+              : karaokeWait?.status === "unavailable" || !karaokeWait
+                ? "text-amber-200"
+                : "text-white"
+          }
+          statusLabel={karaokeActive ? "Estimated wait" : "Main Stage"}
+          detail={
+            karaokeActive
+              ? "Public karaoke requests are open"
+              : karaokeInactive
+                ? "Public karaoke requests are not open"
+                : "Wait time temporarily unavailable"
+          }
         />
 
         <aside className="col-start-4 row-span-2 row-start-1 flex min-h-0 flex-col items-center justify-center rounded-[clamp(1rem,1.6vw,1.7rem)] border border-violet-300/20 bg-gradient-to-b from-violet-950 via-[#17102b] to-[#0f0d18] p-[clamp(1rem,1.5vw,1.75rem)] text-center shadow-2xl shadow-black/40">
