@@ -226,7 +226,7 @@ export function addScheduleWindows(
       .filter(reservationBlocksAvailability)
       .filter((reservation) => ids.includes(reservation.resourceId.toLowerCase()))
       .map((reservation) => ({
-        // Protect the resource for a full hour before the reservation so a
+        // Protect the resource for 65 minutes before the reservation so a
         // walk-in session cannot be placed where it would run into setup time.
         startAtSeconds: Math.max(
           0,

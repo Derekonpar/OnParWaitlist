@@ -177,7 +177,7 @@ export function TimedResourcePlanner({
           </div>
           {selectedConflict && (
             <div className="rounded-xl border border-red-400 bg-red-700 px-4 py-3 text-sm font-semibold text-white" role="alert">
-              Cannot book: protect this table starting one hour before {formatTime(selectedConflict.startAt)} for {selectedConflict.eventName}.
+              Cannot book: protect this table starting 1 hour 5 minutes before {formatTime(selectedConflict.startAt)} for {selectedConflict.eventName}.
             </div>
           )}
           <button

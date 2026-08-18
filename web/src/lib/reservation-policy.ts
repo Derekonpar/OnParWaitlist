@@ -1,14 +1,15 @@
 import type { EntertainmentReservation } from "./entertainment-schedule";
 
-export const RESERVATION_PROTECTION_MS = 60 * 60 * 1000;
+export const RESERVATION_PROTECTION_MS = 65 * 60 * 1000;
 
 export function reservationBlocksAvailability(
-  _reservation: EntertainmentReservation,
+  reservation: EntertainmentReservation,
 ): boolean {
   // The producer returns only saved, normalized entertainment assignments for
   // definite events. Manual resource rows complete assignments that may not be
   // present in structured Tripleseat selections, so they protect capacity too.
   // needsReview remains a visible staff warning; it does not discard the lane.
+  void reservation;
   return true;
 }
 

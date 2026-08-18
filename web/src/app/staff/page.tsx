@@ -18,6 +18,10 @@ import {
 import type { BowlingLaneSnapshot } from "@/lib/bowling-lanes";
 import type { DartseeLaneSnapshot } from "@/lib/dartsee-lanes";
 import {
+  DARTSEE_EMPLOYEE_ALERT_AFTER_MS,
+  DARTSEE_SUSTAINED_FAILURE_REFRESHES,
+} from "@/lib/dartsee-feed-presentation";
+import {
   TIMED_RESOURCES,
   type TimedResourceSession,
   type TimedResourceType,
@@ -35,14 +39,29 @@ import {
 const SOUND_STORAGE_KEY = "onpar-staff-sound";
 const STAFF_SECRET_STORAGE_KEY = "onpar-staff-secret";
 const BOWLING_STALE_AFTER_MS = 2 * 60_000;
-const DARTSEE_STALE_AFTER_MS = 60_000;
 const STAFF_QUEUE_TIMEOUT_MS = 5_000;
 const STAFF_INTEGRATION_TIMEOUT_MS = 5_000;
 const STAFF_QUEUE_STALE_AFTER_MS = 45_000;
-const SCHEDULE_STALE_AFTER_MS = 120_000;
+const SCHEDULE_PROTECTION_STALE_AFTER_MS = 120_000;
+const EVENT_HOST_OUTDATED_WARNING_AFTER_MS = 20 * 60_000;
 const RESOURCE_SESSIONS_STALE_AFTER_MS = 45_000;
+const DART_CONTROL_CLIENT_TIMEOUT_MS = 25_000;
+const DART_CONTROL_CONFIRMED_GUARD_MS = 60_000;
 const ARCHIVE_PAGE_SIZE = 25;
 type StaffTab = "queue" | "bowling" | "darts" | "pool" | "shuffleboard";
+type DartControlAction = "start" | "end";
+type DartPendingControl = {
+  action: DartControlAction;
+  lane: number;
+  verifyAfterMs: number;
+  untilMs: number;
+  timedOut?: boolean;
+};
+type DartLaneOverride = {
+  reading: DartseeLaneSnapshot["lanes"][number];
+  confirmedAtMs: number;
+  releaseAfterMs: number;
+};
 type StaffArchiveEntry = Pick<
   WaitlistEntry,
   "id" | "activity" | "name" | "phone" | "status" | "createdAt"
@@ -80,6 +99,28 @@ async function fetchStaffEndpoint(
   } finally {
     window.clearTimeout(timeout);
     parentSignal.removeEventListener("abort", abort);
+  }
+}
+
+async function postDartControl(
+  endpoint: string,
+  requestHeaders: Record<string, string>,
+  body: unknown,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(
+    () => controller.abort(),
+    DART_CONTROL_CLIENT_TIMEOUT_MS,
+  );
+  try {
+    return await fetch(endpoint, {
+      method: "POST",
+      headers: requestHeaders,
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+  } finally {
+    window.clearTimeout(timeout);
   }
 }
 
@@ -138,6 +179,75 @@ function smsStatusClass(status?: string): string {
   return "border-sky-400/30 bg-sky-500/15 text-sky-200";
 }
 
+function snapshotWithConfirmedDartLane(
+  snapshot: DartseeLaneSnapshot,
+  reading: DartseeLaneSnapshot["lanes"][number],
+  confirmedAtMs: number,
+): DartseeLaneSnapshot {
+  const priorCapturedAtMs = new Date(snapshot.capturedAt).getTime();
+  const captureBasisOffsetSeconds = Number.isFinite(priorCapturedAtMs)
+    ? Math.floor((confirmedAtMs - priorCapturedAtMs) / 1000)
+    : 0;
+  return {
+    ...snapshot,
+    lanes: snapshot.lanes.map((lane) => {
+      if (lane.lane !== reading.lane) return lane;
+      return reading.status === "occupied"
+        ? {
+            ...reading,
+            // The snapshot retains its original capture time. Store the new
+            // reading on that same time basis so the planner's normal aging
+            // produces the just-confirmed live countdown exactly once.
+            remainingSeconds: Math.max(
+              0,
+              reading.remainingSeconds + captureBasisOffsetSeconds,
+            ),
+          }
+        : reading;
+    }),
+  };
+}
+
+function dartControlCheckedAtMs(value: string | undefined): number {
+  const parsed = value ? new Date(value).getTime() : Number.NaN;
+  return Number.isFinite(parsed) ? parsed : Date.now();
+}
+
+function dartseeSnapshotStateVersionMs(snapshot: DartseeLaneSnapshot): number {
+  const explicit = snapshot.stateVersionAt
+    ? new Date(snapshot.stateVersionAt).getTime()
+    : Number.NaN;
+  if (Number.isFinite(explicit)) return explicit;
+  return new Date(snapshot.capturedAt).getTime();
+}
+
+function dartseeLaneStateVersionMs(
+  snapshot: DartseeLaneSnapshot,
+  laneNumber: number,
+): number {
+  const reading = snapshot.lanes.find((lane) => lane.lane === laneNumber);
+  const observedAtMs = reading?.observedAt
+    ? new Date(reading.observedAt).getTime()
+    : Number.NaN;
+  if (Number.isFinite(observedAtMs)) return observedAtMs;
+  const completeLegacySnapshot =
+    snapshot.healthStatus === "ok" &&
+    snapshot.knownLaneCount === snapshot.lanes.length &&
+    reading?.status !== "unknown";
+  return completeLegacySnapshot
+    ? dartseeSnapshotStateVersionMs(snapshot)
+    : Number.NEGATIVE_INFINITY;
+}
+
+function dartLaneMatchesConfirmedOverride(
+  incoming: DartseeLaneSnapshot["lanes"][number] | undefined,
+  confirmed: DartseeLaneSnapshot["lanes"][number],
+): boolean {
+  if (!incoming || incoming.status !== confirmed.status) return false;
+  if (confirmed.status !== "occupied" || !confirmed.sessionId) return true;
+  return incoming.sessionId === confirmed.sessionId;
+}
+
 export default function StaffPage() {
   const [secret, setSecret] = useState("");
   const [authenticated, setAuthenticated] = useState(false);
@@ -155,6 +265,12 @@ export default function StaffPage() {
     EntertainmentReservation[]
   >([]);
   const [resourceBusyKey, setResourceBusyKey] = useState<string | null>(null);
+  const [dartControlBusyLane, setDartControlBusyLane] = useState<number | null>(
+    null,
+  );
+  const [dartPendingControls, setDartPendingControls] = useState<
+    DartPendingControl[]
+  >([]);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [loading, setLoading] = useState(false);
   const [queueUpdatedAtMs, setQueueUpdatedAtMs] = useState<number | null>(null);
@@ -185,6 +301,12 @@ export default function StaffPage() {
   const refreshControllerRef = useRef<AbortController | null>(null);
   const archiveSequenceRef = useRef(0);
   const archiveControllerRef = useRef<AbortController | null>(null);
+  const dartLaneOverridesRef = useRef<Map<number, DartLaneOverride>>(
+    new Map(),
+  );
+  const dartPendingControlsRef = useRef<Map<number, DartPendingControl>>(
+    new Map(),
+  );
 
   const [addActivity, setAddActivity] = useState<Activity>("bowling");
   const [addFirstName, setAddFirstName] = useState("");
@@ -208,6 +330,89 @@ export default function StaffPage() {
   const headers = useCallback(
     () => staffHeadersFor(secret),
     [secret],
+  );
+
+  const updateDartPendingControl = useCallback(
+    (lane: number, next: DartPendingControl | null) => {
+      if (next) dartPendingControlsRef.current.set(lane, next);
+      else dartPendingControlsRef.current.delete(lane);
+      setDartPendingControls(
+        [...dartPendingControlsRef.current.values()].sort(
+          (left, right) => left.lane - right.lane,
+        ),
+      );
+    },
+    [],
+  );
+
+  const applyDartseeSnapshot = useCallback(
+    (incoming: DartseeLaneSnapshot) => {
+      let pendingChanged = false;
+      for (const pending of dartPendingControlsRef.current.values()) {
+        const pendingReading = incoming.lanes.find(
+          (reading) => reading.lane === pending.lane,
+        );
+        const incomingLaneVersionMs = dartseeLaneStateVersionMs(
+          incoming,
+          pending.lane,
+        );
+        const freshForPending =
+          Number.isFinite(incomingLaneVersionMs) &&
+          incomingLaneVersionMs >= pending.verifyAfterMs;
+        const expectedPendingState =
+          pending.action === "start"
+            ? pendingReading?.status === "occupied"
+            : pendingReading?.status === "open";
+        const settledOppositeState =
+          incomingLaneVersionMs >= pending.untilMs &&
+          (pendingReading?.status === "open" ||
+            pendingReading?.status === "occupied");
+        if (
+          freshForPending &&
+          (expectedPendingState || settledOppositeState)
+        ) {
+          dartPendingControlsRef.current.delete(pending.lane);
+          pendingChanged = true;
+        }
+      }
+      if (pendingChanged) {
+        setDartPendingControls(
+          [...dartPendingControlsRef.current.values()].sort(
+            (left, right) => left.lane - right.lane,
+          ),
+        );
+      }
+
+      let nextSnapshot = incoming;
+      for (const [lane, override] of dartLaneOverridesRef.current) {
+        const incomingReading = incoming.lanes.find(
+          (reading) => reading.lane === lane,
+        );
+        const incomingLaneVersionMs = dartseeLaneStateVersionMs(incoming, lane);
+        const exactLaneEvidence =
+          Number.isFinite(incomingLaneVersionMs) &&
+          incomingLaneVersionMs >= override.confirmedAtMs;
+        const confirmedStateReached = dartLaneMatchesConfirmedOverride(
+          incomingReading,
+          override.reading,
+        );
+        if (
+          exactLaneEvidence &&
+          (confirmedStateReached ||
+            incomingLaneVersionMs >= override.releaseAfterMs)
+        ) {
+          dartLaneOverridesRef.current.delete(lane);
+          continue;
+        }
+        nextSnapshot = snapshotWithConfirmedDartLane(
+          nextSnapshot,
+          override.reading,
+          override.confirmedAtMs,
+        );
+      }
+      setDartseeSnapshot(nextSnapshot);
+    },
+    [],
   );
 
   const loadStaffData = useCallback(
@@ -327,7 +532,7 @@ export default function StaffPage() {
           }),
           loadIntegration("/api/staff/dart-lanes", (value) => {
             const data = value as { snapshot?: DartseeLaneSnapshot | null };
-            if (data.snapshot) setDartseeSnapshot(data.snapshot);
+            if (data.snapshot) applyDartseeSnapshot(data.snapshot);
           }),
           loadResourceSessions(),
           loadSchedule(),
@@ -345,7 +550,7 @@ export default function StaffPage() {
         if (sequence === refreshSequenceRef.current) setLoading(false);
       }
     },
-    [],
+    [applyDartseeSnapshot],
   );
 
   const fetchQueues = useCallback(
@@ -482,6 +687,24 @@ export default function StaffPage() {
     }, 15000);
     return () => clearInterval(interval);
   }, [authenticated, fetchQueues]);
+
+  useEffect(() => {
+    const timeouts = dartPendingControls
+      .filter((pending) => !pending.timedOut)
+      .map((pending) =>
+        window.setTimeout(() => {
+          const current = dartPendingControlsRef.current.get(pending.lane);
+          if (current?.action === pending.action) {
+            updateDartPendingControl(pending.lane, {
+              ...current,
+              timedOut: true,
+            });
+            void fetchQueues(false);
+          }
+        }, Math.max(0, pending.untilMs - Date.now())),
+      );
+    return () => timeouts.forEach((timeout) => window.clearTimeout(timeout));
+  }, [dartPendingControls, fetchQueues, updateDartPendingControl]);
 
   useEffect(() => {
     const interval = window.setInterval(() => setNowMs(Date.now()), 1_000);
@@ -711,6 +934,174 @@ export default function StaffPage() {
     }
   }
 
+  async function startDartLane(
+    lane: number,
+    durationMinutes: 30 | 60 | 120,
+  ): Promise<boolean> {
+    setDartControlBusyLane(lane);
+    try {
+      const response = await postDartControl(
+        "/api/staff/dart-lanes/start",
+        headers(),
+        {
+          requestId: window.crypto.randomUUID(),
+          lane,
+          durationMinutes,
+        },
+      );
+      const data = (await response.json()) as {
+        error?: string;
+        message?: string;
+        confirmed?: boolean;
+        checkedAt?: string;
+        lane?: DartseeLaneSnapshot["lanes"][number] | null;
+        snapshot?: DartseeLaneSnapshot | null;
+      };
+      if (!response.ok) {
+        alert(data.error ?? "Could not start this dart lane.");
+        return false;
+      }
+
+      if (!data.confirmed) {
+        const verifyAfterMs = dartControlCheckedAtMs(data.checkedAt);
+        updateDartPendingControl(lane, {
+          action: "start",
+          lane,
+          verifyAfterMs,
+          untilMs: verifyAfterMs + 30_000,
+        });
+        alert(
+          data.message ??
+            "The start may have been sent. Do not click Start again; check the lane while its status refreshes.",
+        );
+        window.setTimeout(() => void fetchQueues(false), 3_000);
+        return true;
+      }
+
+      if (data.snapshot) {
+        applyDartseeSnapshot(data.snapshot);
+      } else if (data.lane) {
+        const confirmedAtMs = dartControlCheckedAtMs(data.checkedAt);
+        dartLaneOverridesRef.current.set(lane, {
+          reading: data.lane,
+          confirmedAtMs,
+          releaseAfterMs:
+            confirmedAtMs + DART_CONTROL_CONFIRMED_GUARD_MS,
+        });
+        updateDartPendingControl(lane, null);
+        setDartseeSnapshot((current) =>
+          current
+            ? snapshotWithConfirmedDartLane(
+                current,
+                data.lane!,
+                confirmedAtMs,
+              )
+            : current,
+        );
+      }
+      setNowMs(Date.now());
+      return true;
+    } catch {
+      const verifyAfterMs = Date.now();
+      updateDartPendingControl(lane, {
+        action: "start",
+        lane,
+        verifyAfterMs,
+        untilMs: verifyAfterMs + 30_000,
+      });
+      alert(
+        "The connection was interrupted. Do not click Start again until the lane status refreshes.",
+      );
+      window.setTimeout(() => void fetchQueues(false), 3_000);
+      return false;
+    } finally {
+      setDartControlBusyLane(null);
+    }
+  }
+
+  async function endDartLane(lane: number): Promise<boolean> {
+    if (!window.confirm(`End the active session on Dart ${lane}?`)) {
+      return false;
+    }
+    setDartControlBusyLane(lane);
+    try {
+      const response = await postDartControl(
+        "/api/staff/dart-lanes/end",
+        headers(),
+        {
+          requestId: window.crypto.randomUUID(),
+          lane,
+        },
+      );
+      const data = (await response.json()) as {
+        error?: string;
+        message?: string;
+        confirmed?: boolean;
+        checkedAt?: string;
+        lane?: DartseeLaneSnapshot["lanes"][number] | null;
+        snapshot?: DartseeLaneSnapshot | null;
+      };
+      if (!response.ok) {
+        alert(data.error ?? "Could not end this dart lane session.");
+        return false;
+      }
+      if (!data.confirmed) {
+        const verifyAfterMs = dartControlCheckedAtMs(data.checkedAt);
+        updateDartPendingControl(lane, {
+          action: "end",
+          lane,
+          verifyAfterMs,
+          untilMs: verifyAfterMs + 30_000,
+        });
+        alert(
+          data.message ??
+            "The End command may have been sent. Do not click End again; check the lane while its status refreshes.",
+        );
+        window.setTimeout(() => void fetchQueues(false), 3_000);
+        return true;
+      }
+
+      if (data.snapshot) {
+        applyDartseeSnapshot(data.snapshot);
+      } else if (data.lane) {
+        const confirmedAtMs = dartControlCheckedAtMs(data.checkedAt);
+        dartLaneOverridesRef.current.set(lane, {
+          reading: data.lane,
+          confirmedAtMs,
+          releaseAfterMs:
+            confirmedAtMs + DART_CONTROL_CONFIRMED_GUARD_MS,
+        });
+        updateDartPendingControl(lane, null);
+        setDartseeSnapshot((current) =>
+          current
+            ? snapshotWithConfirmedDartLane(
+                current,
+                data.lane!,
+                confirmedAtMs,
+              )
+            : current,
+        );
+      }
+      setNowMs(Date.now());
+      return true;
+    } catch {
+      const verifyAfterMs = Date.now();
+      updateDartPendingControl(lane, {
+        action: "end",
+        lane,
+        verifyAfterMs,
+        untilMs: verifyAfterMs + 30_000,
+      });
+      alert(
+        "The connection was interrupted. Do not click End again until the lane status refreshes.",
+      );
+      window.setTimeout(() => void fetchQueues(false), 3_000);
+      return false;
+    } finally {
+      setDartControlBusyLane(null);
+    }
+  }
+
   const selectedEntry = queues
     .flatMap((q) => q.queue)
     .find((e) => e.id === selectedId);
@@ -743,14 +1134,22 @@ export default function StaffPage() {
   const dartseeSnapshotAgeMs = dartseeSnapshot
     ? nowMs - new Date(dartseeSnapshot.capturedAt).getTime()
     : Number.POSITIVE_INFINITY;
-  const dartseeFeedStale =
+  const dartseeFeedAlertStale =
     !Number.isFinite(dartseeSnapshotAgeMs) ||
-    dartseeSnapshotAgeMs > DARTSEE_STALE_AFTER_MS;
+    dartseeSnapshotAgeMs > DARTSEE_EMPLOYEE_ALERT_AFTER_MS;
+  const dartseeHardFailure =
+    dartseeSnapshot?.healthStatus === "auth-error";
+  const dartseeSustainedFailure =
+    dartseeSnapshot !== null &&
+    dartseeSnapshot.healthStatus !== "ok" &&
+    (dartseeSnapshot.consecutiveIncompleteRefreshes ?? 0) >=
+      DARTSEE_SUSTAINED_FAILURE_REFRESHES;
   const dartseeFeedNeedsAttention =
     !loading &&
     (!dartseeSnapshot ||
-      dartseeSnapshot.healthStatus !== "ok" ||
-      dartseeFeedStale);
+      dartseeHardFailure ||
+      dartseeSustainedFailure ||
+      dartseeFeedAlertStale);
   const queueAgeMs = queueUpdatedAtMs === null
     ? Number.POSITIVE_INFINITY
     : nowMs - queueUpdatedAtMs;
@@ -764,10 +1163,14 @@ export default function StaffPage() {
   const scheduleFeedNeedsAttention =
     authenticated &&
     !loading &&
-    (scheduleRefreshError ||
-      scheduleReportedStale ||
-      !Number.isFinite(scheduleAgeMs) ||
-      scheduleAgeMs > SCHEDULE_STALE_AFTER_MS);
+    (!Number.isFinite(scheduleAgeMs) ||
+      scheduleAgeMs > EVENT_HOST_OUTDATED_WARNING_AFTER_MS);
+  const reservationProtectionReady =
+    authenticated &&
+    !scheduleRefreshError &&
+    !scheduleReportedStale &&
+    Number.isFinite(scheduleAgeMs) &&
+    scheduleAgeMs <= SCHEDULE_PROTECTION_STALE_AFTER_MS;
   const resourceSessionsAgeMs = resourceSessionsUpdatedAtMs === null
     ? Number.POSITIVE_INFINITY
     : nowMs - resourceSessionsUpdatedAtMs;
@@ -884,8 +1287,8 @@ export default function StaffPage() {
           <span className="mt-1 block text-xs font-normal text-red-100">
             {!dartseeSnapshot
               ? "No Dartsee snapshot is available. Go check the Dartsee machine and Central dashboard."
-              : dartseeFeedStale
-              ? "No fresh Dartsee snapshot has arrived for over 1 minute. Go check the Dartsee machine and Central dashboard."
+              : dartseeFeedAlertStale
+              ? "No fresh Dartsee snapshot has arrived for over 5 minutes. Go check the Dartsee machine and Central dashboard."
               : dartseeSnapshot.healthMessage ??
                 "Dart lane status is incomplete. Check the Dartsee Central dashboard and the affected lane units."}
           </span>
@@ -1013,7 +1416,16 @@ export default function StaffPage() {
 
       {staffTab === "darts" && (
         <>
-          <DartsPlanner snapshot={dartseeSnapshot} entries={allEntries} reservations={entertainmentReservations} />
+          <DartsPlanner
+            snapshot={dartseeSnapshot}
+            entries={allEntries}
+            reservations={entertainmentReservations}
+            controllingLane={dartControlBusyLane}
+            pendingControls={dartPendingControls}
+            reservationProtectionReady={reservationProtectionReady}
+            onStartLane={startDartLane}
+            onEndLane={endDartLane}
+          />
           <div className="mt-5">
             <EntertainmentReservations activity="darts" reservations={entertainmentReservations} />
           </div>

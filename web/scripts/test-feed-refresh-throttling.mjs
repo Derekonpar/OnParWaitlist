@@ -22,6 +22,16 @@ assert.match(
 );
 assert.match(
   dartsee,
+  /const STORAGE_LOCK_PREFIX = "dartsee-lanes\/refresh-lock-v2";/,
+  "Immutable Dartsee snapshots need a lease namespace distinct from legacy current.json publishers",
+);
+assert.match(
+  dartsee,
+  /const REFRESH_LEASE_WINDOW_MS = 15_000;[\s\S]*?const REFRESH_TARGET_AGE_MS = 10_000;/,
+  "Snapshot refreshes should become eligible before the 15-second durable fanout window ends",
+);
+assert.match(
+  dartsee,
   /if \(now < nextStoredReadAt\) return lastKnown;[\s\S]*?nextStoredReadAt = now \+ STORED_SNAPSHOT_READ_CACHE_MS;[\s\S]*?getSupabaseAdmin\(\)/,
   "Concurrent public polls must be gated before shared storage I/O",
 );
@@ -44,6 +54,48 @@ const leaseLoser = dartsee.slice(leaseLoserStart, leaseLoserEnd);
 assert.match(leaseLoser, /return stored;/, "Lease losers must retain the shared snapshot");
 assert.doesNotMatch(leaseLoser, /setTimeout|getStoredSnapshot/, "Lease losers must return immediately");
 
+const refreshBody = dartsee.slice(refreshStart);
+assert.match(
+  refreshBody,
+  /const refreshAgeMs = refreshTargetAgeMs\(cacheMs\);/,
+  "Refresh eligibility must be separate from the served snapshot cache TTL",
+);
+assert.match(
+  refreshBody,
+  /nextRefreshAttemptAt = nextSnapshotRefreshAt\([\s\S]*?startedAt,[\s\S]*?\);/,
+  "Successful refresh scheduling must be anchored to snapshot/request time",
+);
+assert.doesNotMatch(
+  refreshBody,
+  /nextRefreshAttemptAt = Date\.now\(\) \+ (?:cacheMs|winnerCacheMs);/,
+  "Successful refreshes must not add a full cache TTL after their I/O finishes",
+);
+assert.match(
+  refreshBody,
+  /nextRefreshAttemptAt = publication\.settled[\s\S]*?: Date\.now\(\) \+ LEASE_LOSER_RETRY_MS;/,
+  "An unsettled publication must keep the minimum lease-loser retry delay even when its winner is old",
+);
+assert.match(
+  dartsee,
+  /function isDartseeAuthorizationError[\s\S]*?DARTSEE_HTTP_401[\s\S]*?DARTSEE_HTTP_403/,
+  "Only explicit Dartsee authorization responses should be classified as auth failures",
+);
+assert.match(
+  refreshBody,
+  /healthStatus: authFailure \? "auth-error" : "connection-error"/,
+  "Transient refresh failures must not be mislabeled as authentication errors",
+);
+assert.match(
+  refreshBody,
+  /consecutiveIncompleteRefreshes:[\s\S]*?previous\.consecutiveIncompleteRefreshes \?\? 0\) \+ 1/,
+  "Refresh exceptions must advance the sustained-failure count while retaining last-known lanes",
+);
+assert.doesNotMatch(
+  refreshBody,
+  /console\.error\("\[dartsee lanes\]", err\)/,
+  "Refresh diagnostics must not log raw upstream errors",
+);
+
 assert.match(
   dartsee,
   /if \(!token\) \{[\s\S]*?return stored;/,
@@ -56,7 +108,7 @@ assert.match(
 );
 assert.match(
   dartsee,
-  /const lastKnown = snapshotCache\?\.snapshot \?\? null;[\s\S]*?if \(error\) \{[\s\S]*?return lastKnown;/,
+  /const lastKnown = snapshotCache\?\.snapshot \?\? null;[\s\S]*?catch \{[\s\S]*?rememberSnapshot\(lastKnown,[\s\S]*?return lastKnown;/,
   "A transient storage read error must preserve the in-isolate last-known snapshot",
 );
 

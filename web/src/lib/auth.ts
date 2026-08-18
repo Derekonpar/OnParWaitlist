@@ -8,3 +8,10 @@ export function verifyStaffSecret(request: Request): boolean {
   const query = url.searchParams.get("secret");
   return header === secret || query === secret;
 }
+
+/** Write actions require the secret in a header so it cannot leak in URLs. */
+export function verifyStaffHeaderSecret(request: Request): boolean {
+  const secret = readEnv("STAFF_SECRET");
+  if (!secret) return false;
+  return request.headers.get("x-staff-secret") === secret;
+}

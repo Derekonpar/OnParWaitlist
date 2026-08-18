@@ -1,6 +1,31 @@
 import { readEnv } from "./env";
 import { getSupabaseAdmin } from "./supabase";
 import type { ResourceLaneAvailability } from "./resource-scheduler";
+import { getStoredEntertainmentSchedule } from "./entertainment-schedule";
+import { reservationConflictsWithSession } from "./reservation-policy";
+import { withDeadline } from "./async-deadline";
+import { inspectDartseeEndSession } from "./dartsee-session-safety";
+import {
+  compareDartseeSnapshotVersions,
+  dartseeSnapshotStorageObjectName,
+} from "./dartsee-snapshot-order";
+import {
+  mergeDartseeControlGuards,
+  snapshotWithConfirmedDartseeControl,
+  type DartseeControlGuard,
+} from "./dartsee-control-guard";
+import {
+  DARTSEE_START_DURATIONS,
+  dartseeCommandDurationMinutes,
+  type DartseeStartDuration,
+} from "./dartsee-duration";
+
+export {
+  DARTSEE_START_BUFFER_MINUTES,
+  DARTSEE_START_DURATIONS,
+  dartseeCommandDurationMinutes,
+  type DartseeStartDuration,
+} from "./dartsee-duration";
 
 export type DartseeLaneStatus = "open" | "occupied" | "unknown";
 export type DartseeFeedHealth = "ok" | "partial" | "auth-error" | "connection-error" | "no-data";
@@ -11,14 +36,20 @@ export interface DartseeLaneReading {
   name: string;
   status: DartseeLaneStatus;
   remainingSeconds: number;
+  /** Lower bound for when this exact board state was observed live. */
+  observedAt?: string;
   sessionId?: string;
   sessionEnd?: string;
   gameType?: string;
+  /** Short-lived proof that a Start or End was confirmed by the live socket. */
+  controlGuard?: DartseeControlGuard;
 }
 
 export interface DartseeLaneSnapshot {
   lanes: DartseeLaneReading[];
   capturedAt: string;
+  /** Logical lower bound for ordering lane-state publications across isolates. */
+  stateVersionAt?: string;
   receivedAt: string;
   source: string;
   healthStatus: DartseeFeedHealth;
@@ -28,6 +59,56 @@ export interface DartseeLaneSnapshot {
   consecutiveIncompleteRefreshes?: number;
   unresponsiveBoardIds?: string[];
 }
+
+export type DartseeLaneStartFailureCode =
+  | "invalid-configuration"
+  | "already-in-progress"
+  | "schedule-unavailable"
+  | "reservation-conflict"
+  | "feed-unavailable"
+  | "lane-occupied"
+  | "control-unavailable"
+  | "control-rejected";
+
+export type DartseeLaneStartResult =
+  | {
+      ok: true;
+      confirmed: boolean;
+      checkedAt: string;
+      lane: DartseeLaneReading | null;
+      snapshot: DartseeLaneSnapshot | null;
+    }
+  | {
+      ok: false;
+      code: DartseeLaneStartFailureCode;
+      conflict?: {
+        eventName: string;
+        startAt: string;
+      };
+    };
+
+export type DartseeLaneEndFailureCode =
+  | "invalid-configuration"
+  | "already-in-progress"
+  | "feed-unavailable"
+  | "lane-open"
+  | "session-unavailable"
+  | "shared-session"
+  | "control-unavailable"
+  | "control-rejected";
+
+export type DartseeLaneEndResult =
+  | {
+      ok: true;
+      confirmed: boolean;
+      checkedAt: string;
+      lane: DartseeLaneReading | null;
+      snapshot: DartseeLaneSnapshot | null;
+    }
+  | {
+      ok: false;
+      code: DartseeLaneEndFailureCode;
+    };
 
 interface DartseeAuth {
   accessToken: string;
@@ -39,8 +120,27 @@ type JsonRecord = Record<string, unknown>;
 const DEFAULT_BASE_URL = "https://central.dartsee.com";
 const STORAGE_BUCKET = "onpar-state";
 const STORAGE_PATH = "dartsee-lanes/current.json";
-const STORAGE_LOCK_PREFIX = "dartsee-lanes/refresh-lock";
+const STORAGE_SNAPSHOT_PREFIX = "dartsee-lanes/snapshots";
+// Immutable snapshots must not share a rollout lease with the legacy
+// `current.json` publisher. A legacy winner cannot publish where a new reader
+// looks (and vice versa), so sharing the lease would suppress useful refreshes
+// during a mixed-version deployment.
+const STORAGE_LOCK_PREFIX = "dartsee-lanes/refresh-lock-v2";
+const START_LOCK_PREFIX = "dartsee-lanes/start-lock";
 const REFRESH_LEASE_WINDOW_MS = 15_000;
+// Staff and TV pages poll every 15 seconds. Refresh slightly ahead of that
+// cadence while the durable 15-second lease remains the global fanout cap.
+const REFRESH_TARGET_AGE_MS = 10_000;
+const START_LEASE_WINDOW_MS = 30_000;
+const START_STORAGE_DEADLINE_MS = 1_500;
+const START_SCHEDULE_READ_DEADLINE_MS = 1_800;
+const START_POST_TIMEOUT_MS = 5_000;
+const CONTROL_CONFIRM_TIMEOUT_MS = 1_500;
+const START_SCHEDULE_MAX_AGE_MS = 2 * 60_000;
+const START_CONFIRM_END_TOLERANCE_MS = 3 * 60_000;
+const PUBLISH_STORAGE_DEADLINE_MS = 1_000;
+const STORED_SNAPSHOT_LIST_LIMIT = 30;
+const STORED_SNAPSHOT_RETAIN_COUNT = 12;
 const STORED_SNAPSHOT_READ_CACHE_MS = 5_000;
 const REFRESH_IN_FLIGHT_GUARD_MS = 30_000;
 const LEASE_LOSER_RETRY_MS = 3_000;
@@ -60,6 +160,44 @@ const HEARTBEAT = {
   wifiSignal: "Unknown",
 };
 
+interface DartseeControlTiming {
+  startedAtMs: number;
+  parallelReadyAtMs?: number;
+  postStartedAtMs?: number;
+  postFinishedAtMs?: number;
+  confirmationFinishedAtMs?: number;
+}
+
+function logDartseeControlTiming(
+  action: "start" | "end",
+  timing: DartseeControlTiming,
+) {
+  const finishedAtMs = Date.now();
+  const parallelReadyAtMs = timing.parallelReadyAtMs;
+  const postStartedAtMs = timing.postStartedAtMs;
+  const postFinishedAtMs = timing.postFinishedAtMs;
+  const confirmationFinishedAtMs = timing.confirmationFinishedAtMs;
+  console.info("[dartsee control:timing]", {
+    action,
+    parallelPrepareMs: parallelReadyAtMs === undefined
+      ? null
+      : Math.max(0, parallelReadyAtMs - timing.startedAtMs),
+    safetyCheckMs:
+      parallelReadyAtMs === undefined || postStartedAtMs === undefined
+        ? null
+        : Math.max(0, postStartedAtMs - parallelReadyAtMs),
+    postMs:
+      postStartedAtMs === undefined || postFinishedAtMs === undefined
+        ? null
+        : Math.max(0, postFinishedAtMs - postStartedAtMs),
+    confirmationMs:
+      postFinishedAtMs === undefined || confirmationFinishedAtMs === undefined
+        ? null
+        : Math.max(0, confirmationFinishedAtMs - postFinishedAtMs),
+    totalMs: Math.max(0, finishedAtMs - timing.startedAtMs),
+  });
+}
+
 let authCache: DartseeAuth | null = null;
 let snapshotCache:
   | { snapshot: DartseeLaneSnapshot | null; expiresAt: number }
@@ -70,6 +208,7 @@ let snapshotCache:
 // in-isolate throttles; the durable storage lease coordinates across isolates.
 let nextRefreshAttemptAt = 0;
 let nextStoredReadAt = 0;
+const localStartGuards = new Map<number, number>();
 
 function envNumber(name: string, fallback: number): number {
   const value = Number(readEnv(name));
@@ -86,6 +225,13 @@ function boardIds(): string[] {
     .map((item) => item.trim())
     .filter(Boolean);
   return configured?.length ? configured : DEFAULT_BOARD_IDS;
+}
+
+export function dartseeBoardIdForLane(lane: number): string | null {
+  if (!Number.isInteger(lane) || lane < 1 || lane > 5) return null;
+  const ids = boardIds();
+  if (ids.length !== 5 || new Set(ids).size !== 5) return null;
+  return ids[lane - 1] ?? null;
 }
 
 function isRecord(value: unknown): value is JsonRecord {
@@ -110,7 +256,15 @@ async function fetchJson<T>(
   }
 }
 
-async function getAccessToken(): Promise<string | null> {
+function isDartseeAuthorizationError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    (error.message === "DARTSEE_HTTP_401" ||
+      error.message === "DARTSEE_HTTP_403")
+  );
+}
+
+async function getAccessToken(timeoutMs = 15_000): Promise<string | null> {
   const email = readEnv("DARTSEE_ADMIN_EMAIL");
   const password = readEnv("DARTSEE_ADMIN_PASSWORD");
   if (!email || !password) return null;
@@ -132,7 +286,7 @@ async function getAccessToken(): Promise<string | null> {
       },
       body: JSON.stringify({ email, password }),
     },
-    15000,
+    timeoutMs,
   );
 
   if (!data.access_token) return null;
@@ -348,7 +502,12 @@ async function readLiveSnapshot(
       if (settleTimer) clearTimeout(settleTimer);
       clearTimeout(timeout);
       if (ws) closeSocket(ws);
-      const lanes = Array.from(lanesByBoard.values());
+      const stateVersionAt = now.toISOString();
+      const lanes = Array.from(lanesByBoard.values()).map((lane) =>
+        lane.status === "unknown"
+          ? lane
+          : { ...lane, observedAt: stateVersionAt },
+      );
       const knownLaneCount = lanes.filter((lane) => lane.status !== "unknown").length;
       const unresponsiveBoardIds = lanes
         .filter((lane) => lane.status === "unknown")
@@ -372,7 +531,8 @@ async function readLiveSnapshot(
       const receivedAt = new Date().toISOString();
       resolve({
         lanes,
-        capturedAt: now.toISOString(),
+        capturedAt: stateVersionAt,
+        stateVersionAt,
         receivedAt,
         source: "dartsee-dashboard-ws",
         healthStatus,
@@ -433,6 +593,189 @@ async function readLiveSnapshot(
     socket.addEventListener("close", () => {
       finish();
     });
+  });
+}
+
+type DartseeLanePredicate = (lane: DartseeLaneReading) => boolean;
+
+interface DartseeControlObserver {
+  lanes(): DartseeLaneReading[];
+  isActive(): boolean;
+  waitForLane(
+    boardId: string,
+    observedNotBeforeMs: number,
+    predicate: DartseeLanePredicate,
+    timeoutMs?: number,
+  ): Promise<DartseeLaneReading | null>;
+  close(): void;
+}
+
+interface DartseeLaneWaiter {
+  boardId: string;
+  observedNotBeforeMs: number;
+  predicate: DartseeLanePredicate;
+  resolve: (lane: DartseeLaneReading | null) => void;
+  timer: ReturnType<typeof setTimeout>;
+}
+
+function laneStateSignature(lane: DartseeLaneReading): string {
+  return [lane.status, lane.sessionId ?? "", lane.sessionEnd ?? ""].join(":");
+}
+
+/**
+ * Open one short-lived dashboard socket that remains connected across a
+ * control preflight and its exactly-once POST. Dartsee's own state event can
+ * then confirm the command immediately, without a fixed sleep or a second
+ * WebSocket handshake.
+ */
+async function openDartseeControlObserver(
+  ids: string[],
+  token: string,
+  preflightTimeoutMs: number,
+): Promise<DartseeControlObserver | null> {
+  if (typeof WebSocket === "undefined") return null;
+  const venueId = readEnv("DARTSEE_VENUE_ID");
+  if (!venueId) return null;
+
+  const lanesByBoard = new Map(
+    ids.map((id, index) => [id, laneFromBoardId(id, index)] as const),
+  );
+  const observedAtByBoard = new Map<string, number>();
+  const waiters = new Set<DartseeLaneWaiter>();
+  const url = `${baseUrl().replace(/^http/, "ws")}/ws/dashboard?boardIds=${ids.join(
+    ",",
+  )}&venueId=${encodeURIComponent(venueId)}&token=${encodeURIComponent(token)}`;
+
+  return new Promise((resolve) => {
+    let readySettled = false;
+    let closed = false;
+    let pingTimer: ReturnType<typeof setTimeout> | null = null;
+    let ws: WebSocket | null = null;
+
+    const currentLanes = () =>
+      Array.from(lanesByBoard.values()).map((lane) => ({ ...lane }));
+
+    const finishWaiter = (
+      waiter: DartseeLaneWaiter,
+      lane: DartseeLaneReading | null,
+    ) => {
+      if (!waiters.delete(waiter)) return;
+      clearTimeout(waiter.timer);
+      waiter.resolve(lane ? { ...lane } : null);
+    };
+
+    const notifyWaiters = () => {
+      for (const waiter of [...waiters]) {
+        const lane = lanesByBoard.get(waiter.boardId);
+        const observedAtMs = observedAtByBoard.get(waiter.boardId) ?? 0;
+        if (
+          lane &&
+          observedAtMs >= waiter.observedNotBeforeMs &&
+          waiter.predicate(lane)
+        ) {
+          finishWaiter(waiter, lane);
+        }
+      }
+    };
+
+    const close = () => {
+      if (closed) return;
+      closed = true;
+      clearTimeout(preflightTimer);
+      if (pingTimer) clearTimeout(pingTimer);
+      for (const waiter of [...waiters]) finishWaiter(waiter, null);
+      if (ws) closeSocket(ws);
+      if (!readySettled) {
+        readySettled = true;
+        resolve(null);
+      }
+    };
+
+    const observer: DartseeControlObserver = {
+      lanes: currentLanes,
+      isActive: () =>
+        !closed && ws !== null && ws.readyState === WebSocket.OPEN,
+      waitForLane(
+        boardId,
+        observedNotBeforeMs,
+        predicate,
+        timeoutMs = CONTROL_CONFIRM_TIMEOUT_MS,
+      ) {
+        if (closed) return Promise.resolve(null);
+        const current = lanesByBoard.get(boardId);
+        const observedAtMs = observedAtByBoard.get(boardId) ?? 0;
+        if (
+          current &&
+          observedAtMs >= observedNotBeforeMs &&
+          predicate(current)
+        ) {
+          return Promise.resolve({ ...current });
+        }
+        return new Promise((waiterResolve) => {
+          const waiter: DartseeLaneWaiter = {
+            boardId,
+            observedNotBeforeMs,
+            predicate,
+            resolve: waiterResolve,
+            timer: setTimeout(() => finishWaiter(waiter, null), timeoutMs),
+          };
+          waiters.add(waiter);
+          // Recheck after registration so an event at this boundary cannot be
+          // missed between the initial inspection and adding the waiter.
+          notifyWaiters();
+        });
+      },
+      close,
+    };
+
+    const preflightTimer = setTimeout(close, preflightTimeoutMs);
+    try {
+      ws = new WebSocket(url);
+    } catch {
+      close();
+      return;
+    }
+    const socket = ws;
+
+    const sendPing = () => {
+      if (closed || socket.readyState !== WebSocket.OPEN) return;
+      socket.send(JSON.stringify(HEARTBEAT));
+      pingTimer = setTimeout(sendPing, 1_000);
+    };
+
+    socket.addEventListener("open", sendPing);
+    socket.addEventListener("message", (event) => {
+      try {
+        const raw = typeof event.data === "string" ? event.data : "";
+        const before = new Map(
+          currentLanes().map((lane) => [lane.boardId, laneStateSignature(lane)]),
+        );
+        const observedAtMs = Date.now();
+        applyDartseePayload(lanesByBoard, JSON.parse(raw), observedAtMs);
+        const observedAt = new Date(observedAtMs).toISOString();
+        for (const lane of lanesByBoard.values()) {
+          if (before.get(lane.boardId) !== laneStateSignature(lane)) {
+            lane.observedAt = observedAt;
+            observedAtByBoard.set(lane.boardId, observedAtMs);
+          }
+        }
+        notifyWaiters();
+        if (
+          !readySettled &&
+          Array.from(lanesByBoard.values()).every(
+            (lane) => lane.status !== "unknown",
+          )
+        ) {
+          readySettled = true;
+          clearTimeout(preflightTimer);
+          resolve(observer);
+        }
+      } catch {
+        // Ignore malformed dashboard frames and keep waiting for valid state.
+      }
+    });
+    socket.addEventListener("error", close);
+    socket.addEventListener("close", close);
   });
 }
 
@@ -503,6 +846,22 @@ function snapshotAgeMs(
     : Number.POSITIVE_INFINITY;
 }
 
+function refreshTargetAgeMs(cacheMs: number): number {
+  return Math.min(cacheMs, REFRESH_TARGET_AGE_MS);
+}
+
+function nextSnapshotRefreshAt(
+  snapshot: DartseeLaneSnapshot | null,
+  targetAgeMs: number,
+  requestStartedAt: number,
+): number {
+  if (!snapshot) return requestStartedAt;
+  const capturedAt = new Date(snapshot.capturedAt).getTime();
+  return Number.isFinite(capturedAt)
+    ? Math.max(requestStartedAt, capturedAt + targetAgeMs)
+    : requestStartedAt;
+}
+
 async function getStoredSnapshot(): Promise<DartseeLaneSnapshot | null> {
   const now = Date.now();
   if (snapshotCache && now < snapshotCache.expiresAt) {
@@ -513,15 +872,18 @@ async function getStoredSnapshot(): Promise<DartseeLaneSnapshot | null> {
   // Claim the read window before downloading so concurrent public polls do not
   // fan out into identical storage reads. They safely receive last-known data.
   nextStoredReadAt = now + STORED_SNAPSHOT_READ_CACHE_MS;
-  const supabase = getSupabaseAdmin();
-  if (!supabase) return lastKnown;
-  const { data, error } = await supabase.storage.from(STORAGE_BUCKET).download(STORAGE_PATH);
-  if (error) {
+  let snapshot: DartseeLaneSnapshot | null = null;
+  try {
+    snapshot = await downloadStoredSnapshotUncached();
+  } catch {
+    rememberSnapshot(lastKnown, STORED_SNAPSHOT_READ_CACHE_MS);
+    return lastKnown;
+  }
+  if (!snapshot) {
     rememberSnapshot(lastKnown, STORED_SNAPSHOT_READ_CACHE_MS);
     return lastKnown;
   }
   try {
-    const snapshot = JSON.parse(await data.text()) as DartseeLaneSnapshot;
     // Older isolates may have persisted a partial flag before the sustained
     // failure threshold was introduced. Apply the same tolerance when reading
     // shared cache so staff do not wait for this isolate to win a refresh lease.
@@ -550,15 +912,166 @@ export async function getStoredDartseeLaneSnapshot(): Promise<DartseeLaneSnapsho
   return getStoredSnapshot();
 }
 
-async function saveStoredSnapshot(snapshot: DartseeLaneSnapshot) {
+function isStoredSnapshot(value: unknown): value is DartseeLaneSnapshot {
+  return (
+    isRecord(value) &&
+    Array.isArray(value.lanes) &&
+    typeof value.capturedAt === "string" &&
+    typeof value.receivedAt === "string" &&
+    typeof value.source === "string" &&
+    typeof value.healthStatus === "string" &&
+    typeof value.healthUpdatedAt === "string" &&
+    typeof value.knownLaneCount === "number"
+  );
+}
+
+function snapshotStoragePath(snapshot: DartseeLaneSnapshot): string {
+  return `${STORAGE_SNAPSHOT_PREFIX}/${dartseeSnapshotStorageObjectName(
+    snapshot,
+    crypto.randomUUID(),
+  )}`;
+}
+
+async function listStoredSnapshotNames(
+  limit = STORED_SNAPSHOT_LIST_LIMIT,
+): Promise<string[]> {
+  const supabase = getSupabaseAdmin();
+  if (!supabase) return [];
+  const result = await withDeadline(
+    supabase.storage.from(STORAGE_BUCKET).list(STORAGE_SNAPSHOT_PREFIX, {
+      limit,
+      offset: 0,
+      sortBy: { column: "name", order: "desc" },
+    }),
+    PUBLISH_STORAGE_DEADLINE_MS,
+    null,
+  );
+  if (!result) throw new Error("DARTSEE_STORAGE_LIST_TIMEOUT");
+  if (result.error) {
+    throw new Error("DARTSEE_STORAGE_LIST_FAILED");
+  }
+  return result.data
+    .map((item) => item.name)
+    .filter((name): name is string => Boolean(name && name.endsWith(".json")));
+}
+
+async function downloadSnapshotPath(
+  path: string,
+): Promise<DartseeLaneSnapshot | null> {
+  const supabase = getSupabaseAdmin();
+  if (!supabase) return null;
+  const result = await withDeadline(
+    supabase.storage.from(STORAGE_BUCKET).download(path),
+    PUBLISH_STORAGE_DEADLINE_MS,
+    null,
+  );
+  if (!result) throw new Error("DARTSEE_STORAGE_READ_TIMEOUT");
+  if (result.error) return null;
+  const text = await withDeadline(
+    result.data.text(),
+    PUBLISH_STORAGE_DEADLINE_MS,
+    "",
+  );
+  if (!text) throw new Error("DARTSEE_STORAGE_PARSE_FAILED");
+  const parsed: unknown = JSON.parse(text);
+  if (!isStoredSnapshot(parsed)) {
+    throw new Error("DARTSEE_STORAGE_INVALID_SNAPSHOT");
+  }
+  return parsed;
+}
+
+async function downloadStoredSnapshotUncached(): Promise<DartseeLaneSnapshot | null> {
+  const names = await listStoredSnapshotNames(3);
+  for (const name of names) {
+    try {
+      const snapshot = await downloadSnapshotPath(
+        `${STORAGE_SNAPSHOT_PREFIX}/${name}`,
+      );
+      if (snapshot) return snapshot;
+    } catch {
+      // An older immutable snapshot can still provide safe last-known state.
+    }
+  }
+  if (names.length) return null;
+  // Read the former fixed object only while migrating installations that do
+  // not yet have an immutable snapshot publication.
+  return downloadSnapshotPath(STORAGE_PATH);
+}
+
+async function pruneStoredSnapshots() {
   const supabase = getSupabaseAdmin();
   if (!supabase) return;
-  const { error } = await supabase.storage.from(STORAGE_BUCKET).upload(
-    STORAGE_PATH,
-    JSON.stringify(snapshot),
-    { contentType: "application/json", upsert: true },
-  );
-  if (error) console.error("[dartsee lanes:storage-write]", error.message);
+  try {
+    const names = await listStoredSnapshotNames();
+    const stalePaths = names
+      .slice(STORED_SNAPSHOT_RETAIN_COUNT)
+      .map((name) => `${STORAGE_SNAPSHOT_PREFIX}/${name}`);
+    if (!stalePaths.length) return;
+    await withDeadline(
+      supabase.storage.from(STORAGE_BUCKET).remove(stalePaths),
+      PUBLISH_STORAGE_DEADLINE_MS,
+      null,
+    );
+  } catch {
+    // Retention is best effort; immutable publication ordering remains safe.
+  }
+}
+
+interface SnapshotPublicationResult {
+  winner: DartseeLaneSnapshot | null;
+  settled: boolean;
+}
+
+const UNSETTLED_SNAPSHOT_PUBLICATION: SnapshotPublicationResult = {
+  winner: null,
+  settled: false,
+};
+
+async function saveStoredSnapshot(
+  candidate: DartseeLaneSnapshot,
+): Promise<SnapshotPublicationResult> {
+  const supabase = getSupabaseAdmin();
+  if (!supabase) return { winner: candidate, settled: true };
+  let snapshot = candidate;
+  let stored: DartseeLaneSnapshot | null = null;
+  try {
+    stored = await downloadStoredSnapshotUncached();
+    snapshot = mergeDartseeControlGuards(snapshot, stored);
+    if (stored && compareDartseeSnapshotVersions(stored, snapshot) >= 0) {
+      return { winner: stored, settled: true };
+    }
+  } catch {
+    // Immutable filenames make an upload safe even when the comparison read
+    // is temporarily unavailable. A final read below decides what to cache.
+  }
+
+  try {
+    const result = await withDeadline(
+      supabase.storage.from(STORAGE_BUCKET).upload(
+        snapshotStoragePath(snapshot),
+        JSON.stringify(snapshot),
+        { contentType: "application/json", upsert: false },
+      ),
+      PUBLISH_STORAGE_DEADLINE_MS,
+      null,
+    );
+    if (!result || result.error) {
+      return { winner: stored, settled: false };
+    }
+
+    let winner: DartseeLaneSnapshot | null = null;
+    try {
+      winner = await downloadStoredSnapshotUncached();
+    } catch {
+      // The immutable object is safe, but force a near-term read before
+      // extending any in-isolate cache when its global rank is unconfirmed.
+    }
+    await pruneStoredSnapshots();
+    if (!winner) return { winner: snapshot, settled: false };
+    return { winner, settled: true };
+  } catch {
+    return { winner: stored, settled: false };
+  }
 }
 
 async function acquireRefreshLease(): Promise<boolean> {
@@ -583,12 +1096,125 @@ async function acquireRefreshLease(): Promise<boolean> {
   return true;
 }
 
+interface DartseeStartLease {
+  lane: number;
+  paths: string[];
+}
+
+const DARTSEE_CONTROL_LEASE_UNAVAILABLE = Symbol(
+  "DARTSEE_CONTROL_LEASE_UNAVAILABLE",
+);
+type DartseeStartLeaseAcquisition =
+  | DartseeStartLease
+  | null
+  | typeof DARTSEE_CONTROL_LEASE_UNAVAILABLE;
+
+async function acquireStartLease(
+  lane: number,
+  requestId: string,
+): Promise<DartseeStartLeaseAcquisition> {
+  const now = Date.now();
+  if ((localStartGuards.get(lane) ?? 0) > now) return null;
+  localStartGuards.set(lane, now + START_LEASE_WINDOW_MS * 3);
+
+  const supabase = getSupabaseAdmin();
+  if (!supabase) {
+    localStartGuards.delete(lane);
+    return DARTSEE_CONTROL_LEASE_UNAVAILABLE;
+  }
+
+  // Claim this time bucket and the next three. Adjacent requests on opposite
+  // boundaries still contend for a shared object, and the 90–120 second lease
+  // safely outlives the bounded full-board End preflight. A crashed request
+  // then expires without permanent cleanup or manual intervention.
+  const bucket = Math.floor(now / START_LEASE_WINDOW_MS);
+  const paths = [bucket, bucket + 1, bucket + 2, bucket + 3].map(
+    (value) => `${START_LOCK_PREFIX}/lane-${lane}-${value}.json`,
+  );
+  // All four unique objects must be ours before a command can be sent. Upload
+  // them concurrently so the durable cross-boundary lease costs one storage
+  // round trip instead of four. Concurrent contenders can split the objects,
+  // but then neither owns every path and both fail closed without a command.
+  const acquisitionResults = await Promise.all(
+    paths.map(async (path) => ({
+      path,
+      acquired: await withDeadline(
+        (async () => {
+          try {
+            const { error } = await supabase.storage.from(STORAGE_BUCKET).upload(
+              path,
+              JSON.stringify({
+                requestId,
+                acquiredAt: new Date(now).toISOString(),
+              }),
+              { contentType: "application/json", upsert: false },
+            );
+            return !error;
+          } catch {
+            return false;
+          }
+        })(),
+        START_STORAGE_DEADLINE_MS,
+        false,
+      ),
+    })),
+  );
+  const acquired = acquisitionResults
+    .filter((result) => result.acquired)
+    .map((result) => result.path);
+  if (acquired.length !== paths.length) {
+    if (acquired.length) {
+      void withDeadline(
+        supabase.storage.from(STORAGE_BUCKET).remove(acquired),
+        START_STORAGE_DEADLINE_MS,
+        null,
+      ).catch(() => {
+        // The short time-bucket lease expires without cleanup.
+      });
+    }
+    localStartGuards.delete(lane);
+    return null;
+  }
+
+  // Old time-bucket locks are inert, but remove a few to keep storage tidy.
+  // Cleanup is never on the control critical path.
+  void withDeadline(
+    supabase.storage.from(STORAGE_BUCKET).remove(
+      [bucket - 2, bucket - 3].map(
+        (value) => `${START_LOCK_PREFIX}/lane-${lane}-${value}.json`,
+      ),
+    ),
+    START_STORAGE_DEADLINE_MS,
+    null,
+  ).catch(() => {
+    // Old bucket objects are already inert and can be cleaned up later.
+  });
+  return { lane, paths: acquired };
+}
+
+async function releaseStartLease(lease: DartseeStartLease) {
+  localStartGuards.delete(lease.lane);
+  if (!lease.paths.length) return;
+  const supabase = getSupabaseAdmin();
+  if (!supabase) return;
+  try {
+    await withDeadline(
+      supabase.storage.from(STORAGE_BUCKET).remove(lease.paths),
+      START_STORAGE_DEADLINE_MS,
+      null,
+    );
+  } catch {
+    // The time-bucket objects expire as locks even if cleanup is unavailable.
+  }
+}
+
 function mergeLastKnown(
   current: DartseeLaneSnapshot,
   previous: DartseeLaneSnapshot | null,
 ): DartseeLaneSnapshot {
-  if (!previous || current.healthStatus === "ok") {
-    return { ...current, consecutiveIncompleteRefreshes: 0 };
+  const guardedCurrent = mergeDartseeControlGuards(current, previous);
+  if (!previous || guardedCurrent.healthStatus === "ok") {
+    return { ...guardedCurrent, consecutiveIncompleteRefreshes: 0 };
   }
   const previousByBoard = new Map(previous.lanes.map((lane) => [lane.boardId, lane]));
   const previousAgeSeconds = Math.max(
@@ -598,16 +1224,17 @@ function mergeLastKnown(
   const consecutiveIncompleteRefreshes =
     (previous.consecutiveIncompleteRefreshes ?? 0) + 1;
   const transientPartial =
-    current.healthStatus === "partial" && consecutiveIncompleteRefreshes < 20;
-  const unresponsiveLaneNumbers = current.lanes
-    .filter((lane) => current.unresponsiveBoardIds?.includes(lane.boardId))
+    guardedCurrent.healthStatus === "partial" &&
+    consecutiveIncompleteRefreshes < 20;
+  const unresponsiveLaneNumbers = guardedCurrent.lanes
+    .filter((lane) => guardedCurrent.unresponsiveBoardIds?.includes(lane.boardId))
     .map((lane) => lane.lane);
   const machineMessage = unresponsiveLaneNumbers.length
     ? `Dart lane${unresponsiveLaneNumbers.length === 1 ? "" : "s"} ${unresponsiveLaneNumbers.join(", ")} ${unresponsiveLaneNumbers.length === 1 ? "is" : "are"} not responding. Staff should go check the Dartsee machine.`
-    : current.healthMessage ?? "Dartsee feed needs attention";
+    : guardedCurrent.healthMessage ?? "Dartsee feed needs attention";
   return {
-    ...current,
-    lanes: current.lanes.map((lane) => {
+    ...guardedCurrent,
+    lanes: guardedCurrent.lanes.map((lane) => {
       if (lane.status !== "unknown") return lane;
       const retained = previousByBoard.get(lane.boardId);
       if (!retained) return lane;
@@ -621,7 +1248,7 @@ function mergeLastKnown(
     // Preserve its last-known state immediately, but only alert staff after
     // a sustained five-minute outage. Auth and connection failures still
     // alert immediately.
-    healthStatus: transientPartial ? "ok" : current.healthStatus,
+    healthStatus: transientPartial ? "ok" : guardedCurrent.healthStatus,
     healthMessage: transientPartial
       ? undefined
       : `${machineMessage} Last known status is retained for unreadable lanes.`,
@@ -629,13 +1256,588 @@ function mergeLastKnown(
   };
 }
 
+function startConfirmationMatches(
+  lane: DartseeLaneReading | null,
+  expectedEndMs: number,
+): lane is DartseeLaneReading {
+  if (!lane || lane.status !== "occupied" || !lane.sessionEnd) return false;
+  const endMs = new Date(lane.sessionEnd).getTime();
+  return (
+    Number.isFinite(endMs) &&
+    Math.abs(endMs - expectedEndMs) <= START_CONFIRM_END_TOLERANCE_MS
+  );
+}
+
+async function controlReadWithFreshAuth<T>(
+  read: (token: string) => Promise<T | null>,
+): Promise<{ token: string; value: T } | null> {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    if (attempt > 0) authCache = null;
+    try {
+      const token = await getAccessToken(5_000);
+      if (!token) continue;
+      const value = await read(token);
+      if (value) return { token, value };
+    } catch {
+      // One fresh-login/read-only retry is safe before a physical command.
+    }
+  }
+  authCache = null;
+  return null;
+}
+
+async function openDartseeControlObserverWithFreshAuth(
+  ids: string[],
+  preflightTimeoutMs: number,
+): Promise<{
+  token: string;
+  observer: DartseeControlObserver;
+} | null> {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    if (attempt > 0) authCache = null;
+    try {
+      const token = await getAccessToken(5_000);
+      if (!token) continue;
+      const observer = await openDartseeControlObserver(
+        ids,
+        token,
+        preflightTimeoutMs,
+      );
+      if (observer) return { token, observer };
+    } catch {
+      // A fresh-login retry is read-only and occurs before any physical action.
+    }
+  }
+  authCache = null;
+  return null;
+}
+
+async function publishConfirmedDartseeLaneStateWithToken(
+  token: string,
+  confirmedLane: DartseeLaneReading,
+  confirmedAtMs: number,
+): Promise<DartseeLaneSnapshot | null> {
+  const publicationStartedAt = Date.now();
+  const ids = boardIds();
+  let previous = await withDeadline(
+    getStoredSnapshot(),
+    START_STORAGE_DEADLINE_MS,
+    snapshotCache?.snapshot ?? null,
+  );
+  const cacheMs = envNumber("DARTSEE_CACHE_MS", 15000);
+  const refreshAgeMs = refreshTargetAgeMs(cacheMs);
+
+  if (previous) {
+    // Publish the exact socket-confirmed lane immediately on a complete,
+    // countdown-rebased venue snapshot. The short guard prevents a newly
+    // opened dashboard socket from replacing it with Dartsee's cached
+    // pre-control echo while preserving every other lane.
+    const confirmedSnapshot = snapshotWithConfirmedDartseeControl(
+      previous,
+      confirmedLane,
+      confirmedAtMs,
+    );
+    const confirmedPublication = await withDeadline(
+      saveStoredSnapshot(confirmedSnapshot),
+      START_STORAGE_DEADLINE_MS,
+      UNSETTLED_SNAPSHOT_PUBLICATION,
+    );
+    previous = mergeDartseeControlGuards(
+      confirmedPublication.winner ?? confirmedSnapshot,
+      confirmedSnapshot,
+    );
+    const confirmedCacheMs = confirmedPublication.settled
+      ? cacheMs
+      : LEASE_LOSER_RETRY_MS;
+    rememberSnapshot(previous, confirmedCacheMs);
+  }
+
+  const initial = await readLiveSnapshot(ids, token, 5_000);
+  if (!initial) {
+    nextRefreshAttemptAt = Date.now() + LEASE_LOSER_RETRY_MS;
+    return previous;
+  }
+
+  // A post-control socket can briefly echo Dartsee's cached pre-control state.
+  // Local capture time alone is not proof of a later lane change; the control
+  // guard below requires matching state, a distinct session, or expiry.
+  const live = await retryMissingBoards(initial, token);
+  const liveVersionMs = new Date(
+    live.stateVersionAt ?? live.capturedAt,
+  ).getTime();
+  if (
+    live.healthStatus !== "ok" ||
+    live.knownLaneCount !== ids.length ||
+    !live.lanes.some((lane) => lane.boardId === confirmedLane.boardId) ||
+    !Number.isFinite(liveVersionMs) ||
+    liveVersionMs < confirmedAtMs
+  ) {
+    nextRefreshAttemptAt = Date.now() + LEASE_LOSER_RETRY_MS;
+    return previous;
+  }
+
+  const snapshot = mergeLastKnown(live, previous);
+  const publication = await withDeadline(
+    saveStoredSnapshot(snapshot),
+    START_STORAGE_DEADLINE_MS,
+    UNSETTLED_SNAPSHOT_PUBLICATION,
+  );
+  const winner =
+    publication.winner ?? previous ?? snapshotCache?.snapshot ?? snapshot;
+  const winnerCacheMs = publication.settled
+    ? cacheMs
+    : LEASE_LOSER_RETRY_MS;
+  rememberSnapshot(winner, winnerCacheMs);
+  nextRefreshAttemptAt = publication.settled
+    ? nextSnapshotRefreshAt(winner, refreshAgeMs, publicationStartedAt)
+    : Date.now() + LEASE_LOSER_RETRY_MS;
+  return winner;
+}
+
+export async function publishConfirmedDartseeStart(
+  confirmedLane: DartseeLaneReading,
+  confirmedAtMs = Date.now(),
+): Promise<void> {
+  try {
+    const token = await getAccessToken(5_000);
+    if (!token) return;
+    await publishConfirmedDartseeLaneStateWithToken(
+      token,
+      confirmedLane,
+      confirmedAtMs,
+    );
+  } catch {
+    // The staff UI already holds the confirmed lane. A normal feed refresh will
+    // retry durable publication without changing the completed control action.
+  }
+}
+
+export async function publishConfirmedDartseeEnd(
+  confirmedLane: DartseeLaneReading,
+  confirmedAtMs = Date.now(),
+): Promise<void> {
+  try {
+    const token = await getAccessToken(5_000);
+    if (!token) return;
+    await publishConfirmedDartseeLaneStateWithToken(
+      token,
+      confirmedLane,
+      confirmedAtMs,
+    );
+  } catch {
+    // The staff UI already holds the confirmed open lane. A normal feed refresh
+    // will retry durable publication without changing the completed action.
+  }
+}
+
+/**
+ * An ambiguous control may already have reached Dartsee. Refresh shared state
+ * after a short settle delay without ever resending the physical command.
+ */
+export async function refreshDartseeLaneSnapshotAfterControl(): Promise<void> {
+  const refreshStartedAt = Date.now();
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 2_000));
+    const ids = boardIds();
+    const refreshed = await controlReadWithFreshAuth(async (token) => {
+      const initial = await readLiveSnapshot(ids, token, 5_000);
+      return initial ? retryMissingBoards(initial, token) : null;
+    });
+    if (!refreshed) return;
+    const previous = await withDeadline(
+      getStoredSnapshot(),
+      START_STORAGE_DEADLINE_MS,
+      snapshotCache?.snapshot ?? null,
+    );
+    const snapshot = mergeLastKnown(refreshed.value, previous);
+    const publication = await withDeadline(
+      saveStoredSnapshot(snapshot),
+      START_STORAGE_DEADLINE_MS,
+      UNSETTLED_SNAPSHOT_PUBLICATION,
+    );
+    const winner =
+      publication.winner ?? previous ?? snapshotCache?.snapshot ?? snapshot;
+    const cacheMs = envNumber("DARTSEE_CACHE_MS", 15000);
+    const winnerCacheMs = publication.settled
+      ? cacheMs
+      : LEASE_LOSER_RETRY_MS;
+    rememberSnapshot(winner, winnerCacheMs);
+    nextRefreshAttemptAt = publication.settled
+      ? nextSnapshotRefreshAt(
+          winner,
+          refreshTargetAgeMs(cacheMs),
+          refreshStartedAt,
+        )
+      : Date.now() + LEASE_LOSER_RETRY_MS;
+  } catch {
+    // Normal feed polling remains the fallback. This path is read-only and
+    // deliberately never retries a Start or End command.
+  }
+}
+
+export async function startDartseeLaneSession(input: {
+  requestId: string;
+  lane: number;
+  durationMinutes: DartseeStartDuration;
+}): Promise<DartseeLaneStartResult> {
+  const boardId = dartseeBoardIdForLane(input.lane);
+  const configuredDuration = DARTSEE_START_DURATIONS.includes(
+    input.durationMinutes,
+  );
+  const venueId = readEnv("DARTSEE_VENUE_ID");
+  if (!boardId || !configuredDuration || !venueId) {
+    return { ok: false, code: "invalid-configuration" };
+  }
+
+  const timing: DartseeControlTiming = { startedAtMs: Date.now() };
+  let lease: DartseeStartLease | null = null;
+  let commandMayHaveBeenSent = false;
+  let retainLease = false;
+  let controlObserver: DartseeControlObserver | null = null;
+  try {
+    // These are independent read-only/safety preparations. The physical POST
+    // remains strictly after all three have succeeded and been revalidated.
+    const [leaseAcquisition, preflight, schedule] = await Promise.all([
+      acquireStartLease(input.lane, input.requestId).catch(
+        (): typeof DARTSEE_CONTROL_LEASE_UNAVAILABLE =>
+          DARTSEE_CONTROL_LEASE_UNAVAILABLE,
+      ),
+      openDartseeControlObserverWithFreshAuth([boardId], 3_000).catch(
+        () => null,
+      ),
+      withDeadline(
+        getStoredEntertainmentSchedule(),
+        START_SCHEDULE_READ_DEADLINE_MS,
+        null,
+      ).catch(() => null),
+    ]);
+    timing.parallelReadyAtMs = Date.now();
+    controlObserver = preflight?.observer ?? null;
+
+    if (leaseAcquisition === DARTSEE_CONTROL_LEASE_UNAVAILABLE) {
+      return { ok: false, code: "control-unavailable" };
+    }
+    lease = leaseAcquisition;
+    if (!lease) return { ok: false, code: "already-in-progress" };
+    if (!preflight) {
+      return { ok: false, code: "feed-unavailable" };
+    }
+    const { token, observer } = preflight;
+    const before = observer.lanes()[0];
+    if (before.status !== "open") {
+      return {
+        ok: false,
+        code:
+          before.status === "occupied" ? "lane-occupied" : "feed-unavailable",
+      };
+    }
+
+    // Re-check schedule freshness and overlap after the live probe so the
+    // authorization decision is made immediately before the external write.
+    const scheduleAt = schedule
+      ? new Date(schedule.fetchedAt).getTime()
+      : Number.NaN;
+    if (
+      !schedule ||
+      !Number.isFinite(scheduleAt) ||
+      Date.now() - scheduleAt > START_SCHEDULE_MAX_AGE_MS
+    ) {
+      return { ok: false, code: "schedule-unavailable" };
+    }
+    const startMs = Date.now();
+    const commandDurationMinutes = dartseeCommandDurationMinutes(
+      input.durationMinutes,
+    );
+    const expectedEndMs = startMs + commandDurationMinutes * 60_000;
+    const resourceIds = [`darts-${input.lane}`, `dart-${input.lane}`];
+    const conflict = schedule.reservations.find(
+      (reservation) =>
+        resourceIds.includes(reservation.resourceId.toLowerCase()) &&
+        reservationConflictsWithSession(reservation, startMs, expectedEndMs),
+    );
+    if (conflict) {
+      return {
+        ok: false,
+        code: "reservation-conflict",
+        conflict: {
+          eventName: conflict.eventName,
+          startAt: conflict.startAt,
+        },
+      };
+    }
+
+    // The observer remains live while schedule protection is checked. Refuse
+    // the write if another controller started this board in that interval.
+    const immediatelyBeforeWrite = observer.lanes().find(
+      (lane) => lane.boardId === boardId,
+    );
+    if (immediatelyBeforeWrite?.status !== "open") {
+      return {
+        ok: false,
+        code:
+          immediatelyBeforeWrite?.status === "occupied"
+            ? "lane-occupied"
+            : "feed-unavailable",
+      };
+    }
+
+    let response: Response | null = null;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), START_POST_TIMEOUT_MS);
+    const commandIssuedAtMs = Date.now();
+    timing.postStartedAtMs = commandIssuedAtMs;
+    try {
+      commandMayHaveBeenSent = true;
+      response = await fetch(`${baseUrl()}/v2.0/tournaments/walk-in`, {
+        method: "POST",
+        redirect: "error",
+        headers: {
+          accept: "application/json",
+          authorization: `Bearer ${token}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          length: commandDurationMinutes,
+          boardIds: [boardId],
+          maxPlayers: 8,
+          venueId,
+          name: "walk-in",
+        }),
+        signal: controller.signal,
+      });
+    } catch {
+      // A network error or timeout is ambiguous. Never resend the POST; verify
+      // the resulting live state below instead.
+    } finally {
+      clearTimeout(timer);
+      timing.postFinishedAtMs = Date.now();
+    }
+
+    if (response?.body) {
+      try {
+        await response.body.cancel();
+      } catch {
+        // The status is sufficient; never surface or log the upstream body.
+      }
+    }
+
+    if (response && response.status >= 400 && response.status < 500) {
+      if (response.status === 401 || response.status === 403) authCache = null;
+      return { ok: false, code: "control-rejected" };
+    }
+
+    const reading = await observer.waitForLane(
+      boardId,
+      commandIssuedAtMs,
+      (lane) => startConfirmationMatches(lane, expectedEndMs),
+    );
+    timing.confirmationFinishedAtMs = Date.now();
+    const confirmedLane = startConfirmationMatches(reading, expectedEndMs)
+      ? { ...reading, lane: input.lane }
+      : null;
+
+    if (!confirmedLane) {
+      // Keep the lease until its time buckets expire. The command may have
+      // reached Dartsee, so staff must refresh/check the lane before retrying.
+      retainLease = true;
+      return {
+        ok: true,
+        confirmed: false,
+        checkedAt: new Date().toISOString(),
+        lane: null,
+        snapshot: null,
+      };
+    }
+
+    return {
+      ok: true,
+      confirmed: true,
+      checkedAt: new Date().toISOString(),
+      lane: confirmedLane,
+      snapshot: null,
+    };
+  } catch {
+    if (!commandMayHaveBeenSent) {
+      return { ok: false, code: "control-unavailable" };
+    }
+    // Once the POST may have left this process, errors are ambiguous and must
+    // never trigger an automatic retry.
+    retainLease = true;
+    return {
+      ok: true,
+      confirmed: false,
+      checkedAt: new Date().toISOString(),
+      lane: null,
+      snapshot: null,
+    };
+  } finally {
+    controlObserver?.close();
+    if (lease && !retainLease) await releaseStartLease(lease);
+    logDartseeControlTiming("start", timing);
+  }
+}
+
+export async function endDartseeLaneSession(input: {
+  requestId: string;
+  lane: number;
+}): Promise<DartseeLaneEndResult> {
+  const boardId = dartseeBoardIdForLane(input.lane);
+  if (!boardId) return { ok: false, code: "invalid-configuration" };
+
+  const timing: DartseeControlTiming = { startedAtMs: Date.now() };
+  let lease: DartseeStartLease | null = null;
+  let commandMayHaveBeenSent = false;
+  let retainLease = false;
+  let controlObserver: DartseeControlObserver | null = null;
+  try {
+    const ids = boardIds();
+    // The durable duplicate guard and complete five-board read are independent
+    // safety preparations, so perform them concurrently. End remains blocked
+    // until both have succeeded.
+    const [leaseAcquisition, fullPreflight] = await Promise.all([
+      acquireStartLease(input.lane, input.requestId).catch(
+        (): typeof DARTSEE_CONTROL_LEASE_UNAVAILABLE =>
+          DARTSEE_CONTROL_LEASE_UNAVAILABLE,
+      ),
+      openDartseeControlObserverWithFreshAuth(ids, 5_000).catch(() => null),
+    ]);
+    timing.parallelReadyAtMs = Date.now();
+    controlObserver = fullPreflight?.observer ?? null;
+
+    if (leaseAcquisition === DARTSEE_CONTROL_LEASE_UNAVAILABLE) {
+      return { ok: false, code: "control-unavailable" };
+    }
+    lease = leaseAcquisition;
+    if (!lease) return { ok: false, code: "already-in-progress" };
+    if (!fullPreflight) {
+      return { ok: false, code: "feed-unavailable" };
+    }
+    const { token, observer } = fullPreflight;
+
+    // Initial dashboard frames for the five boards can arrive back-to-back.
+    // Give that complete venue view one short stability window so a linked
+    // session frame cannot trail the first known status into an unsafe End.
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    if (!observer.isActive()) {
+      return { ok: false, code: "feed-unavailable" };
+    }
+
+    // This is the final pre-write read. The browser never supplies a board ID
+    // or session ID, and the complete uncached five-board view ensures a shared
+    // multi-board session cannot be mistaken for a safe single-lane End.
+    const inspection = inspectDartseeEndSession(
+      observer.lanes(),
+      boardId,
+    );
+    if (!inspection.ok) {
+      if (inspection.reason === "target-missing") {
+        return { ok: false, code: "feed-unavailable" };
+      }
+      return {
+        ok: false,
+        code:
+          inspection.reason === "lane-open"
+            ? "lane-open"
+            : inspection.reason,
+      };
+    }
+    const sessionId = inspection.sessionId;
+
+    let response: Response | null = null;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), START_POST_TIMEOUT_MS);
+    const commandIssuedAtMs = Date.now();
+    timing.postStartedAtMs = commandIssuedAtMs;
+    try {
+      commandMayHaveBeenSent = true;
+      response = await fetch(
+        `${baseUrl()}/v2.0/tournaments/${encodeURIComponent(sessionId)}/stop?boardId=${encodeURIComponent(boardId)}`,
+        {
+          method: "POST",
+          redirect: "error",
+          headers: {
+            accept: "application/json",
+            authorization: `Bearer ${token}`,
+          },
+          signal: controller.signal,
+        },
+      );
+    } catch {
+      // A network error or timeout is ambiguous. Never send a second End;
+      // verify the exact board's live state below instead.
+    } finally {
+      clearTimeout(timer);
+      timing.postFinishedAtMs = Date.now();
+    }
+
+    if (response?.body) {
+      try {
+        await response.body.cancel();
+      } catch {
+        // The live lane recheck, not an upstream response body, proves End.
+      }
+    }
+    if (response && response.status >= 400 && response.status < 500) {
+      if (response.status === 401 || response.status === 403) authCache = null;
+      return { ok: false, code: "control-rejected" };
+    }
+
+    const reading = await observer.waitForLane(
+      boardId,
+      commandIssuedAtMs,
+      (lane) => lane.status === "open",
+    );
+    timing.confirmationFinishedAtMs = Date.now();
+    const confirmedLane = reading?.status === "open"
+      ? { ...reading, lane: input.lane }
+      : null;
+    if (!confirmedLane) {
+      // Keep the short lease until its buckets expire. The End may have reached
+      // Dartsee, so the staff UI must verify rather than offer an immediate retry.
+      retainLease = true;
+      return {
+        ok: true,
+        confirmed: false,
+        checkedAt: new Date().toISOString(),
+        lane: null,
+        snapshot: null,
+      };
+    }
+
+    return {
+      ok: true,
+      confirmed: true,
+      checkedAt: new Date().toISOString(),
+      lane: confirmedLane,
+      snapshot: null,
+    };
+  } catch {
+    if (!commandMayHaveBeenSent) {
+      return { ok: false, code: "control-unavailable" };
+    }
+    retainLease = true;
+    return {
+      ok: true,
+      confirmed: false,
+      checkedAt: new Date().toISOString(),
+      lane: null,
+      snapshot: null,
+    };
+  } finally {
+    controlObserver?.close();
+    if (lease && !retainLease) await releaseStartLease(lease);
+    logDartseeControlTiming("end", timing);
+  }
+}
+
 export async function getDartseeLaneSnapshot(): Promise<DartseeLaneSnapshot | null> {
   const cacheMs = envNumber("DARTSEE_CACHE_MS", 15000);
+  const refreshAgeMs = refreshTargetAgeMs(cacheMs);
   const startedAt = Date.now();
   if (
     snapshotCache &&
     startedAt < snapshotCache.expiresAt &&
-    snapshotAgeMs(snapshotCache.snapshot, startedAt) < cacheMs
+    snapshotAgeMs(snapshotCache.snapshot, startedAt) < refreshAgeMs
   ) {
     return snapshotCache.snapshot;
   }
@@ -654,9 +1856,13 @@ export async function getDartseeLaneSnapshot(): Promise<DartseeLaneSnapshot | nu
     // connecting prevents every customer/staff poll from opening a separate
     // Dartsee login and WebSocket during busy periods.
     stored = await getStoredSnapshot();
-    if (stored && snapshotAgeMs(stored) < cacheMs) {
+    if (stored && snapshotAgeMs(stored) < refreshAgeMs) {
       rememberSnapshot(stored, cacheMs);
-      nextRefreshAttemptAt = Date.now() + cacheMs;
+      nextRefreshAttemptAt = nextSnapshotRefreshAt(
+        stored,
+        refreshAgeMs,
+        startedAt,
+      );
       return stored;
     }
 
@@ -685,13 +1891,23 @@ export async function getDartseeLaneSnapshot(): Promise<DartseeLaneSnapshot | nu
       liveSnapshot,
       stored ?? snapshotCache?.snapshot ?? null,
     );
-    await saveStoredSnapshot(snapshot);
-    rememberSnapshot(snapshot, cacheMs);
-    nextRefreshAttemptAt = Date.now() + cacheMs;
-    return snapshot;
+    const publication = await saveStoredSnapshot(snapshot);
+    const winner =
+      publication.winner ?? stored ?? snapshotCache?.snapshot ?? snapshot;
+    const winnerCacheMs = publication.settled
+      ? cacheMs
+      : LEASE_LOSER_RETRY_MS;
+    rememberSnapshot(winner, winnerCacheMs);
+    nextRefreshAttemptAt = publication.settled
+      ? nextSnapshotRefreshAt(winner, refreshAgeMs, startedAt)
+      : Date.now() + LEASE_LOSER_RETRY_MS;
+    return winner;
   } catch (err) {
-    console.error("[dartsee lanes]", err);
-    authCache = null;
+    const authFailure = isDartseeAuthorizationError(err);
+    console.error(
+      `[dartsee lanes] ${authFailure ? "authorization" : "connection"} refresh failure`,
+    );
+    if (authFailure) authCache = null;
     const previous = stored ?? snapshotCache?.snapshot ?? null;
     nextRefreshAttemptAt = Date.now() + REFRESH_ERROR_RETRY_MS;
     if (!previous) {
@@ -699,15 +1915,33 @@ export async function getDartseeLaneSnapshot(): Promise<DartseeLaneSnapshot | nu
       return null;
     }
     const now = new Date().toISOString();
-    const snapshot: DartseeLaneSnapshot = {
+    const failureSnapshot: DartseeLaneSnapshot = {
       ...previous,
       receivedAt: now,
-      healthStatus: "auth-error",
-      healthMessage: "Dartsee login or API access failed. Last known lane status is shown. Verify the Dartsee account and Central service.",
+      healthStatus: authFailure ? "auth-error" : "connection-error",
+      healthMessage: authFailure
+        ? "Dartsee authentication failed. Last known lane status is shown. Verify the Dartsee account configuration."
+        : "Dartsee refresh was interrupted. Last known lane status is retained while the connection retries.",
       healthUpdatedAt: now,
+      consecutiveIncompleteRefreshes:
+        (previous.consecutiveIncompleteRefreshes ?? 0) + 1,
     };
-    rememberSnapshot(snapshot, Math.min(cacheMs, REFRESH_ERROR_RETRY_MS));
-    return snapshot;
+    // Immutable ordering lets a newer healthy publisher win this race. When
+    // the failure is newest, persist its count so sustained-warning logic is
+    // consistent across Worker isolates without replacing last-known lanes.
+    let visibleSnapshot = failureSnapshot;
+    try {
+      const publication = await saveStoredSnapshot(failureSnapshot);
+      visibleSnapshot = publication.winner ?? failureSnapshot;
+    } catch {
+      // Keep the in-isolate failure count and last-known lanes even if the
+      // shared cache is the dependency that failed.
+    }
+    rememberSnapshot(
+      visibleSnapshot,
+      Math.min(cacheMs, REFRESH_ERROR_RETRY_MS),
+    );
+    return visibleSnapshot;
   }
 }
 

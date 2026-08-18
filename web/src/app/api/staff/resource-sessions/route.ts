@@ -94,7 +94,7 @@ export async function POST(request: Request) {
     if (conflict) {
       return NextResponse.json(
         {
-          error: `This resource is protected starting one hour before the ${conflict.eventName} reservation.`,
+          error: `This resource is protected starting 1 hour 5 minutes before the ${conflict.eventName} reservation.`,
         },
         { status: 409 },
       );

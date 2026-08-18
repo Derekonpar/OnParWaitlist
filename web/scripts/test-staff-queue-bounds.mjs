@@ -101,6 +101,21 @@ assert.match(
   "Every staff tab must show a prominent stale reservation warning",
 );
 assert.match(
+  staffPage,
+  /EVENT_HOST_OUTDATED_WARNING_AFTER_MS = 20 \* 60_000/,
+  "The Event Host outdated warning must wait 20 minutes",
+);
+assert.match(
+  staffPage,
+  /scheduleAgeMs > EVENT_HOST_OUTDATED_WARNING_AFTER_MS/,
+  "The red Event Host warning must use the 20-minute age threshold",
+);
+assert.match(
+  staffPage,
+  /SCHEDULE_PROTECTION_STALE_AFTER_MS = 120_000[\s\S]*?scheduleAgeMs <= SCHEDULE_PROTECTION_STALE_AFTER_MS/,
+  "Changing warning sensitivity must not weaken booking protection freshness",
+);
+assert.match(
   scheduleRoute,
   /SCHEDULE_SAFETY_STALE_AFTER_MS = 120_000[\s\S]*?Date\.now\(\) - fetchedAt > SCHEDULE_SAFETY_STALE_AFTER_MS/,
   "Normal 60-second schedule refreshes must have a 120-second safety grace period",
