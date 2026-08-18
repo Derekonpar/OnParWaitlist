@@ -259,9 +259,15 @@ assert.match(dartsee, /boardIds: \[boardId\]/);
 assert.match(dartsee, /maxPlayers: 8/);
 assert.match(dartsee, /name: "walk-in"/);
 assert.equal(
-  (startImplementation.match(/redirect: "error"/g) ?? []).length,
+  (startImplementation.match(/redirect: "manual"/g) ?? []).length,
   1,
-  "Start must not allow fetch redirects to replay its physical POST",
+  "Start must expose redirects without replaying its physical POST",
+);
+assert.doesNotMatch(startImplementation, /redirect: "error"/);
+assert.match(
+  startImplementation,
+  /response\.status >= 300 && response\.status < 500/,
+  "Start must refuse redirect and client-error responses",
 );
 assert.match(
   dartsee,
@@ -284,6 +290,11 @@ assert.match(
   controlTimingLogger,
   /outcome: timing\.outcome/,
   "Control timing logs must include only the sanitized outcome category",
+);
+assert.match(
+  controlTimingLogger,
+  /postResult: timing\.postResult \?\? null/,
+  "Control timing logs must distinguish a response from a failed subrequest",
 );
 assert.doesNotMatch(
   controlTimingLogger,
@@ -397,9 +408,15 @@ assert.equal(
   "End must contain exactly one physical Dartsee POST call site",
 );
 assert.equal(
-  (endImplementation.match(/redirect: "error"/g) ?? []).length,
+  (endImplementation.match(/redirect: "manual"/g) ?? []).length,
   1,
-  "End must not allow fetch redirects to replay its physical POST",
+  "End must expose redirects without replaying its physical POST",
+);
+assert.doesNotMatch(endImplementation, /redirect: "error"/);
+assert.match(
+  endImplementation,
+  /response\.status >= 300 && response\.status < 500/,
+  "End must refuse redirect and client-error responses",
 );
 const finalVenueRead = endImplementation.indexOf(
   "const [leaseAcquisition, fullPreflight] = await Promise.all",

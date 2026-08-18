@@ -165,6 +165,12 @@ interface DartseeControlTiming {
   parallelReadyAtMs?: number;
   postStartedAtMs?: number;
   postFinishedAtMs?: number;
+  postResult?:
+    | "response-2xx"
+    | "response-3xx"
+    | "response-4xx"
+    | "response-5xx"
+    | "request-failed";
   confirmationFinishedAtMs?: number;
   outcome:
     | "confirmed"
@@ -196,6 +202,7 @@ function logDartseeControlTiming(
       postStartedAtMs === undefined || postFinishedAtMs === undefined
         ? null
         : Math.max(0, postFinishedAtMs - postStartedAtMs),
+    postResult: timing.postResult ?? null,
     confirmationMs:
       postFinishedAtMs === undefined || confirmationFinishedAtMs === undefined
         ? null
@@ -1614,7 +1621,10 @@ export async function startDartseeLaneSession(input: {
       commandMayHaveBeenSent = true;
       response = await fetch(`${baseUrl()}/v2.0/tournaments/walk-in`, {
         method: "POST",
-        redirect: "error",
+        // Never forward the Dartsee bearer token to a redirect destination.
+        // Cloudflare Workers support manual redirects, while `error` can
+        // reject this subrequest before it leaves the Worker.
+        redirect: "manual",
         headers: {
           accept: "application/json",
           authorization: `Bearer ${token}`,
@@ -1630,11 +1640,22 @@ export async function startDartseeLaneSession(input: {
         signal: controller.signal,
       });
     } catch {
+      timing.postResult = "request-failed";
       // A network error or timeout is ambiguous. Never resend the POST; verify
       // the resulting live state below instead.
     } finally {
       clearTimeout(timer);
       timing.postFinishedAtMs = Date.now();
+    }
+
+    if (response) {
+      timing.postResult = response.status < 300
+        ? "response-2xx"
+        : response.status < 400
+          ? "response-3xx"
+          : response.status < 500
+            ? "response-4xx"
+            : "response-5xx";
     }
 
     if (response?.body) {
@@ -1645,7 +1666,7 @@ export async function startDartseeLaneSession(input: {
       }
     }
 
-    if (response && response.status >= 400 && response.status < 500) {
+    if (response && response.status >= 300 && response.status < 500) {
       if (response.status === 401 || response.status === 403) authCache = null;
       timing.outcome = "control-rejected";
       return { ok: false, code: "control-rejected" };
@@ -1799,7 +1820,8 @@ export async function endDartseeLaneSession(input: {
         `${baseUrl()}/v2.0/tournaments/${encodeURIComponent(sessionId)}/stop?boardId=${encodeURIComponent(boardId)}`,
         {
           method: "POST",
-          redirect: "error",
+          // Match Start: do not forward the bearer token across redirects.
+          redirect: "manual",
           headers: {
             accept: "application/json",
             authorization: `Bearer ${token}`,
@@ -1808,11 +1830,21 @@ export async function endDartseeLaneSession(input: {
         },
       );
     } catch {
+      timing.postResult = "request-failed";
       // A network error or timeout is ambiguous. Never send a second End;
       // verify the exact board's live state below instead.
     } finally {
       clearTimeout(timer);
       timing.postFinishedAtMs = Date.now();
+    }
+    if (response) {
+      timing.postResult = response.status < 300
+        ? "response-2xx"
+        : response.status < 400
+          ? "response-3xx"
+          : response.status < 500
+            ? "response-4xx"
+            : "response-5xx";
     }
 
     if (response?.body) {
@@ -1822,7 +1854,7 @@ export async function endDartseeLaneSession(input: {
         // The live lane recheck, not an upstream response body, proves End.
       }
     }
-    if (response && response.status >= 400 && response.status < 500) {
+    if (response && response.status >= 300 && response.status < 500) {
       if (response.status === 401 || response.status === 403) authCache = null;
       timing.outcome = "control-rejected";
       return { ok: false, code: "control-rejected" };
