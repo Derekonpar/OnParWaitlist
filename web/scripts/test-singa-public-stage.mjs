@@ -250,6 +250,7 @@ assert.match(
   relayRequestSource,
   /"user-agent": "OnPar-Waitlist\/1\.0"/,
 );
+assert.doesNotMatch(relayRequestSource, /cache:/);
 assert.match(client, /parseSingaPublicStageRelayPayload/);
 assert.match(client, /SINGA_PUBLIC_STAGE_VENUE_ID/);
 assert.match(client, /refreshInFlight/);

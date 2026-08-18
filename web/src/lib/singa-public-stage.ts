@@ -121,7 +121,6 @@ function singaPublicStageRelayRequest(token: string): Request {
       "cache-control": "no-cache",
       "user-agent": "OnPar-Waitlist/1.0",
     },
-    cache: "no-store",
     redirect: "error",
   });
 }
