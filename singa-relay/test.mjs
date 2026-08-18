@@ -3,9 +3,30 @@ import { readFileSync } from "node:fs";
 
 import { parseSingaPayload } from "./api/wait.js";
 
-const zoneId = "zone_01kagmx6mnf4ate09115a73cys";
-const venueId = "ven_01he2x75nmeey8m93b5madk9et";
+const venueId = 8470;
+const venueResourceId = "ven_01he2x75nmeey8m93b5madk9et";
+const queueId = 8418;
+const queueResourceId = "que_01he2x7e45esq8r2fve7vh3c88";
 const checkedAt = "2026-08-18T17:30:00.000Z";
+
+function payload(queue) {
+  return {
+    id: venueId,
+    resource_id: venueResourceId,
+    queues: [queue],
+  };
+}
+
+function queue(overrides = {}) {
+  return {
+    id: queueId,
+    resource_id: queueResourceId,
+    queue_size: 0,
+    queue_duration: 0,
+    accepts_requests: true,
+    ...overrides,
+  };
+}
 
 function request(method = "GET", authorization) {
   return {
@@ -33,35 +54,34 @@ async function freshHandler(name) {
 }
 
 assert.deepEqual(
-  parseSingaPayload(
-    { id: zoneId, venue_id: venueId, session: null },
-    checkedAt,
-  ),
+  parseSingaPayload(payload(queue({ accepts_requests: false })), checkedAt),
   { status: "inactive", waitMinutes: null, checkedAt },
 );
 assert.deepEqual(
-  parseSingaPayload(
-    {
-      id: zoneId,
-      venue_id: venueId,
-      session: { queue_length: 66, ignored_join_value: "never returned" },
-    },
-    checkedAt,
-  ),
-  { status: "active", waitMinutes: 66, checkedAt },
+  parseSingaPayload(payload(queue({ queue_size: 4, queue_duration: 17.2 })), checkedAt),
+  { status: "active", waitMinutes: 18, checkedAt },
 );
 
-for (const payload of [
+for (const malformedPayload of [
   null,
   {},
-  { id: "wrong", venue_id: venueId, session: null },
-  { id: zoneId, venue_id: "wrong", session: null },
-  { id: zoneId, venue_id: venueId, session: {} },
-  { id: zoneId, venue_id: venueId, session: { queue_length: -1 } },
-  { id: zoneId, venue_id: venueId, session: { queue_length: 1.5 } },
-  { id: zoneId, venue_id: venueId, session: { queue_length: "5" } },
+  { id: "wrong", resource_id: venueResourceId, queues: [] },
+  { id: venueId, resource_id: "wrong", queues: [] },
+  payload(queue({ id: 9999 })),
+  payload(queue({ resource_id: "wrong" })),
+  payload(queue({ accepts_requests: null })),
+  payload(queue({ queue_size: -1 })),
+  payload(queue({ queue_size: 1.5 })),
+  payload(queue({ queue_duration: -1 })),
+  payload(queue({ queue_duration: "5" })),
+  payload(queue({ queue_duration: Number.POSITIVE_INFINITY })),
+  {
+    id: venueId,
+    resource_id: venueResourceId,
+    queues: [queue(), queue()],
+  },
 ]) {
-  assert.equal(parseSingaPayload(payload, checkedAt), null);
+  assert.equal(parseSingaPayload(malformedPayload, checkedAt), null);
 }
 
 const source = readFileSync(new URL("./api/wait.js", import.meta.url), "utf8");
@@ -71,6 +91,8 @@ assert.match(source, /SINGA_PUBLIC_STAGE_RELAY_TOKEN/);
 assert.match(source, /timingSafeEqual/);
 assert.match(source, /UPSTREAM_TIMEOUT_MS = 5_000/);
 assert.match(source, /CACHE_MS = 10_000/);
+assert.match(source, /headers\?\.get\?\.\("age"\)/);
+assert.match(source, /headers\?\.get\?\.\("date"\)/);
 assert.doesNotMatch(source, /SINGA_(USERNAME|PASSWORD)|console\.|response\.text\(/i);
 
 const originalFetch = globalThis.fetch;
@@ -105,15 +127,15 @@ try {
     fetchCalls += 1;
     return {
       ok: true,
-      json: async () => ({
-        id: zoneId,
-        venue_id: venueId,
-        session: {
-          queue_length: 12,
-          public_code: "DO-NOT-EXPOSE",
-          ignored: "DO-NOT-EXPOSE",
-        },
-      }),
+      json: async () =>
+        payload(
+          queue({
+            queue_size: 3,
+            queue_duration: 12,
+            session_public_code: "DO-NOT-EXPOSE",
+            ignored: "DO-NOT-EXPOSE",
+          }),
+        ),
     };
   };
   const activeHandler = await freshHandler("active");
@@ -139,7 +161,7 @@ try {
 
   globalThis.fetch = async () => ({
     ok: true,
-    json: async () => ({ id: "wrong", venue_id: venueId, session: null }),
+    json: async () => ({ id: "wrong", resource_id: venueResourceId, queues: [] }),
   });
   const malformedHandler = await freshHandler("malformed");
   const malformedResponse = response();

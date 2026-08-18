@@ -2,14 +2,19 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 import {
+  DEFAULT_SINGA_PUBLIC_STAGE_LEGACY_QUEUE_ID,
+  DEFAULT_SINGA_PUBLIC_STAGE_LEGACY_VENUE_ID,
+  DEFAULT_SINGA_PUBLIC_STAGE_QUEUE_ID,
   DEFAULT_SINGA_PUBLIC_STAGE_VENUE_ID,
   DEFAULT_SINGA_PUBLIC_STAGE_ZONE_ID,
   DEFAULT_SINGA_PUBLIC_STAGE_RELAY_URL,
   SINGA_PUBLIC_STAGE_CACHE_MS,
   SINGA_PUBLIC_STAGE_LAST_KNOWN_MAX_AGE_MS,
   SINGA_PUBLIC_STAGE_TIMEOUT_MS,
+  isValidSingaQueueId,
   isValidSingaVenueId,
   isValidSingaZoneId,
+  parseLegacySingaPublicStagePayload,
   parseSingaPublicStagePayload,
   parseSingaPublicStageRelayPayload,
   unavailableSingaPublicStageWait,
@@ -17,6 +22,7 @@ import {
 
 const zoneId = DEFAULT_SINGA_PUBLIC_STAGE_ZONE_ID;
 const venueId = DEFAULT_SINGA_PUBLIC_STAGE_VENUE_ID;
+const queueResourceId = DEFAULT_SINGA_PUBLIC_STAGE_QUEUE_ID;
 const checkedAt = "2026-08-18T16:00:00.000Z";
 
 assert.equal(isValidSingaZoneId(zoneId), true);
@@ -25,13 +31,95 @@ assert.equal(isValidSingaZoneId("venue_01kagmx6mnf4ate09115a73cys"), false);
 assert.equal(isValidSingaVenueId(venueId), true);
 assert.equal(isValidSingaVenueId("ven_../private"), false);
 assert.equal(isValidSingaVenueId(zoneId), false);
+assert.equal(isValidSingaQueueId(queueResourceId), true);
+assert.equal(isValidSingaQueueId("que_../private"), false);
+assert.equal(DEFAULT_SINGA_PUBLIC_STAGE_LEGACY_VENUE_ID, 8470);
+assert.equal(DEFAULT_SINGA_PUBLIC_STAGE_LEGACY_QUEUE_ID, 8418);
 assert.equal(SINGA_PUBLIC_STAGE_TIMEOUT_MS, 5_000);
 assert.equal(SINGA_PUBLIC_STAGE_CACHE_MS, 10_000);
-assert.equal(SINGA_PUBLIC_STAGE_LAST_KNOWN_MAX_AGE_MS, 60_000);
+assert.equal(SINGA_PUBLIC_STAGE_LAST_KNOWN_MAX_AGE_MS, 180_000);
 assert.equal(
   DEFAULT_SINGA_PUBLIC_STAGE_RELAY_URL,
   "https://onpar-singa-relay.vercel.app/api/wait",
 );
+
+function legacyQueue(overrides = {}) {
+  return {
+    id: DEFAULT_SINGA_PUBLIC_STAGE_LEGACY_QUEUE_ID,
+    resource_id: queueResourceId,
+    queue_size: 0,
+    queue_duration: 0,
+    accepts_requests: true,
+    ...overrides,
+  };
+}
+
+function legacyPayload(queue) {
+  return {
+    id: DEFAULT_SINGA_PUBLIC_STAGE_LEGACY_VENUE_ID,
+    resource_id: venueId,
+    queues: [queue],
+  };
+}
+
+assert.deepEqual(
+  parseLegacySingaPublicStagePayload(
+    legacyPayload(legacyQueue({ queue_size: 4, queue_duration: 17.2 })),
+    venueId,
+    queueResourceId,
+    checkedAt,
+  ),
+  {
+    status: "active",
+    waitMinutes: 18,
+    stale: false,
+    checkedAt,
+    dataUpdatedAt: checkedAt,
+  },
+  "The accepted Discovery Station queue duration must round up to a safe minute estimate",
+);
+assert.deepEqual(
+  parseLegacySingaPublicStagePayload(
+    legacyPayload(legacyQueue({ accepts_requests: false })),
+    venueId,
+    queueResourceId,
+    checkedAt,
+  ),
+  {
+    status: "inactive",
+    waitMinutes: null,
+    stale: false,
+    checkedAt,
+    dataUpdatedAt: checkedAt,
+  },
+  "A venue that is not accepting requests must never look like a zero-minute wait",
+);
+for (const malformedLegacy of [
+  null,
+  {},
+  legacyPayload(legacyQueue({ id: 9999 })),
+  legacyPayload(legacyQueue({ resource_id: "wrong" })),
+  legacyPayload(legacyQueue({ accepts_requests: null })),
+  legacyPayload(legacyQueue({ queue_size: -1 })),
+  legacyPayload(legacyQueue({ queue_duration: -1 })),
+  legacyPayload(legacyQueue({ queue_duration: "5" })),
+  {
+    id: DEFAULT_SINGA_PUBLIC_STAGE_LEGACY_VENUE_ID,
+    resource_id: venueId,
+    queues: [legacyQueue(), legacyQueue()],
+  },
+]) {
+  assert.equal(
+    parseLegacySingaPublicStagePayload(
+      malformedLegacy,
+      venueId,
+      queueResourceId,
+      checkedAt,
+    ),
+    null,
+    "Malformed or ambiguous legacy queue payloads must be unavailable",
+  );
+}
 
 const active = parseSingaPublicStagePayload(
   {
@@ -123,7 +211,7 @@ for (const malformedRelay of [
   {
     status: "active",
     waitMinutes: 5,
-    checkedAt: "2026-08-18T15:58:59.999Z",
+    checkedAt: "2026-08-18T15:56:59.999Z",
   },
 ]) {
   assert.equal(
@@ -171,7 +259,7 @@ for (const malformed of [
   );
 }
 
-const failedAt = "2026-08-18T16:01:00.000Z";
+const failedAt = "2026-08-18T16:03:00.000Z";
 const unavailableWithoutHistory = unavailableSingaPublicStageWait(failedAt, null);
 assert.deepEqual(unavailableWithoutHistory, {
   status: "unavailable",
@@ -195,7 +283,7 @@ assert.deepEqual(unavailableSingaPublicStageWait(failedAt, inactive), {
   },
 });
 
-const expiredAt = "2026-08-18T16:01:00.001Z";
+const expiredAt = "2026-08-18T16:03:00.001Z";
 assert.deepEqual(unavailableSingaPublicStageWait(expiredAt, active), {
   status: "unavailable",
   waitMinutes: null,
@@ -247,6 +335,10 @@ assert.match(client, /DEFAULT_SINGA_PUBLIC_STAGE_RELAY_URL/);
 assert.match(client, /authorization: `Bearer \$\{relayToken\}`/);
 assert.doesNotMatch(client, /singaPublicStageRelayRequest/);
 assert.match(client, /parseSingaPublicStageRelayPayload/);
+assert.match(client, /parseLegacySingaPublicStagePayload/);
+assert.match(client, /https:\/\/api\.singa\.com\/v1\.4\/venues/);
+assert.match(client, /DEFAULT_SINGA_PUBLIC_STAGE_LEGACY_VENUE_ID/);
+assert.match(client, /DEFAULT_SINGA_PUBLIC_STAGE_QUEUE_ID/);
 assert.match(client, /transportDiagnostic\.outcome = "request-failed"/);
 assert.match(client, /SINGA_PUBLIC_STAGE_VENUE_ID/);
 assert.match(client, /refreshInFlight/);

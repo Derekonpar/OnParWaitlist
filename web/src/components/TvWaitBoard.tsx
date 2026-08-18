@@ -7,6 +7,7 @@ import type {
   SingaPublicStageLastKnown,
   SingaPublicStageWait,
 } from "@/lib/singa-public-stage-contract";
+import { SINGA_PUBLIC_STAGE_LAST_KNOWN_MAX_AGE_MS } from "@/lib/singa-public-stage-contract";
 import { karaokeInactiveDisplayStatus } from "@/lib/karaoke-display-hours";
 import { formatTvWaitDuration } from "@/lib/tv-wait-format";
 import { ACTIVITY_THEME } from "@/lib/types";
@@ -98,7 +99,9 @@ function unavailableSingaWait(
     ? new Date(lastKnown.dataUpdatedAt).getTime()
     : Number.NaN;
   const recentLastKnown =
-    lastKnown && Number.isFinite(lastKnownAt) && Date.now() - lastKnownAt <= 60_000
+    lastKnown &&
+    Number.isFinite(lastKnownAt) &&
+    Date.now() - lastKnownAt <= SINGA_PUBLIC_STAGE_LAST_KNOWN_MAX_AGE_MS
       ? lastKnown
       : null;
   return {
@@ -316,7 +319,7 @@ export function TvWaitBoard({ initialBoard }: TvWaitBoardProps) {
     const initialKaraoke = window.setTimeout(() => void refreshKaraoke(), 0);
     const karaokeRefreshTimer = window.setInterval(
       () => void refreshKaraoke(),
-      15_000,
+      30_000,
     );
     const clockTimer = window.setInterval(() => setNowMs(Date.now()), 1_000);
     const handleVisibility = () => {
@@ -338,13 +341,14 @@ export function TvWaitBoard({ initialBoard }: TvWaitBoardProps) {
     };
   }, [refresh, refreshKaraoke]);
 
-  const karaokeActive = karaokeWait?.status === "active";
+  const karaokeDisplayStatus = karaokeInactiveDisplayStatus(nowMs);
+  const karaokeWithinDisplayHours = karaokeDisplayStatus === "no-wait";
+  const karaokeActive =
+    karaokeWithinDisplayHours && karaokeWait?.status === "active";
   const karaokeInactive = karaokeWait?.status === "inactive";
-  const inactiveDisplayStatus = karaokeInactive
-    ? karaokeInactiveDisplayStatus(nowMs)
-    : null;
-  const karaokeInactiveNoWait = inactiveDisplayStatus === "no-wait";
-  const karaokeNotOpen = inactiveDisplayStatus === "not-open";
+  const karaokeInactiveNoWait =
+    karaokeWithinDisplayHours && karaokeInactive;
+  const karaokeNotOpen = !karaokeWithinDisplayHours;
   const karaokeNoWait =
     (karaokeActive && karaokeWait.waitMinutes === 0) || karaokeInactiveNoWait;
 
@@ -430,7 +434,7 @@ export function TvWaitBoard({ initialBoard }: TvWaitBoardProps) {
         />
 
         <EntertainmentCard
-          label="Karaoke"
+          label="Public Karaoke"
           icon={<KaraokeIcon />}
           gradient="from-violet-700 via-fuchsia-700 to-pink-700"
           status={
@@ -451,22 +455,16 @@ export function TvWaitBoard({ initialBoard }: TvWaitBoardProps) {
             )
           }
           statusTone={
-            karaokeNoWait
+            karaokeNotOpen
+              ? "text-white"
+              : karaokeNoWait
               ? "text-emerald-200"
               : karaokeWait?.status === "unavailable" || !karaokeWait
                 ? "text-amber-200"
                 : "text-white"
           }
           statusLabel={karaokeActive ? "Estimated wait" : "Main Stage"}
-          detail={
-            karaokeActive
-              ? "Public karaoke requests are open"
-              : karaokeInactiveNoWait
-                ? "No current Main Stage wait"
-                : karaokeNotOpen
-                  ? "Public karaoke requests are not open"
-                  : "Wait time temporarily unavailable"
-          }
+          detail="Private karaoke rooms: No Wait"
         />
 
         <aside className="col-start-4 row-span-2 row-start-1 flex min-h-0 flex-col items-center justify-center rounded-[clamp(1rem,1.6vw,1.7rem)] border border-violet-300/20 bg-gradient-to-b from-violet-950 via-[#17102b] to-[#0f0d18] p-[clamp(1rem,1.5vw,1.75rem)] text-center shadow-2xl shadow-black/40">

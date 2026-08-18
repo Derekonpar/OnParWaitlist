@@ -2,14 +2,19 @@ export const DEFAULT_SINGA_PUBLIC_STAGE_ZONE_ID =
   "zone_01kagmx6mnf4ate09115a73cys";
 export const DEFAULT_SINGA_PUBLIC_STAGE_VENUE_ID =
   "ven_01he2x75nmeey8m93b5madk9et";
+export const DEFAULT_SINGA_PUBLIC_STAGE_LEGACY_VENUE_ID = 8470;
+export const DEFAULT_SINGA_PUBLIC_STAGE_LEGACY_QUEUE_ID = 8418;
+export const DEFAULT_SINGA_PUBLIC_STAGE_QUEUE_ID =
+  "que_01he2x7e45esq8r2fve7vh3c88";
 export const DEFAULT_SINGA_PUBLIC_STAGE_RELAY_URL =
   "https://onpar-singa-relay.vercel.app/api/wait";
 export const SINGA_PUBLIC_STAGE_TIMEOUT_MS = 5_000;
 export const SINGA_PUBLIC_STAGE_CACHE_MS = 10_000;
-export const SINGA_PUBLIC_STAGE_LAST_KNOWN_MAX_AGE_MS = 60_000;
+export const SINGA_PUBLIC_STAGE_LAST_KNOWN_MAX_AGE_MS = 180_000;
 
 const SINGA_ZONE_ID_PATTERN = /^zone_[a-z0-9]{26}$/;
 const SINGA_VENUE_ID_PATTERN = /^ven_[a-z0-9]{26}$/;
+const SINGA_QUEUE_ID_PATTERN = /^que_[a-z0-9]{26}$/;
 
 type JsonRecord = Record<string, unknown>;
 
@@ -58,6 +63,73 @@ export function isValidSingaZoneId(value: string): boolean {
 
 export function isValidSingaVenueId(value: string): boolean {
   return SINGA_VENUE_ID_PATTERN.test(value);
+}
+
+export function isValidSingaQueueId(value: string): boolean {
+  return SINGA_QUEUE_ID_PATTERN.test(value);
+}
+
+/**
+ * Parse the aggregate queue published for legacy Singa Discovery Station and
+ * Singa Business Pro venues. Pending requests are deliberately not guessed:
+ * Singa adds them to queue_size/queue_duration only after the host accepts
+ * them (or Auto Accept does so).
+ */
+export function parseLegacySingaPublicStagePayload(
+  payload: unknown,
+  expectedVenueResourceId: string,
+  expectedQueueResourceId: string,
+  checkedAt: string,
+): SingaPublicStageFreshWait | null {
+  if (
+    !isValidSingaVenueId(expectedVenueResourceId) ||
+    !isValidSingaQueueId(expectedQueueResourceId) ||
+    !isRecord(payload) ||
+    payload.id !== DEFAULT_SINGA_PUBLIC_STAGE_LEGACY_VENUE_ID ||
+    payload.resource_id !== expectedVenueResourceId ||
+    !Array.isArray(payload.queues)
+  ) {
+    return null;
+  }
+
+  const matchingQueues = payload.queues.filter(
+    (value) =>
+      isRecord(value) &&
+      value.id === DEFAULT_SINGA_PUBLIC_STAGE_LEGACY_QUEUE_ID &&
+      value.resource_id === expectedQueueResourceId,
+  );
+  if (matchingQueues.length !== 1) return null;
+
+  const queue = matchingQueues[0];
+  if (queue.accepts_requests === false) {
+    return {
+      status: "inactive",
+      waitMinutes: null,
+      stale: false,
+      checkedAt,
+      dataUpdatedAt: checkedAt,
+    };
+  }
+  if (
+    queue.accepts_requests !== true ||
+    !Number.isSafeInteger(queue.queue_size) ||
+    (queue.queue_size as number) < 0 ||
+    typeof queue.queue_duration !== "number" ||
+    !Number.isFinite(queue.queue_duration) ||
+    queue.queue_duration < 0
+  ) {
+    return null;
+  }
+
+  const waitMinutes = Math.ceil(queue.queue_duration);
+  if (!Number.isSafeInteger(waitMinutes)) return null;
+  return {
+    status: "active",
+    waitMinutes,
+    stale: false,
+    checkedAt,
+    dataUpdatedAt: checkedAt,
+  };
 }
 
 /**

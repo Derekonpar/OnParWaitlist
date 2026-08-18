@@ -1,14 +1,14 @@
 import { readEnv } from "./env";
 import {
   DEFAULT_SINGA_PUBLIC_STAGE_VENUE_ID,
-  DEFAULT_SINGA_PUBLIC_STAGE_ZONE_ID,
+  DEFAULT_SINGA_PUBLIC_STAGE_LEGACY_VENUE_ID,
+  DEFAULT_SINGA_PUBLIC_STAGE_QUEUE_ID,
   DEFAULT_SINGA_PUBLIC_STAGE_RELAY_URL,
   SINGA_PUBLIC_STAGE_CACHE_MS,
   SINGA_PUBLIC_STAGE_LAST_KNOWN_MAX_AGE_MS,
   SINGA_PUBLIC_STAGE_TIMEOUT_MS,
   isValidSingaVenueId,
-  isValidSingaZoneId,
-  parseSingaPublicStagePayload,
+  parseLegacySingaPublicStagePayload,
   parseSingaPublicStageRelayPayload,
   unavailableSingaPublicStageWait,
   type SingaPublicStageFreshWait,
@@ -18,6 +18,8 @@ import {
 
 export {
   DEFAULT_SINGA_PUBLIC_STAGE_VENUE_ID,
+  DEFAULT_SINGA_PUBLIC_STAGE_LEGACY_VENUE_ID,
+  DEFAULT_SINGA_PUBLIC_STAGE_QUEUE_ID,
   DEFAULT_SINGA_PUBLIC_STAGE_ZONE_ID,
   DEFAULT_SINGA_PUBLIC_STAGE_RELAY_URL,
   SINGA_PUBLIC_STAGE_CACHE_MS,
@@ -25,6 +27,7 @@ export {
   SINGA_PUBLIC_STAGE_TIMEOUT_MS,
   isValidSingaVenueId,
   isValidSingaZoneId,
+  parseLegacySingaPublicStagePayload,
   parseSingaPublicStagePayload,
   parseSingaPublicStageRelayPayload,
   unavailableSingaPublicStageWait,
@@ -34,8 +37,7 @@ export {
   type SingaPublicStageWait,
 } from "./singa-public-stage-contract";
 
-const SINGA_PUBLIC_ZONE_URL =
-  "https://business-api.singa.com/v1/public/zones";
+const SINGA_PUBLIC_VENUE_URL = "https://api.singa.com/v1.4/venues";
 
 let responseCache:
   | { value: SingaPublicStageWait; expiresAt: number }
@@ -52,13 +54,6 @@ let transportDiagnostic = {
     | "request-failed"
     | "ok",
 };
-
-function configuredZoneId(): string {
-  return (
-    readEnv("SINGA_PUBLIC_STAGE_ZONE_ID") ??
-    DEFAULT_SINGA_PUBLIC_STAGE_ZONE_ID
-  ).trim();
-}
 
 function configuredVenueId(): string {
   return (
@@ -101,13 +96,12 @@ function unavailableNow(): SingaPublicStageUnavailableWait {
 
 function singaPublicStageRequest(
   requestContext: Request,
-  zoneId: string,
 ): Request {
   // Cloudflare can reject a cross-zone subrequest when it is created without
   // the incoming request context. Clone only that routing context, then remove
   // every browser-supplied header before the request leaves On Par.
   const request = new Request(
-    `${SINGA_PUBLIC_ZONE_URL}/${encodeURIComponent(zoneId)}`,
+    `${SINGA_PUBLIC_VENUE_URL}/${DEFAULT_SINGA_PUBLIC_STAGE_LEGACY_VENUE_ID}/`,
     requestContext as unknown as RequestInit,
   );
   const inheritedHeaderNames: string[] = [];
@@ -125,9 +119,8 @@ function singaPublicStageRequest(
 async function refreshSingaPublicStageWait(
   requestContext: Request,
 ): Promise<SingaPublicStageWait> {
-  const zoneId = configuredZoneId();
   const venueId = configuredVenueId();
-  if (!isValidSingaZoneId(zoneId) || !isValidSingaVenueId(venueId)) {
+  if (!isValidSingaVenueId(venueId)) {
     transportDiagnostic = {
       transport: "not-checked",
       outcome: "invalid-config",
@@ -156,7 +149,7 @@ async function refreshSingaPublicStageWait(
           },
           signal: controller.signal,
         })
-      : await fetch(singaPublicStageRequest(requestContext, zoneId), {
+      : await fetch(singaPublicStageRequest(requestContext), {
           signal: controller.signal,
         });
     if (!response.ok) {
@@ -168,10 +161,10 @@ async function refreshSingaPublicStageWait(
     const payload = (await response.json()) as unknown;
     const fresh = relayToken
       ? parseSingaPublicStageRelayPayload(payload, checkedAt)
-      : parseSingaPublicStagePayload(
+      : parseLegacySingaPublicStagePayload(
           payload,
-          zoneId,
           venueId,
+          DEFAULT_SINGA_PUBLIC_STAGE_QUEUE_ID,
           checkedAt,
         );
     if (!fresh) {
@@ -196,10 +189,11 @@ export function getSingaPublicStageTransportDiagnostic() {
 }
 
 /**
- * Read the public Singa stage wait. This server-side call never authenticates
- * to a guest or staff Singa account, never mutates Singa, and never exposes or
- * logs upstream response details. Production uses a fixed, token-protected
- * read relay; local development can read Singa's public endpoint directly.
+ * Read the accepted Public Stage queue published for the Singa Discovery
+ * Station/Business Pro venue. This server-side call never authenticates to a
+ * guest or staff Singa account, never mutates Singa, and never exposes or logs
+ * upstream response details. Production uses a fixed, token-protected relay;
+ * local development can read the same public venue endpoint directly.
  */
 export async function getSingaPublicStageWait(
   requestContext: Request,

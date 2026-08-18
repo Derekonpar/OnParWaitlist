@@ -13,7 +13,11 @@ const customerCard = readFileSync(
 assert.doesNotMatch(board, /Walk on/i, "Zero-minute live activities must not say Walk On");
 assert.match(board, /["']No Wait["']/, "Zero-minute live activities must say No Wait");
 assert.match(board, /Mini Golf/, "The TV board must include Mini Golf");
-assert.match(board, /Karaoke/, "The TV board must include Karaoke");
+assert.match(
+  board,
+  /label="Public Karaoke"/,
+  "The TV board must label the Main Stage as Public Karaoke",
+);
 assert.match(
   board,
   /fetch\("\/api\/karaoke\/public-stage"/,
@@ -26,8 +30,8 @@ assert.match(
 );
 assert.match(
   board,
-  /window\.setInterval\([\s\S]*?refreshKaraoke\(\)[\s\S]*?15_000/,
-  "The Singa status must refresh no faster than every 15 seconds",
+  /window\.setInterval\([\s\S]*?refreshKaraoke\(\)[\s\S]*?30_000/,
+  "The Singa status must refresh no faster than every 30 seconds",
 );
 assert.match(
   board,
@@ -42,7 +46,7 @@ assert.match(
 assert.match(
   board,
   /karaokeInactiveDisplayStatus\(nowMs\)/,
-  "A healthy inactive Singa session must use the New York operating-hours policy",
+  "The Karaoke card must use the New York operating-hours policy",
 );
 assert.match(
   board,
@@ -51,8 +55,8 @@ assert.match(
 );
 assert.match(
   board,
-  /status=\{\s*karaokeActive \?[\s\S]*?: karaokeInactiveNoWait \?/,
-  "An active Singa session must remain authoritative even after the display cutoff",
+  /karaokeActive =\s*karaokeWithinDisplayHours && karaokeWait\?\.status === "active"/,
+  "Closing time must override even a stale upstream active signal",
 );
 assert.match(
   board,
@@ -61,13 +65,8 @@ assert.match(
 );
 assert.match(
   board,
-  /No current Main Stage wait/,
-  "The pre-close inactive Karaoke state must explain that there is no current wait",
-);
-assert.match(
-  board,
-  /Wait time temporarily unavailable/,
-  "The TV card must distinguish an upstream failure from no wait",
+  /detail="Private karaoke rooms: No Wait"/,
+  "The Karaoke card footer must advertise no wait on private rooms",
 );
 assert.doesNotMatch(
   board,
