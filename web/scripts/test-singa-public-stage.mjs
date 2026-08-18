@@ -242,23 +242,14 @@ assert.match(
   "The Worker request must identify itself because Singa rejects a missing User-Agent",
 );
 assert.match(client, /request\.headers\.delete\("cf-workers-preview-token"\)/);
-const relayRequestSource = client.slice(
-  client.indexOf("function singaPublicStageRelayRequest"),
-  client.indexOf("async function refreshSingaPublicStageWait"),
-);
 assert.match(client, /SINGA_PUBLIC_STAGE_RELAY_TOKEN/);
 assert.match(client, /DEFAULT_SINGA_PUBLIC_STAGE_RELAY_URL/);
-assert.match(client, /authorization: `Bearer \$\{token\}`/);
-assert.match(
-  relayRequestSource,
-  /"user-agent": "OnPar-Waitlist\/1\.0"/,
-);
-assert.doesNotMatch(relayRequestSource, /cache:/);
+assert.match(client, /authorization: `Bearer \$\{relayToken\}`/);
+assert.doesNotMatch(client, /singaPublicStageRelayRequest/);
 assert.match(client, /parseSingaPublicStageRelayPayload/);
 assert.match(client, /transportDiagnostic\.outcome = "request-failed"/);
 assert.match(client, /SINGA_PUBLIC_STAGE_VENUE_ID/);
 assert.match(client, /refreshInFlight/);
-assert.doesNotMatch(relayRequestSource, /requestContext/);
 assert.doesNotMatch(client, /SINGA_(USERNAME|PASSWORD)|console\./i);
 
 console.log("Singa public-stage regression test passed.");

@@ -122,19 +122,6 @@ function singaPublicStageRequest(
   return request;
 }
 
-function singaPublicStageRelayRequest(token: string): Request {
-  return new Request(DEFAULT_SINGA_PUBLIC_STAGE_RELAY_URL, {
-    method: "GET",
-    headers: {
-      accept: "application/json",
-      authorization: `Bearer ${token}`,
-      "cache-control": "no-cache",
-      "user-agent": "OnPar-Waitlist/1.0",
-    },
-    redirect: "error",
-  });
-}
-
 async function refreshSingaPublicStageWait(
   requestContext: Request,
 ): Promise<SingaPublicStageWait> {
@@ -160,12 +147,18 @@ async function refreshSingaPublicStageWait(
       transport: relayToken ? "relay" : "direct",
       outcome: "not-checked",
     };
-    const response = await fetch(
-      relayToken
-        ? singaPublicStageRelayRequest(relayToken)
-        : singaPublicStageRequest(requestContext, zoneId),
-      { signal: controller.signal },
-    );
+    const response = relayToken
+      ? await fetch(DEFAULT_SINGA_PUBLIC_STAGE_RELAY_URL, {
+          method: "GET",
+          headers: {
+            accept: "application/json",
+            authorization: `Bearer ${relayToken}`,
+          },
+          signal: controller.signal,
+        })
+      : await fetch(singaPublicStageRequest(requestContext, zoneId), {
+          signal: controller.signal,
+        });
     if (!response.ok) {
       transportDiagnostic.outcome = "upstream-http";
       return remember(unavailableNow());
