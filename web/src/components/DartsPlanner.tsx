@@ -7,7 +7,11 @@ import { formatBookingSummary } from "@/lib/booking";
 import { formatClock, formatDuration } from "@/lib/bowling-planner";
 import type { WaitlistEntry } from "@/lib/types";
 import type { EntertainmentReservation } from "@/lib/entertainment-schedule";
-import { dartseeCommandDurationMinutes } from "@/lib/dartsee-duration";
+import {
+  DARTSEE_OVERRIDE_MAX_MINUTES,
+  DARTSEE_OVERRIDE_MIN_MINUTES,
+  dartseeCommandDurationMinutes,
+} from "@/lib/dartsee-duration";
 import { dartseeLaneFeedPresentation } from "@/lib/dartsee-feed-presentation";
 import {
   reservationBlocksAvailability,
@@ -17,14 +21,21 @@ import {
 
 type DartStartDuration = 30 | 60 | 120;
 
+export type DartActiveControl = {
+  action: "start" | "end" | "override";
+  lane: number;
+  durationMinutes?: number;
+};
+
 interface DartsPlannerProps {
   snapshot: DartseeLaneSnapshot | null;
   entries: WaitlistEntry[];
   reservations?: EntertainmentReservation[];
-  controllingLane: number | null;
+  activeControl: DartActiveControl | null;
   pendingControls: Array<{
-    action: "start" | "end";
+    action: "start" | "extend" | "end" | "override";
     lane: number;
+    expectedSessionEnd?: string;
     timedOut?: boolean;
   }>;
   reservationProtectionReady: boolean;
@@ -32,9 +43,9 @@ interface DartsPlannerProps {
     lane: number,
     durationMinutes: DartStartDuration,
   ) => Promise<boolean>;
-  onOverrideStartLane: (
+  onOverrideLane: (
     lane: number,
-    durationMinutes: DartStartDuration,
+    durationMinutes: number,
   ) => Promise<boolean>;
   onEndLane: (lane: number) => Promise<boolean>;
 }
@@ -83,11 +94,11 @@ export function DartsPlanner({
   snapshot,
   entries,
   reservations = [],
-  controllingLane,
+  activeControl,
   pendingControls,
   reservationProtectionReady,
   onStartLane,
-  onOverrideStartLane,
+  onOverrideLane,
   onEndLane,
 }: DartsPlannerProps) {
   const [nowMs, setNowMs] = useState(() => Date.now());
@@ -98,8 +109,8 @@ export function DartsPlanner({
   const [reservationOverrideLane, setReservationOverrideLane] = useState<
     number | ""
   >("");
-  const [reservationOverrideDuration, setReservationOverrideDuration] =
-    useState<DartStartDuration>(60);
+  const [reservationOverrideMinutes, setReservationOverrideMinutes] =
+    useState("60");
   const capturedAtMs = snapshot
     ? new Date(snapshot.capturedAt).getTime()
     : Number.NaN;
@@ -116,6 +127,7 @@ export function DartsPlanner({
     () => planDartseeAssignments(snapshot, entries, nowMs || undefined, reservations),
     [entries, nowMs, reservations, snapshot],
   );
+  const controllingLane = activeControl?.lane ?? null;
 
   const assignmentsByBoard = new Map(
     plan.assignments.flatMap((assignment) =>
@@ -152,47 +164,49 @@ export function DartsPlanner({
       : pendingControls.find(
           (pending) => pending.lane === reservationOverrideLane,
         ) ?? null;
+  const parsedOverrideMinutes = Number(reservationOverrideMinutes);
+  const reservationOverrideMinutesValid =
+    /^\d+$/.test(reservationOverrideMinutes) &&
+    Number.isInteger(parsedOverrideMinutes) &&
+    parsedOverrideMinutes >= DARTSEE_OVERRIDE_MIN_MINUTES &&
+    parsedOverrideMinutes <= DARTSEE_OVERRIDE_MAX_MINUTES;
+  const selectedOverrideOccupied = selectedOverrideLane?.status === "occupied";
   const reservationOverrideDisabled =
     reservationOverrideLane === "" ||
     controllingLane !== null ||
     Boolean(selectedOverridePending) ||
     !reservationProtectionReady ||
     !selectedOverrideLane ||
-    selectedOverrideLane.status !== "open" ||
+    (selectedOverrideLane.status !== "open" &&
+      selectedOverrideLane.status !== "occupied") ||
+    !reservationOverrideMinutesValid ||
     Boolean(selectedOverrideFeed?.safetyUnavailable);
 
   function openReservationOverride() {
     setReservationOverrideLane("");
-    setReservationOverrideDuration(60);
+    setReservationOverrideMinutes("60");
     setReservationOverrideOpen(true);
   }
 
   function closeReservationOverride() {
     setReservationOverrideOpen(false);
     setReservationOverrideLane("");
-    setReservationOverrideDuration(60);
+    setReservationOverrideMinutes("60");
   }
 
   async function submitReservationOverride() {
     if (reservationOverrideLane === "" || reservationOverrideDisabled) return;
-    const durationLabel =
-      reservationOverrideDuration === 60
-        ? "1 hour"
-        : reservationOverrideDuration === 120
-          ? "2 hours"
-          : "30 minutes";
-    if (
-      !window.confirm(
-        `Start Dart ${reservationOverrideLane} for ${durationLabel} despite its reservation conflict?`,
-      )
-    ) {
+    const confirmation =
+      `Apply ${parsedOverrideMinutes} custom minute${parsedOverrideMinutes === 1 ? "" : "s"} to Dart ${reservationOverrideLane} despite any reservation conflict? ` +
+      "The latest live status decides whether the lane starts or receives added time.";
+    if (!window.confirm(confirmation)) {
       return;
     }
-    const started = await onOverrideStartLane(
+    const completed = await onOverrideLane(
       reservationOverrideLane,
-      reservationOverrideDuration,
+      parsedOverrideMinutes,
     );
-    if (started) closeReservationOverride();
+    if (completed) closeReservationOverride();
   }
 
   const activeQueueCount = entries.filter(
@@ -251,12 +265,12 @@ export function DartsPlanner({
                 id="dart-reservation-override-title"
                 className="text-base font-bold text-white"
               >
-                Start a reserved dart lane
+                Override a dart lane timer
               </h3>
               <p className="mt-1 max-w-2xl text-xs text-red-100/90">
-                This bypasses only the reservation conflict. The lane must still
-                be open, the live Dartsee feed must be healthy, and the schedule
-                must be current.
+                This bypasses only the reservation conflict. Start an open lane
+                or add minutes to a lane in use. The lane must still be live and
+                responding, and the schedule must be current.
               </p>
             </div>
             <button
@@ -296,7 +310,7 @@ export function DartsPlanner({
                     (control) => control.lane === lane.lane,
                   );
                   const unavailable =
-                    lane.status !== "open" ||
+                    (lane.status !== "open" && lane.status !== "occupied") ||
                     feed.safetyUnavailable ||
                     pending;
                   return (
@@ -307,31 +321,39 @@ export function DartsPlanner({
                     >
                       Dart {lane.lane}
                       {unavailable
-                        ? lane.status === "occupied"
-                          ? " — in use"
-                          : " — unavailable"
-                        : " — open"}
+                        ? " — unavailable"
+                        : lane.status === "occupied"
+                          ? " — in use · add time"
+                          : " — open · start"}
                     </option>
                   );
                 })}
               </select>
             </label>
             <label className="text-xs font-semibold text-white">
-              Session time
-              <select
-                aria-label="Override dart session time"
-                value={reservationOverrideDuration}
+              {selectedOverrideOccupied ? "Minutes to add" : "Session minutes"}
+              <input
+                required
+                type="number"
+                min={DARTSEE_OVERRIDE_MIN_MINUTES}
+                max={DARTSEE_OVERRIDE_MAX_MINUTES}
+                step={1}
+                inputMode="numeric"
+                aria-label="Override dart minutes"
+                aria-describedby="dart-reservation-override-minutes-help"
+                value={reservationOverrideMinutes}
                 onChange={(event) =>
-                  setReservationOverrideDuration(
-                    Number(event.target.value) as DartStartDuration,
-                  )
+                  setReservationOverrideMinutes(event.target.value)
                 }
                 className="mt-1 w-full rounded-lg border border-white/20 bg-neutral-950 px-3 py-2.5 text-sm text-white"
+              />
+              <span
+                id="dart-reservation-override-minutes-help"
+                className="mt-1 block text-[10px] font-normal text-red-100/80"
               >
-                <option value={30}>30 minutes</option>
-                <option value={60}>1 hour</option>
-                <option value={120}>2 hours</option>
-              </select>
+                Enter a whole number from {DARTSEE_OVERRIDE_MIN_MINUTES} to{" "}
+                {DARTSEE_OVERRIDE_MAX_MINUTES}. Defaults to 60.
+              </span>
             </label>
             <button
               type="submit"
@@ -342,7 +364,9 @@ export function DartsPlanner({
                 ? "Please wait"
                 : !reservationProtectionReady
                   ? "Schedule updating"
-                  : "Start despite reservation"}
+                  : selectedOverrideOccupied
+                    ? "Add time"
+                    : "Start override"}
             </button>
           </form>
         </div>
@@ -388,25 +412,54 @@ export function DartsPlanner({
               selectedEndMs,
             ),
           );
-          const controlInProgress = controllingLane === lane.lane;
+          const activeControlForLane =
+            activeControl?.lane === lane.lane ? activeControl : null;
+          const controlInProgress = Boolean(activeControlForLane);
           const pendingControl = pendingControls.find(
             (pending) => pending.lane === lane.lane,
           );
           const pendingThisLane = Boolean(pendingControl);
           const anotherControlInProgress =
             controllingLane !== null && !controlInProgress;
+          const activeStartInProgress =
+            lane.status === "open" &&
+            (activeControlForLane?.action === "start" ||
+              activeControlForLane?.action === "override");
           const optimisticStart =
-            (controlInProgress && lane.status === "open") ||
+            activeStartInProgress ||
             (pendingControl?.action === "start" && lane.status !== "occupied");
+          const pendingExpectedSessionEndMs = pendingControl?.expectedSessionEnd
+            ? new Date(pendingControl.expectedSessionEnd).getTime()
+            : Number.NaN;
+          const pendingStartRemainingSeconds =
+            pendingControl?.action === "start" &&
+            Number.isFinite(pendingExpectedSessionEndMs)
+              ? Math.max(
+                  0,
+                  Math.ceil((pendingExpectedSessionEndMs - nowMs) / 1000),
+                )
+              : null;
+          const optimisticDurationMinutes =
+            activeStartInProgress &&
+            activeControlForLane?.durationMinutes !== undefined
+              ? activeControlForLane.durationMinutes
+              : startDuration;
           const optimisticRemainingSeconds =
-            dartseeCommandDurationMinutes(startDuration) * 60;
+            pendingStartRemainingSeconds ??
+            dartseeCommandDurationMinutes(optimisticDurationMinutes) * 60;
           const displayedStatus = optimisticStart ? "occupied" : lane.status;
           const displayedRemainingSeconds = optimisticStart
             ? optimisticRemainingSeconds
             : lane.remainingSeconds;
           const endingInProgress =
-            controlInProgress && lane.status === "occupied";
-          const endAwaitingConfirmation = pendingControl?.action === "end";
+            activeControlForLane?.action === "end";
+          const addingTimeInProgress =
+            activeControlForLane?.action === "override" &&
+            lane.status === "occupied";
+          const nonStartAwaitingConfirmation =
+            pendingControl?.action === "end" ||
+            pendingControl?.action === "extend" ||
+            pendingControl?.action === "override";
           const startDisabled =
             controllingLane !== null ||
             pendingThisLane ||
@@ -419,7 +472,11 @@ export function DartsPlanner({
               ? "Check unit"
               : "Verifying…"
             : controlInProgress
-            ? "Starting…"
+            ? endingInProgress
+              ? "Ending…"
+              : addingTimeInProgress
+                ? "Adding time…"
+                : "Starting…"
             : anotherControlInProgress
               ? "Please wait"
               : machineOffline
@@ -455,15 +512,17 @@ export function DartsPlanner({
                       ? "Refreshing"
                       : endingInProgress
                         ? "Ending…"
-                        : endAwaitingConfirmation
-                          ? pendingControl?.timedOut
-                            ? "Check unit"
-                            : "Verifying…"
-                          : displayedStatus === "occupied"
-                            ? formatClock(displayedRemainingSeconds)
-                            : displayedStatus === "open"
-                              ? "Open"
-                              : "--"}
+                        : addingTimeInProgress
+                          ? "Adding time…"
+                          : nonStartAwaitingConfirmation
+                            ? pendingControl?.timedOut
+                              ? "Check unit"
+                              : "Verifying…"
+                            : displayedStatus === "occupied"
+                              ? formatClock(displayedRemainingSeconds)
+                              : displayedStatus === "open"
+                                ? "Open"
+                                : "--"}
                 </p>
               </div>
               <p className="mt-1 truncate text-[10px] opacity-60">
@@ -528,11 +587,13 @@ export function DartsPlanner({
               <div className="mt-auto pt-3">
                 <div className="rounded-lg bg-black/70 p-2 text-white">
                   <label className="block text-[10px] font-semibold uppercase tracking-wide text-white/65">
-                    {optimisticStart
-                      ? "Starting session"
-                      : lane.status === "occupied"
-                        ? "Active session"
-                        : "Session time"}
+                    {addingTimeInProgress
+                      ? "Adding time"
+                      : optimisticStart
+                        ? "Starting session"
+                        : lane.status === "occupied"
+                          ? "Active session"
+                          : "Session time"}
                     {displayedStatus === "occupied" ? (
                       <span className="mt-1 block rounded-md border border-white/15 bg-neutral-900 px-2 py-2 text-xs font-medium text-white">
                         {formatClock(displayedRemainingSeconds)} remaining
@@ -593,15 +654,19 @@ export function DartsPlanner({
                         ? pendingControl?.timedOut
                           ? "Check unit"
                           : "Verifying…"
-                        : controlInProgress
-                          ? "Ending…"
-                          : anotherControlInProgress
-                            ? "Please wait"
-                            : machineOffline
-                              ? "Check unit"
-                              : feedRefreshing
-                                ? "Refreshing"
-                                : "End session"}
+                        : addingTimeInProgress
+                          ? "Adding time…"
+                          : endingInProgress
+                            ? "Ending…"
+                            : controlInProgress
+                              ? "Please wait"
+                              : anotherControlInProgress
+                                ? "Please wait"
+                                : machineOffline
+                                  ? "Check unit"
+                                  : feedRefreshing
+                                    ? "Refreshing"
+                                    : "End session"}
                     </button>
                   ) : (
                     <>

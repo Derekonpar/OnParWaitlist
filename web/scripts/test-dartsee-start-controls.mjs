@@ -8,14 +8,22 @@ import {
   newerDartseeSnapshot,
 } from "../src/lib/dartsee-snapshot-order.ts";
 import {
+  DARTSEE_OVERRIDE_MAX_MINUTES,
+  DARTSEE_OVERRIDE_MIN_MINUTES,
   DARTSEE_START_BUFFER_MINUTES,
   dartseeCommandDurationMinutes,
+  isDartseeOverrideDuration,
 } from "../src/lib/dartsee-duration.ts";
 import {
   DARTSEE_CONTROL_GUARD_MS,
   mergeDartseeControlGuards,
   snapshotWithConfirmedDartseeControl,
 } from "../src/lib/dartsee-control-guard.ts";
+import {
+  dartseeExtensionConfirmationMatches,
+  inspectDartseeOverrideLane,
+  isDefinitiveDartseeOverrideRejection,
+} from "../src/lib/dartsee-override-safety.ts";
 
 function source(path) {
   return readFileSync(new URL(path, import.meta.url), "utf8");
@@ -24,6 +32,9 @@ function source(path) {
 const component = source("../src/components/DartsPlanner.tsx");
 const staffPage = source("../src/app/staff/page.tsx");
 const route = source("../src/app/api/staff/dart-lanes/start/route.ts");
+const overrideRoute = source(
+  "../src/app/api/staff/dart-lanes/override/route.ts",
+);
 const endRoute = source("../src/app/api/staff/dart-lanes/end/route.ts");
 const dartsee = source("../src/lib/dartsee-lanes.ts");
 const dartseeDuration = source("../src/lib/dartsee-duration.ts");
@@ -34,6 +45,10 @@ const endImplementation = dartsee.slice(
 );
 const startImplementation = dartsee.slice(
   dartsee.indexOf("export async function startDartseeLaneSession"),
+  dartsee.indexOf("export async function overrideDartseeLaneSession"),
+);
+const overrideImplementation = dartsee.slice(
+  dartsee.indexOf("export async function overrideDartseeLaneSession"),
   dartsee.indexOf("export async function endDartseeLaneSession"),
 );
 const confirmedPublisher = dartsee.slice(
@@ -78,17 +93,31 @@ assert.ok(
 );
 assert.match(
   component,
-  /useState<DartStartDuration>\(60\)/,
+  /const \[reservationOverrideMinutes, setReservationOverrideMinutes\] =\s*useState\("60"\);/,
   "The reservation override must default to one hour",
 );
 assert.match(
   component,
-  /function openReservationOverride\(\) \{[\s\S]*?setReservationOverrideLane\(""\);[\s\S]*?setReservationOverrideDuration\(60\);[\s\S]*?setReservationOverrideOpen\(true\);/,
+  /function openReservationOverride\(\) \{[\s\S]*?setReservationOverrideLane\(""\);[\s\S]*?setReservationOverrideMinutes\("60"\);[\s\S]*?setReservationOverrideOpen\(true\);/,
   "Opening the override must require a lane choice and reset time to one hour",
 );
 assert.match(component, /role="dialog"/);
 assert.match(component, /aria-label="Override dart lane"/);
-assert.match(component, /aria-label="Override dart session time"/);
+assert.match(
+  component,
+  /import \{[\s\S]*?DARTSEE_OVERRIDE_MAX_MINUTES,[\s\S]*?DARTSEE_OVERRIDE_MIN_MINUTES,[\s\S]*?dartseeCommandDurationMinutes[\s\S]*?\} from "@\/lib\/dartsee-duration";/,
+  "The browser and server must share one custom-duration range",
+);
+assert.match(component, /aria-label="Override dart minutes"/);
+assert.match(component, /type="number"/);
+assert.match(component, /min=\{DARTSEE_OVERRIDE_MIN_MINUTES\}/);
+assert.match(component, /max=\{DARTSEE_OVERRIDE_MAX_MINUTES\}/);
+assert.match(component, /step=\{1\}/);
+assert.match(
+  component,
+  /\^\\d\+\$\/[.]test\(reservationOverrideMinutes\)[\s\S]*?Number[.]isInteger\(parsedOverrideMinutes\)[\s\S]*?parsedOverrideMinutes >= DARTSEE_OVERRIDE_MIN_MINUTES[\s\S]*?parsedOverrideMinutes <= DARTSEE_OVERRIDE_MAX_MINUTES/,
+  "Custom minutes must be a whole number from 1 through 480",
+);
 assert.match(component, /<option value="">Select a lane<\/option>/);
 assert.match(
   component,
@@ -102,16 +131,32 @@ assert.match(
 );
 assert.match(
   component,
-  /onOverrideStartLane\([\s\S]*?reservationOverrideLane,[\s\S]*?reservationOverrideDuration/,
-  "The dedicated control must use the dedicated override callback",
+  /const completed = await onOverrideLane\([\s\S]*?reservationOverrideLane,[\s\S]*?parsedOverrideMinutes/,
+  "The browser must send one status-agnostic override request and let the server dispatch from fresh live state",
 );
 assert.match(
   component,
   /onStartLane\(lane\.lane, startDuration\)/,
   "Ordinary lane-card starts must stay on the protected callback",
 );
-assert.match(component, /despite its reservation conflict\?/);
-assert.match(component, /Start despite reservation/);
+assert.equal(
+  (component.match(/await onOverrideLane\(/g) ?? []).length,
+  1,
+  "Open and occupied UI labels must not select different network mutations",
+);
+assert.doesNotMatch(
+  component,
+  /\/api\/staff\/dart-lanes\/(?:start|extend|override)/,
+  "The planner must not choose a physical Dartsee action from its potentially stale snapshot",
+);
+assert.match(component, /selectedOverrideLane[?][.]status === "occupied"/);
+assert.match(component, /selectedOverrideLane[.]status !== "open" &&[\s\S]*?selectedOverrideLane[.]status !== "occupied"/);
+assert.match(component, /Boolean\(selectedOverrideFeed[?][.]safetyUnavailable\)/);
+assert.match(component, /— in use · add time/);
+assert.match(component, /— open · start/);
+assert.match(component, /Start override/);
+assert.match(component, /Add time/);
+assert.match(component, /despite any reservation conflict\?/);
 assert.match(component, /reservationConflictsWithSession\(/);
 assert.match(
   component,
@@ -127,23 +172,62 @@ assert.match(component, /pendingThisLane/);
 assert.match(component, /pendingControl\?\.timedOut/);
 assert.match(
   component,
-  /const optimisticStart =[\s\S]*?controlInProgress && lane\.status === "open"[\s\S]*?pendingControl\?\.action === "start"/,
-  "Only the clicked or pending Start lane may render optimistically occupied",
+  /export type DartActiveControl = \{\s*action: "start" \| "end" \| "override";\s*lane: number;\s*durationMinutes\?: number;\s*\};/,
+  "The planner must receive action and duration metadata instead of inferring the physical action from lane status",
 );
 assert.match(
   component,
-  /const optimisticRemainingSeconds =[\s\S]*?dartseeCommandDurationMinutes\(startDuration\) \* 60/,
-  "The immediate Start countdown must include the one-minute Dartsee buffer",
+  /const activeControlForLane =\s*activeControl\?\.lane === lane\.lane \? activeControl : null;/,
+);
+assert.match(
+  component,
+  /const activeStartInProgress =[\s\S]*?lane\.status === "open"[\s\S]*?activeControlForLane\?\.action === "start"[\s\S]*?activeControlForLane\?\.action === "override"/,
+  "Only an explicit Start or an open-lane override may render optimistically occupied",
+);
+assert.match(
+  component,
+  /const optimisticStart =[\s\S]*?activeStartInProgress[\s\S]*?pendingControl\?\.action === "start"/,
+  "A pending Add-time or End action must never masquerade as a Start",
+);
+assert.match(
+  component,
+  /const optimisticDurationMinutes =[\s\S]*?activeControlForLane\?\.durationMinutes !== undefined[\s\S]*?activeControlForLane\.durationMinutes[\s\S]*?: startDuration/,
+  "A custom open-lane override must use its requested duration instead of the lane card dropdown",
+);
+assert.match(
+  component,
+  /const optimisticRemainingSeconds =[\s\S]*?pendingStartRemainingSeconds \?\?[\s\S]*?dartseeCommandDurationMinutes\(optimisticDurationMinutes\) \* 60/,
+  "The immediate normal or custom Start countdown must include the one-minute Dartsee buffer",
+);
+assert.match(
+  component,
+  /pendingStartRemainingSeconds =[\s\S]*?pendingControl\?\.action === "start"[\s\S]*?Math\.ceil\(\(pendingExpectedSessionEndMs - nowMs\) \/ 1000\)/,
+  "An unconfirmed Start with a server expected end must retain that exact countdown while polling catches up",
 );
 assert.match(component, /const displayedStatus = optimisticStart \? "occupied" : lane\.status/);
 assert.match(component, /optimisticStart[\s\S]*?Starting session/);
 assert.match(component, /aria-label=\{`Starting Dart \$\{lane\.lane\}`\}/);
 assert.match(
   component,
-  /const endingInProgress =[\s\S]*?controlInProgress && lane\.status === "occupied"/,
-  "End feedback must remain tied to an occupied server-observed lane",
+  /const endingInProgress =\s*activeControlForLane\?\.action === "end";/,
+  "Only an explicit End request may render Ending feedback",
 );
 assert.match(component, /endingInProgress[\s\S]*?"Ending…"/);
+assert.match(
+  component,
+  /const addingTimeInProgress =[\s\S]*?activeControlForLane\?\.action === "override" &&[\s\S]*?lane\.status === "occupied"/,
+  "An occupied override must render Add-time progress instead of Ending",
+);
+assert.match(component, /addingTimeInProgress[\s\S]*?"Adding time…"/);
+assert.match(
+  component,
+  /const nonStartAwaitingConfirmation =[\s\S]*?pendingControl\?\.action === "end" \|\|[\s\S]*?pendingControl\?\.action === "extend" \|\|[\s\S]*?pendingControl\?\.action === "override"/,
+  "Pending End, Add-time, and ambiguous override results must display verification instead of a false countdown",
+);
+assert.match(
+  component,
+  /nonStartAwaitingConfirmation[\s\S]*?pendingControl\?\.timedOut[\s\S]*?"Check unit"[\s\S]*?"Verifying…"/,
+);
 assert.match(
   component,
   /optimisticStart \? \([\s\S]*?<button[\s\S]*?disabled[\s\S]*?: lane\.status === "occupied" \? \(/,
@@ -170,6 +254,16 @@ assert.match(staffPage, /postDartControl\(\s*"\/api\/staff\/dart-lanes\/start"/)
 assert.match(staffPage, /postDartControl\(\s*"\/api\/staff\/dart-lanes\/end"/);
 assert.match(
   staffPage,
+  /setDartActiveControl\(\{ action: "start", lane, durationMinutes \}\)/,
+);
+assert.match(
+  staffPage,
+  /setDartActiveControl\(\{ action: "override", lane, durationMinutes \}\)/,
+);
+assert.match(staffPage, /setDartActiveControl\(\{ action: "end", lane \}\)/);
+assert.match(staffPage, /activeControl=\{dartActiveControl\}/);
+assert.match(
+  staffPage,
   /import \{[\s\S]*?DARTSEE_EMPLOYEE_ALERT_AFTER_MS,[\s\S]*?DARTSEE_SUSTAINED_FAILURE_REFRESHES,[\s\S]*?\} from "@\/lib\/dartsee-feed-presentation"/,
   "Staff-wide and lane-card warning thresholds must share one definition",
 );
@@ -190,8 +284,18 @@ assert.match(
 );
 assert.match(
   staffPage,
-  /onOverrideStartLane=\{\(lane, durationMinutes\) =>\s*startDartLane\(lane, durationMinutes, true\)/,
-  "Only the dedicated override callback may opt out of reservation conflict rejection",
+  /onOverrideLane=\{overrideDartLane\}/,
+  "The dedicated dialog must use the status-agnostic server override",
+);
+assert.match(
+  staffPage,
+  /postDartControl\(\s*"\/api\/staff\/dart-lanes\/override"/,
+  "The browser must send overrides only through the dedicated server dispatcher",
+);
+assert.match(
+  staffPage,
+  /requestId: window\.crypto\.randomUUID\(\),\s*lane,\s*durationMinutes,\s*\}/,
+  "The browser may send only the logical lane and duration, never a physical action or Dartsee identity",
 );
 assert.match(staffPage, /headers: headers\(\)/);
 assert.doesNotMatch(
@@ -215,6 +319,35 @@ assert.match(
 assert.match(route, /verifyStaffHeaderSecret/);
 assert.match(route, /isSameOrigin/);
 assert.match(route, /cache-control": "private, no-store"/);
+
+for (const lane of [1, 2, 3, 4, 5]) {
+  assert.match(overrideRoute, new RegExp(`z\\.literal\\(${lane}\\)`));
+}
+assert.match(overrideRoute, /\.strict\(\)/);
+assert.match(overrideRoute, /verifyStaffHeaderSecret/);
+assert.match(overrideRoute, /isSameOrigin/);
+assert.match(overrideRoute, /cache-control": "private, no-store"/);
+assert.match(
+  overrideRoute,
+  /durationMinutes:[\s\S]*?\.number\(\)[\s\S]*?\.int\(\)[\s\S]*?\.min\(DARTSEE_OVERRIDE_MIN_MINUTES\)[\s\S]*?\.max\(DARTSEE_OVERRIDE_MAX_MINUTES\)/,
+  "The server must enforce the same custom whole-minute range as the dialog",
+);
+assert.doesNotMatch(
+  overrideRoute.slice(
+    overrideRoute.indexOf("const overrideSchema"),
+    overrideRoute.indexOf("function privateJson"),
+  ),
+  /action|boardId|sessionId|maxPlayers|reservationOverride/,
+  "A caller must not be able to choose the physical mutation or bypass any safety gate other than the dedicated reservation exception",
+);
+assert.match(overrideRoute, /overrideDartseeLaneSession\(parsed\.data\)/);
+assert.match(overrideRoute, /function scheduleBackgroundWork/);
+assert.match(overrideRoute, /scheduleBackgroundWork\(refreshDartseeLaneSnapshotAfterControl\)/);
+assert.doesNotMatch(
+  overrideRoute,
+  /console\.error\([^\n]*,\s*error\)/,
+  "The override route must not log raw caught errors",
+);
 assert.match(
   dartsee,
   /Promise\.all\(\[[\s\S]*?acquireStartLease\([\s\S]*?openDartseeControlObserverWithFreshAuth\(\[boardId\][\s\S]*?getStoredEntertainmentSchedule\(\)/,
@@ -255,6 +388,27 @@ assert.deepEqual(
   [31, 61, 121],
   "Every staff-facing Dartsee duration must include the one-minute walking buffer",
 );
+assert.equal(DARTSEE_OVERRIDE_MIN_MINUTES, 1);
+assert.equal(DARTSEE_OVERRIDE_MAX_MINUTES, 480);
+for (const minutes of [1, 17, 59, 121, 480]) {
+  assert.equal(
+    isDartseeOverrideDuration(minutes),
+    true,
+    `Override must accept the whole-minute duration ${minutes}`,
+  );
+  assert.equal(
+    dartseeCommandDurationMinutes(minutes),
+    minutes + 1,
+    "A custom open-lane Start must retain the one-minute walking buffer",
+  );
+}
+for (const invalid of [0, 481, -1, 1.5, "60", Number.NaN, Infinity, null]) {
+  assert.equal(
+    isDartseeOverrideDuration(invalid),
+    false,
+    `Override must reject invalid minutes ${String(invalid)}`,
+  );
+}
 assert.match(dartsee, /ids\.length !== 5 \|\| new Set\(ids\)\.size !== 5/);
 assert.match(dartsee, /return ids\[lane - 1\] \?\? null/);
 assert.match(
@@ -443,6 +597,33 @@ assert.match(staffPage, /DART_CONTROL_CONFIRMED_GUARD_MS = 60_000/);
 assert.match(staffPage, /dartLaneMatchesConfirmedOverride\(/);
 assert.match(
   staffPage,
+  /type DartControlAction = "start" \| "extend" \| "end" \| "override";/,
+  "The client must distinguish an Add-time confirmation from an ordinary Start and from an interrupted action with an unknown result",
+);
+assert.match(staffPage, /expectedSessionId\?: string;/);
+assert.match(staffPage, /expectedSessionEnd\?: string;/);
+assert.match(
+  staffPage,
+  /pending\.action === "extend"[\s\S]*?pendingReading\?\.status === "occupied"[\s\S]*?pendingReading\.sessionId === pending\.expectedSessionId[\s\S]*?pendingReadingEndMs >= expectedPendingEndMs/,
+  "A stale occupied snapshot must not settle Add time until the exact session reaches the expected end",
+);
+assert.match(
+  staffPage,
+  /action: data\.action === "extend" \? "extend" : "start",[\s\S]*?expectedSessionId: data\.expectedSessionId,[\s\S]*?expectedSessionEnd: data\.expectedSessionEnd,/,
+  "An unconfirmed override must retain the server-observed action and expected session evidence",
+);
+assert.match(
+  staffPage,
+  /action: "override",[\s\S]*?untilMs: verifyAfterMs \+ 30_000/,
+  "An interrupted response with no server result must keep a generic verification lock",
+);
+assert.match(
+  staffPage,
+  /incoming\.sessionId === confirmed\.sessionId &&[\s\S]*?incomingEndMs >= confirmedEndMs/,
+  "A confirmed Add-time reading must be retained until fresh live evidence reaches its new end",
+);
+assert.match(
+  staffPage,
   /exactLaneEvidence &&[\s\S]*?confirmedStateReached \|\|[\s\S]*?incomingLaneVersionMs >= override\.releaseAfterMs/,
   "A newer local timestamp alone must not clear a confirmed lane override",
 );
@@ -547,7 +728,350 @@ assert.match(
   "Ambiguous End requests must be verified and never retried",
 );
 
+assert.match(
+  overrideImplementation,
+  /Promise\.all\(\[[\s\S]*?acquireStartLease\(input\.lane, input\.requestId\)[\s\S]*?openDartseeControlObserverWithFreshAuth\(ids, 5_000\)[\s\S]*?getStoredEntertainmentSchedule\(\)/,
+  "Override must overlap its durable lease, complete five-board observer, and bounded schedule read",
+);
+assert.equal(
+  (overrideImplementation.match(/inspectDartseeOverrideLane\(/g) ?? []).length,
+  2,
+  "Override must classify the target once after a stable full-venue read and again immediately before its one write",
+);
+assert.match(
+  overrideImplementation,
+  /ids\.length !== 5 \|\|[\s\S]*?new Set\(ids\)\.size !== 5/,
+  "Override must reject an incomplete or duplicate five-board mapping",
+);
+assert.match(
+  overrideImplementation,
+  /Date\.now\(\) - scheduleAt > START_SCHEDULE_MAX_AGE_MS/,
+  "Reservation data must remain fresh even on the explicit conflict override path",
+);
+assert.match(
+  overrideImplementation,
+  /const conflict = schedule\.reservations\.find\([\s\S]*?if \(conflict\) \{[\s\S]*?reservation conflict overridden/,
+  "A detected reservation conflict may be audited instead of rejected only inside the dedicated override",
+);
+assert.doesNotMatch(
+  overrideImplementation,
+  /reservationOverride|if \(conflict &&/,
+  "The dedicated route must not turn a client boolean into a broader safety bypass",
+);
+assert.match(
+  overrideImplementation,
+  /unchangedStart[\s\S]*?unchangedExtension[\s\S]*?immediatelyBeforeWrite\.sessionId === inspection\.sessionId[\s\S]*?immediatelyBeforeWrite\.currentEndMs === inspection\.currentEndMs[\s\S]*?immediatelyBeforeWrite\.maxPlayers === inspection\.maxPlayers/,
+  "The final pre-write reading must preserve the originally inspected action and exact session fields",
+);
+const overrideInitialInspectionAt = overrideImplementation.indexOf(
+  "const inspection = inspectDartseeOverrideLane",
+);
+const overrideScheduleGateAt = overrideImplementation.indexOf(
+  'code: "schedule-unavailable"',
+);
+const overrideConflictAt = overrideImplementation.indexOf(
+  "const conflict = schedule.reservations.find",
+);
+const overrideFinalInspectionAt = overrideImplementation.indexOf(
+  "const immediatelyBeforeWrite = inspectDartseeOverrideLane",
+);
+const overridePhysicalPostAt = overrideImplementation.indexOf(
+  "response = await fetch(",
+);
+assert.ok(
+  overrideInitialInspectionAt >= 0 &&
+    overrideInitialInspectionAt < overrideScheduleGateAt &&
+    overrideScheduleGateAt < overrideConflictAt &&
+    overrideConflictAt < overrideFinalInspectionAt &&
+    overrideFinalInspectionAt < overridePhysicalPostAt,
+  "Override must preserve feed, schedule, and exact pre-write safety gates before either physical action",
+);
+assert.equal(
+  (overrideImplementation.match(/dartseeCommandDurationMinutes\(/g) ?? [])
+    .length,
+  1,
+  "Only a newly started override session receives the one-minute walking buffer",
+);
+assert.match(
+  overrideImplementation,
+  /\/v2\.0\/tournaments\/walk-in[\s\S]*?length: startCommandMinutes,[\s\S]*?boardIds: \[boardId\],[\s\S]*?maxPlayers: 8,[\s\S]*?venueId,[\s\S]*?name: "walk-in"/,
+  "An open target must use the verified walk-in protocol",
+);
+assert.match(
+  overrideImplementation,
+  /\/v2\.0\/tournaments\/\$\{encodeURIComponent\(inspection\.sessionId\)\}\/extend\?boardId=\$\{encodeURIComponent\(boardId\)\}/,
+  "An occupied target must extend the exact server-observed single-board session",
+);
+assert.match(
+  overrideImplementation,
+  /body: JSON\.stringify\(\{\s*length: input\.durationMinutes,\s*maxPlayers: inspection\.maxPlayers,\s*\}\)/,
+  "Dartsee extension length must be the exact additional minutes with the observed player limit",
+);
+assert.equal(
+  (overrideImplementation.match(/await fetch\(/g) ?? []).length,
+  2,
+  "Override must have one physical POST call site in each mutually exclusive action branch",
+);
+assert.equal(
+  (overrideImplementation.match(/redirect: "manual"/g) ?? []).length,
+  2,
+  "Both physical override actions must expose redirects without replay",
+);
+assert.doesNotMatch(overrideImplementation, /redirect: "error"/);
+assert.match(
+  overrideImplementation,
+  /A timeout is ambiguous after the one allowed POST\. Never resend it\./,
+  "An ambiguous override must be verified and never retried",
+);
+assert.match(
+  overrideImplementation,
+  /dartseeExtensionConfirmationMatches\([\s\S]*?inspection\.sessionId,[\s\S]*?inspection\.currentEndMs,[\s\S]*?expectedEndMs/,
+  "Add time confirmation must prove the same session advanced from its prior end to the requested end",
+);
+
 const targetBoard = "beavercreek01";
+const overrideNowMs = Date.parse("2026-08-20T17:00:00.000Z");
+const overrideSessionEnd = "2026-08-20T18:00:00.000Z";
+const oneMinutePreviousEndMs = Date.parse("2026-08-20T18:00:00.000Z");
+const oneMinuteExpectedEndMs = Date.parse("2026-08-20T18:01:00.000Z");
+const extensionLane = {
+  boardId: targetBoard,
+  status: "occupied",
+  sessionId: "target-session",
+  sessionEnd: new Date(oneMinutePreviousEndMs).toISOString(),
+  maxPlayers: 8,
+};
+assert.equal(
+  dartseeExtensionConfirmationMatches(
+    extensionLane,
+    "target-session",
+    oneMinutePreviousEndMs,
+    oneMinuteExpectedEndMs,
+  ),
+  false,
+  "The old same-session end must not confirm a one-minute extension",
+);
+assert.equal(
+  dartseeExtensionConfirmationMatches(
+    {
+      ...extensionLane,
+      sessionEnd: new Date(oneMinutePreviousEndMs + 1_000).toISOString(),
+    },
+    "target-session",
+    oneMinutePreviousEndMs,
+    oneMinuteExpectedEndMs,
+  ),
+  false,
+  "A one-second clock drift after the old end must not confirm a one-minute extension",
+);
+assert.equal(
+  dartseeExtensionConfirmationMatches(
+    {
+      ...extensionLane,
+      sessionEnd: new Date(oneMinuteExpectedEndMs).toISOString(),
+    },
+    "target-session",
+    oneMinutePreviousEndMs,
+    oneMinuteExpectedEndMs,
+  ),
+  true,
+  "The exact same-session requested end must confirm a one-minute extension",
+);
+assert.equal(
+  dartseeExtensionConfirmationMatches(
+    {
+      ...extensionLane,
+      sessionId: "different-session",
+      sessionEnd: new Date(oneMinuteExpectedEndMs).toISOString(),
+    },
+    "target-session",
+    oneMinutePreviousEndMs,
+    oneMinuteExpectedEndMs,
+  ),
+  false,
+  "The requested end on a different session must not confirm Add time",
+);
+for (const status of [400, 401, 403, 404, 409, 422]) {
+  assert.equal(
+    isDefinitiveDartseeOverrideRejection(status),
+    true,
+    `${status} must be treated as a definitive rejection`,
+  );
+}
+for (const status of [200, 300, 301, 307, 308, 408, 429, 500, 502, 503, 504]) {
+  assert.equal(
+    isDefinitiveDartseeOverrideRejection(status),
+    false,
+    `${status} must remain non-rejection or ambiguous after the one allowed POST`,
+  );
+}
+assert.deepEqual(
+  inspectDartseeOverrideLane(
+    [
+      { boardId: targetBoard, status: "open" },
+      { boardId: "beavercreek02", status: "occupied", sessionId: "other", sessionEnd: overrideSessionEnd, maxPlayers: 8 },
+    ],
+    targetBoard,
+    overrideNowMs,
+  ),
+  { ok: true, action: "start" },
+  "A fresh server-observed open lane must dispatch to the existing Start path",
+);
+assert.deepEqual(
+  inspectDartseeOverrideLane(
+    [
+      {
+        boardId: targetBoard,
+        status: "occupied",
+        sessionId: "target-session",
+        sessionEnd: overrideSessionEnd,
+        maxPlayers: 8,
+      },
+      {
+        boardId: "beavercreek02",
+        status: "occupied",
+        sessionId: "other-session",
+        sessionEnd: overrideSessionEnd,
+        maxPlayers: 6,
+      },
+    ],
+    targetBoard,
+    overrideNowMs,
+  ),
+  {
+    ok: true,
+    action: "extend",
+    sessionId: "target-session",
+    currentEndMs: Date.parse(overrideSessionEnd),
+    maxPlayers: 8,
+  },
+  "A uniquely identified occupied lane must dispatch to exact-session Add time",
+);
+assert.deepEqual(
+  inspectDartseeOverrideLane(
+    [
+      {
+        boardId: targetBoard,
+        status: "occupied",
+        sessionId: "shared",
+        sessionEnd: overrideSessionEnd,
+        maxPlayers: 8,
+      },
+      {
+        boardId: "beavercreek02",
+        status: "occupied",
+        sessionId: "shared",
+        sessionEnd: overrideSessionEnd,
+        maxPlayers: 8,
+      },
+    ],
+    targetBoard,
+    overrideNowMs,
+  ),
+  { ok: false, reason: "shared-session" },
+  "Add time must reject a session shared by multiple boards",
+);
+assert.deepEqual(
+  inspectDartseeOverrideLane(
+    [{ boardId: targetBoard, status: "unknown" }],
+    targetBoard,
+    overrideNowMs,
+  ),
+  { ok: false, reason: "feed-unavailable" },
+  "An unknown target must never be treated as open or occupied",
+);
+assert.deepEqual(
+  inspectDartseeOverrideLane(
+    [
+      {
+        boardId: targetBoard,
+        status: "occupied",
+        sessionId: "target-session",
+        sessionEnd: overrideSessionEnd,
+        maxPlayers: 8,
+      },
+      { boardId: "beavercreek02", status: "unknown" },
+    ],
+    targetBoard,
+    overrideNowMs,
+  ),
+  { ok: false, reason: "feed-unavailable" },
+  "Add time must require a complete venue view before ruling out a shared session",
+);
+assert.deepEqual(
+  inspectDartseeOverrideLane(
+    [{ boardId: "beavercreek02", status: "open" }],
+    targetBoard,
+    overrideNowMs,
+  ),
+  { ok: false, reason: "target-missing" },
+  "A missing target must fail closed",
+);
+for (const invalidTarget of [
+  {
+    boardId: targetBoard,
+    status: "occupied",
+    sessionEnd: overrideSessionEnd,
+    maxPlayers: 8,
+  },
+  {
+    boardId: targetBoard,
+    status: "occupied",
+    sessionId: "target-session",
+    maxPlayers: 8,
+  },
+  {
+    boardId: targetBoard,
+    status: "occupied",
+    sessionId: "target-session",
+    sessionEnd: new Date(overrideNowMs).toISOString(),
+    maxPlayers: 8,
+  },
+  {
+    boardId: targetBoard,
+    status: "occupied",
+    sessionId: "target-session",
+    sessionEnd: overrideSessionEnd,
+  },
+  {
+    boardId: targetBoard,
+    status: "occupied",
+    sessionId: "target-session",
+    sessionEnd: overrideSessionEnd,
+    maxPlayers: 0,
+  },
+  {
+    boardId: targetBoard,
+    status: "occupied",
+    sessionId: "target-session",
+    sessionEnd: overrideSessionEnd,
+    maxPlayers: 7.5,
+  },
+]) {
+  assert.deepEqual(
+    inspectDartseeOverrideLane([invalidTarget], targetBoard, overrideNowMs),
+    { ok: false, reason: "session-unavailable" },
+    "Add time must require a live session ID, future end, and integer player limit",
+  );
+}
+assert.deepEqual(
+  inspectDartseeOverrideLane(
+    [
+      {
+        boardId: targetBoard,
+        status: "occupied",
+        sessionId: "target-session",
+        sessionEnd: overrideSessionEnd,
+        maxPlayers: 8,
+      },
+      { boardId: "beavercreek02", status: "occupied" },
+    ],
+    targetBoard,
+    overrideNowMs,
+  ),
+  { ok: false, reason: "session-unavailable" },
+  "Any occupied board with missing session identity makes single-board extension unprovable",
+);
 assert.deepEqual(
   inspectDartseeEndSession(
     [
@@ -679,6 +1203,7 @@ const convergedStart = mergeDartseeControlGuards(
         status: "occupied",
         remainingSeconds: 3618,
         sessionId: "lane-5-start",
+        sessionEnd: "2026-08-18T17:43:39.000Z",
       },
       laggingPostStartSnapshot.lanes[1],
     ],
@@ -690,6 +1215,170 @@ assert.equal(
   convergedStart.lanes[0].controlGuard,
   undefined,
   "Matching live session evidence should release the Start guard immediately",
+);
+
+const beforeExtensionSnapshot = {
+  ...baseVenueSnapshot,
+  capturedAt: "2026-08-18T17:00:00.000Z",
+  stateVersionAt: "2026-08-18T17:00:00.000Z",
+  receivedAt: "2026-08-18T17:00:01.000Z",
+  lanes: [
+    {
+      boardId: "beavercreek05",
+      status: "occupied",
+      remainingSeconds: 1800,
+      sessionId: "extended-session",
+      sessionEnd: "2026-08-18T17:30:00.000Z",
+      maxPlayers: 8,
+    },
+    baseVenueSnapshot.lanes[1],
+  ],
+};
+const extensionConfirmedAtMs = Date.parse("2026-08-18T17:00:02.000Z");
+const confirmedExtensionSnapshot = snapshotWithConfirmedDartseeControl(
+  beforeExtensionSnapshot,
+  {
+    boardId: "beavercreek05",
+    status: "occupied",
+    remainingSeconds: 2698,
+    sessionId: "extended-session",
+    sessionEnd: "2026-08-18T17:45:00.000Z",
+    maxPlayers: 8,
+  },
+  extensionConfirmedAtMs,
+  Date.parse("2026-08-18T17:00:02.100Z"),
+);
+const laggingPostExtension = mergeDartseeControlGuards(
+  {
+    ...beforeExtensionSnapshot,
+    capturedAt: "2026-08-18T17:00:03.000Z",
+    stateVersionAt: "2026-08-18T17:00:03.000Z",
+    receivedAt: "2026-08-18T17:00:04.000Z",
+    lanes: [
+      {
+        ...beforeExtensionSnapshot.lanes[0],
+        remainingSeconds: 1797,
+      },
+      beforeExtensionSnapshot.lanes[1],
+    ],
+  },
+  confirmedExtensionSnapshot,
+);
+assert.equal(
+  laggingPostExtension.lanes[0].sessionEnd,
+  "2026-08-18T17:45:00.000Z",
+  "A stale same-session socket echo must not erase a confirmed extension",
+);
+assert.ok(
+  laggingPostExtension.lanes[0].controlGuard,
+  "Same status and session ID are insufficient evidence when the end time is stale",
+);
+const convergedExtension = mergeDartseeControlGuards(
+  {
+    ...beforeExtensionSnapshot,
+    capturedAt: "2026-08-18T17:00:05.000Z",
+    stateVersionAt: "2026-08-18T17:00:05.000Z",
+    receivedAt: "2026-08-18T17:00:06.000Z",
+    lanes: [
+      {
+        ...beforeExtensionSnapshot.lanes[0],
+        remainingSeconds: 2695,
+        sessionEnd: "2026-08-18T17:46:00.000Z",
+      },
+      beforeExtensionSnapshot.lanes[1],
+    ],
+  },
+  laggingPostExtension,
+);
+assert.equal(
+  convergedExtension.lanes[0].controlGuard,
+  undefined,
+  "The extension guard may release once the same live session reaches or exceeds the confirmed end",
+);
+assert.equal(
+  convergedExtension.lanes[0].sessionEnd,
+  "2026-08-18T17:46:00.000Z",
+);
+
+const oneMinuteExtension = snapshotWithConfirmedDartseeControl(
+  beforeExtensionSnapshot,
+  {
+    ...beforeExtensionSnapshot.lanes[0],
+    remainingSeconds: 1858,
+    sessionEnd: "2026-08-18T17:31:00.000Z",
+  },
+  extensionConfirmedAtMs,
+  Date.parse("2026-08-18T17:00:02.100Z"),
+);
+const laggingOneMinuteExtension = mergeDartseeControlGuards(
+  {
+    ...beforeExtensionSnapshot,
+    capturedAt: "2026-08-18T17:00:03.000Z",
+    stateVersionAt: "2026-08-18T17:00:03.000Z",
+    receivedAt: "2026-08-18T17:00:04.000Z",
+  },
+  oneMinuteExtension,
+);
+assert.equal(
+  laggingOneMinuteExtension.lanes[0].sessionEnd,
+  "2026-08-18T17:31:00.000Z",
+  "A one-minute Add-time guard must retain its confirmed end over the old same-session timer",
+);
+assert.ok(laggingOneMinuteExtension.lanes[0].controlGuard);
+const convergedOneMinuteExtension = mergeDartseeControlGuards(
+  {
+    ...beforeExtensionSnapshot,
+    capturedAt: "2026-08-18T17:00:05.000Z",
+    stateVersionAt: "2026-08-18T17:00:05.000Z",
+    receivedAt: "2026-08-18T17:00:06.000Z",
+    lanes: [
+      {
+        ...beforeExtensionSnapshot.lanes[0],
+        remainingSeconds: 1855,
+        sessionEnd: "2026-08-18T17:31:00.000Z",
+      },
+      beforeExtensionSnapshot.lanes[1],
+    ],
+  },
+  laggingOneMinuteExtension,
+);
+assert.equal(
+  convergedOneMinuteExtension.lanes[0].controlGuard,
+  undefined,
+  "A one-minute Add-time guard may release only after the updated end arrives",
+);
+
+const expiredRebasedLaneSnapshot = snapshotWithConfirmedDartseeControl(
+  {
+    ...beforeExtensionSnapshot,
+    lanes: [
+      {
+        ...beforeExtensionSnapshot.lanes[0],
+        remainingSeconds: 1,
+      },
+      {
+        boardId: "beavercreek01",
+        status: "open",
+        remainingSeconds: 0,
+      },
+    ],
+  },
+  {
+    boardId: "beavercreek01",
+    status: "occupied",
+    remainingSeconds: 3600,
+    sessionId: "new-start",
+    sessionEnd: "2026-08-18T18:00:02.000Z",
+    maxPlayers: 8,
+  },
+  Date.parse("2026-08-18T17:00:02.000Z"),
+  Date.parse("2026-08-18T17:00:02.100Z"),
+);
+assert.equal(expiredRebasedLaneSnapshot.lanes[0].status, "open");
+assert.equal(
+  expiredRebasedLaneSnapshot.lanes[0].maxPlayers,
+  undefined,
+  "A lane rebased to open must clear the prior session player limit",
 );
 
 const distinctLaterSession = mergeDartseeControlGuards(
@@ -792,4 +1481,4 @@ const genuinelyRestarted = mergeDartseeControlGuards(
 assert.equal(genuinelyRestarted.lanes[0].sessionId, "new-session-after-end");
 assert.equal(genuinelyRestarted.lanes[0].controlGuard, undefined);
 
-console.log("Protected Dartsee Start and End controls regression test passed.");
+console.log("Protected Dartsee controls regression test passed.");

@@ -17,8 +17,14 @@ import {
 import {
   DARTSEE_START_DURATIONS,
   dartseeCommandDurationMinutes,
+  isDartseeOverrideDuration,
   type DartseeStartDuration,
 } from "./dartsee-duration";
+import {
+  dartseeExtensionConfirmationMatches,
+  inspectDartseeOverrideLane,
+  isDefinitiveDartseeOverrideRejection,
+} from "./dartsee-override-safety";
 
 export {
   DARTSEE_START_BUFFER_MINUTES,
@@ -40,6 +46,7 @@ export interface DartseeLaneReading {
   observedAt?: string;
   sessionId?: string;
   sessionEnd?: string;
+  maxPlayers?: number;
   gameType?: string;
   /** Short-lived proof that a Start or End was confirmed by the live socket. */
   controlGuard?: DartseeControlGuard;
@@ -110,6 +117,35 @@ export type DartseeLaneEndResult =
       code: DartseeLaneEndFailureCode;
     };
 
+export type DartseeLaneOverrideAction = "start" | "extend";
+
+export type DartseeLaneOverrideFailureCode =
+  | "invalid-configuration"
+  | "already-in-progress"
+  | "schedule-unavailable"
+  | "feed-unavailable"
+  | "session-unavailable"
+  | "shared-session"
+  | "lane-state-changed"
+  | "control-unavailable"
+  | "control-rejected";
+
+export type DartseeLaneOverrideResult =
+  | {
+      ok: true;
+      action: DartseeLaneOverrideAction;
+      confirmed: boolean;
+      checkedAt: string;
+      lane: DartseeLaneReading | null;
+      snapshot: DartseeLaneSnapshot | null;
+      expectedSessionId?: string;
+      expectedSessionEnd?: string;
+    }
+  | {
+      ok: false;
+      code: DartseeLaneOverrideFailureCode;
+    };
+
 interface DartseeAuth {
   accessToken: string;
   expiresAt: number;
@@ -176,11 +212,12 @@ interface DartseeControlTiming {
     | "confirmed"
     | "unconfirmed"
     | DartseeLaneStartFailureCode
-    | DartseeLaneEndFailureCode;
+    | DartseeLaneEndFailureCode
+    | DartseeLaneOverrideFailureCode;
 }
 
 function logDartseeControlTiming(
-  action: "start" | "end",
+  action: "start" | "end" | "override",
   timing: DartseeControlTiming,
 ) {
   const finishedAtMs = Date.now();
@@ -366,6 +403,7 @@ function setOpen(lane: DartseeLaneReading) {
   lane.remainingSeconds = 0;
   lane.sessionId = undefined;
   lane.sessionEnd = undefined;
+  lane.maxPlayers = undefined;
   lane.gameType = undefined;
 }
 
@@ -393,6 +431,13 @@ function setOccupied(
   lane.sessionId =
     typeof event.sessionId === "string" ? event.sessionId : lane.sessionId;
   lane.sessionEnd = new Date(endMs).toISOString();
+  const maxPlayers = event.maxPlayers;
+  lane.maxPlayers =
+    typeof maxPlayers === "number" &&
+    Number.isInteger(maxPlayers) &&
+    maxPlayers >= 1
+      ? maxPlayers
+      : lane.maxPlayers;
   lane.gameType = isRecord(event.game) && typeof event.game.gameType === "string"
     ? event.game.gameType
     : lane.gameType;
@@ -632,7 +677,12 @@ interface DartseeLaneWaiter {
 }
 
 function laneStateSignature(lane: DartseeLaneReading): string {
-  return [lane.status, lane.sessionId ?? "", lane.sessionEnd ?? ""].join(":");
+  return [
+    lane.status,
+    lane.sessionId ?? "",
+    lane.sessionEnd ?? "",
+    lane.maxPlayers ?? "",
+  ].join(":");
 }
 
 /**
@@ -1725,6 +1775,326 @@ export async function startDartseeLaneSession(input: {
     controlObserver?.close();
     if (lease && !retainLease) await releaseStartLease(lease);
     logDartseeControlTiming("start", timing);
+  }
+}
+
+/**
+ * Perform the explicit staff override without trusting the browser to choose
+ * the physical Dartsee operation. A fresh complete venue view determines
+ * whether the requested lane needs a new walk-in or an exact single-lane
+ * session extension. Reservation conflicts are intentionally bypassed here;
+ * every other live-feed, schedule-freshness, duplicate, and session-identity
+ * gate remains fail-closed.
+ */
+export async function overrideDartseeLaneSession(input: {
+  requestId: string;
+  lane: number;
+  durationMinutes: number;
+}): Promise<DartseeLaneOverrideResult> {
+  const timing: DartseeControlTiming = {
+    startedAtMs: Date.now(),
+    outcome: "invalid-configuration",
+  };
+  const boardId = dartseeBoardIdForLane(input.lane);
+  const ids = boardIds();
+  const venueId = readEnv("DARTSEE_VENUE_ID");
+  if (
+    !boardId ||
+    ids.length !== 5 ||
+    new Set(ids).size !== 5 ||
+    !isDartseeOverrideDuration(input.durationMinutes) ||
+    !venueId
+  ) {
+    logDartseeControlTiming("override", timing);
+    return { ok: false, code: "invalid-configuration" };
+  }
+
+  timing.outcome = "control-unavailable";
+  let lease: DartseeStartLease | null = null;
+  let commandMayHaveBeenSent = false;
+  let retainLease = false;
+  let controlObserver: DartseeControlObserver | null = null;
+  let action: DartseeLaneOverrideAction = "start";
+  let expectedSessionId: string | undefined;
+  let expectedSessionEnd: string | undefined;
+  try {
+    const [leaseAcquisition, fullPreflight, schedule] = await Promise.all([
+      acquireStartLease(input.lane, input.requestId).catch(
+        (): typeof DARTSEE_CONTROL_LEASE_UNAVAILABLE =>
+          DARTSEE_CONTROL_LEASE_UNAVAILABLE,
+      ),
+      openDartseeControlObserverWithFreshAuth(ids, 5_000).catch(() => null),
+      withDeadline(
+        getStoredEntertainmentSchedule(),
+        START_SCHEDULE_READ_DEADLINE_MS,
+        null,
+      ).catch(() => null),
+    ]);
+    timing.parallelReadyAtMs = Date.now();
+    controlObserver = fullPreflight?.observer ?? null;
+
+    if (leaseAcquisition === DARTSEE_CONTROL_LEASE_UNAVAILABLE) {
+      timing.outcome = "control-unavailable";
+      return { ok: false, code: "control-unavailable" };
+    }
+    lease = leaseAcquisition;
+    if (!lease) {
+      timing.outcome = "already-in-progress";
+      return { ok: false, code: "already-in-progress" };
+    }
+    if (!fullPreflight) {
+      timing.outcome = "feed-unavailable";
+      return { ok: false, code: "feed-unavailable" };
+    }
+    const { token, observer } = fullPreflight;
+
+    // A linked-session frame can closely follow the first complete heartbeat.
+    // Wait one short stability window before deciding whether Start or Extend
+    // is the only safe lane-specific operation.
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    if (!observer.isActive()) {
+      timing.outcome = "feed-unavailable";
+      return { ok: false, code: "feed-unavailable" };
+    }
+
+    const inspection = inspectDartseeOverrideLane(
+      observer.lanes(),
+      boardId,
+    );
+    if (!inspection.ok) {
+      const code: DartseeLaneOverrideFailureCode =
+        inspection.reason === "target-missing"
+          ? "feed-unavailable"
+          : inspection.reason;
+      timing.outcome = code;
+      return { ok: false, code };
+    }
+    action = inspection.action;
+
+    // The override bypasses a known overlap, never an unavailable or stale
+    // reservation source. That preserves the same fail-closed protection as
+    // the ordinary Start control when Event Host is not current.
+    const scheduleAt = schedule
+      ? new Date(schedule.fetchedAt).getTime()
+      : Number.NaN;
+    if (
+      !schedule ||
+      !Number.isFinite(scheduleAt) ||
+      Date.now() - scheduleAt > START_SCHEDULE_MAX_AGE_MS
+    ) {
+      timing.outcome = "schedule-unavailable";
+      return { ok: false, code: "schedule-unavailable" };
+    }
+
+    const sessionStartMs = Date.now();
+    const startCommandMinutes = dartseeCommandDurationMinutes(
+      input.durationMinutes,
+    );
+    const expectedEndMs = inspection.action === "start"
+      ? sessionStartMs + startCommandMinutes * 60_000
+      : inspection.currentEndMs + input.durationMinutes * 60_000;
+    expectedSessionId = inspection.action === "extend"
+      ? inspection.sessionId
+      : undefined;
+    expectedSessionEnd = new Date(expectedEndMs).toISOString();
+    const resourceIds = [`darts-${input.lane}`, `dart-${input.lane}`];
+    const conflict = schedule.reservations.find(
+      (reservation) =>
+        resourceIds.includes(reservation.resourceId.toLowerCase()) &&
+        reservationConflictsWithSession(
+          reservation,
+          sessionStartMs,
+          expectedEndMs,
+        ),
+    );
+    if (conflict) {
+      // This route is the explicit staff override. Keep the audit useful while
+      // excluding event names and all upstream/private response data.
+      console.warn("[dartsee lane:override] reservation conflict overridden", {
+        lane: input.lane,
+        action,
+        durationMinutes: input.durationMinutes,
+        reservationStartAt: conflict.startAt,
+      });
+    }
+
+    if (!observer.isActive()) {
+      timing.outcome = "feed-unavailable";
+      return { ok: false, code: "feed-unavailable" };
+    }
+    const immediatelyBeforeWrite = inspectDartseeOverrideLane(
+      observer.lanes(),
+      boardId,
+    );
+    const unchangedStart =
+      inspection.action === "start" &&
+      immediatelyBeforeWrite.ok &&
+      immediatelyBeforeWrite.action === "start";
+    const unchangedExtension =
+      inspection.action === "extend" &&
+      immediatelyBeforeWrite.ok &&
+      immediatelyBeforeWrite.action === "extend" &&
+      immediatelyBeforeWrite.sessionId === inspection.sessionId &&
+      immediatelyBeforeWrite.currentEndMs === inspection.currentEndMs &&
+      immediatelyBeforeWrite.maxPlayers === inspection.maxPlayers;
+    if (!unchangedStart && !unchangedExtension) {
+      timing.outcome = "lane-state-changed";
+      return { ok: false, code: "lane-state-changed" };
+    }
+
+    let response: Response | null = null;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), START_POST_TIMEOUT_MS);
+    const commandIssuedAtMs = Date.now();
+    timing.postStartedAtMs = commandIssuedAtMs;
+    try {
+      commandMayHaveBeenSent = true;
+      if (inspection.action === "start") {
+        response = await fetch(`${baseUrl()}/v2.0/tournaments/walk-in`, {
+          method: "POST",
+          redirect: "manual",
+          headers: {
+            accept: "application/json",
+            authorization: `Bearer ${token}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            length: startCommandMinutes,
+            boardIds: [boardId],
+            maxPlayers: 8,
+            venueId,
+            name: "walk-in",
+          }),
+          signal: controller.signal,
+        });
+      } else {
+        response = await fetch(
+          `${baseUrl()}/v2.0/tournaments/${encodeURIComponent(inspection.sessionId)}/extend?boardId=${encodeURIComponent(boardId)}`,
+          {
+            method: "POST",
+            redirect: "manual",
+            headers: {
+              accept: "application/json",
+              authorization: `Bearer ${token}`,
+              "content-type": "application/json",
+            },
+            // Dartsee's dashboard sends `length` as the additional minutes,
+            // not the session's new total duration. Extension therefore does
+            // not receive the one-minute new-session walking buffer.
+            body: JSON.stringify({
+              length: input.durationMinutes,
+              maxPlayers: inspection.maxPlayers,
+            }),
+            signal: controller.signal,
+          },
+        );
+      }
+    } catch {
+      timing.postResult = "request-failed";
+      // A timeout is ambiguous after the one allowed POST. Never resend it.
+    } finally {
+      clearTimeout(timer);
+      timing.postFinishedAtMs = Date.now();
+    }
+
+    if (response) {
+      timing.postResult = response.status < 300
+        ? "response-2xx"
+        : response.status < 400
+          ? "response-3xx"
+          : response.status < 500
+            ? "response-4xx"
+            : "response-5xx";
+    }
+    if (response?.body) {
+      try {
+        await response.body.cancel();
+      } catch {
+        // Live socket state, not the upstream body, proves the physical result.
+      }
+    }
+    if (
+      response &&
+      isDefinitiveDartseeOverrideRejection(response.status)
+    ) {
+      if (response.status === 401 || response.status === 403) authCache = null;
+      timing.outcome = "control-rejected";
+      return { ok: false, code: "control-rejected" };
+    }
+
+    const reading = await observer.waitForLane(
+      boardId,
+      commandIssuedAtMs,
+      inspection.action === "start"
+        ? (lane) => startConfirmationMatches(lane, expectedEndMs)
+        : (lane) =>
+            dartseeExtensionConfirmationMatches(
+              lane,
+              inspection.sessionId,
+              inspection.currentEndMs,
+              expectedEndMs,
+            ),
+    );
+    timing.confirmationFinishedAtMs = Date.now();
+    const confirmed = inspection.action === "start"
+      ? startConfirmationMatches(reading, expectedEndMs)
+        : dartseeExtensionConfirmationMatches(
+          reading,
+          inspection.sessionId,
+          inspection.currentEndMs,
+          expectedEndMs,
+        );
+    const confirmedLane = confirmed && reading
+      ? { ...reading, lane: input.lane }
+      : null;
+
+    if (!confirmedLane) {
+      retainLease = true;
+      timing.outcome = "unconfirmed";
+      return {
+        ok: true,
+        action,
+        confirmed: false,
+        checkedAt: new Date().toISOString(),
+        lane: null,
+        snapshot: null,
+        expectedSessionId,
+        expectedSessionEnd,
+      };
+    }
+
+    timing.outcome = "confirmed";
+    return {
+      ok: true,
+      action,
+      confirmed: true,
+      checkedAt: new Date().toISOString(),
+      lane: confirmedLane,
+      snapshot: null,
+      expectedSessionId,
+      expectedSessionEnd,
+    };
+  } catch {
+    if (!commandMayHaveBeenSent) {
+      timing.outcome = "control-unavailable";
+      return { ok: false, code: "control-unavailable" };
+    }
+    retainLease = true;
+    timing.outcome = "unconfirmed";
+    return {
+      ok: true,
+      action,
+      confirmed: false,
+      checkedAt: new Date().toISOString(),
+      lane: null,
+      snapshot: null,
+      expectedSessionId,
+      expectedSessionEnd,
+    };
+  } finally {
+    controlObserver?.close();
+    if (lease && !retainLease) await releaseStartLease(lease);
+    logDartseeControlTiming("override", timing);
   }
 }
 

@@ -7,6 +7,7 @@ export interface DartseeControlGuard {
   expiresAt: string;
   expectedStatus: "open" | "occupied";
   expectedSessionId?: string;
+  expectedSessionEnd?: string;
   supersededSessionId?: string;
 }
 
@@ -16,6 +17,7 @@ export interface DartseeGuardedLane {
   remainingSeconds: number;
   sessionId?: string;
   sessionEnd?: string;
+  maxPlayers?: number;
   gameType?: string;
   observedAt?: string;
   controlGuard?: DartseeControlGuard;
@@ -61,6 +63,7 @@ function rebaseLane<Lane extends DartseeGuardedLane>(
     remainingSeconds: 0,
     sessionId: undefined,
     sessionEnd: undefined,
+    maxPlayers: undefined,
     gameType: undefined,
   };
 }
@@ -71,8 +74,11 @@ function laneConfirmsGuard(
 ): boolean {
   if (guard.expectedStatus === "open") return lane.status === "open";
   if (lane.status !== "occupied") return false;
+  const expectedEndMs = parsedMs(guard.expectedSessionEnd);
+  const incomingEndMs = parsedMs(lane.sessionEnd);
   return (
-    !guard.expectedSessionId || lane.sessionId === guard.expectedSessionId
+    (!guard.expectedSessionId || lane.sessionId === guard.expectedSessionId) &&
+    (!guard.expectedSessionEnd || incomingEndMs >= expectedEndMs)
   );
 }
 
@@ -162,6 +168,9 @@ export function snapshotWithConfirmedDartseeControl<
       confirmedLane.status === "occupied" ? "occupied" : "open",
     ...(confirmedLane.status === "occupied" && confirmedLane.sessionId
       ? { expectedSessionId: confirmedLane.sessionId }
+      : {}),
+    ...(confirmedLane.status === "occupied" && confirmedLane.sessionEnd
+      ? { expectedSessionEnd: confirmedLane.sessionEnd }
       : {}),
     ...(confirmedLane.status === "open" && priorLane.sessionId
       ? { supersededSessionId: priorLane.sessionId }

@@ -4,7 +4,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIcon } from "@/components/ActivityIcon";
 import { BookingOptions } from "@/components/BookingOptions";
 import { BowlingPlanner } from "@/components/BowlingPlanner";
-import { DartsPlanner } from "@/components/DartsPlanner";
+import {
+  DartsPlanner,
+  type DartActiveControl,
+} from "@/components/DartsPlanner";
 import { TimedResourcePlanner } from "@/components/TimedResourcePlanner";
 import { EntertainmentReservations } from "@/components/EntertainmentReservations";
 import type { EntertainmentReservation } from "@/lib/entertainment-schedule";
@@ -49,12 +52,14 @@ const DART_CONTROL_CLIENT_TIMEOUT_MS = 25_000;
 const DART_CONTROL_CONFIRMED_GUARD_MS = 60_000;
 const ARCHIVE_PAGE_SIZE = 25;
 type StaffTab = "queue" | "bowling" | "darts" | "pool" | "shuffleboard";
-type DartControlAction = "start" | "end";
+type DartControlAction = "start" | "extend" | "end" | "override";
 type DartPendingControl = {
   action: DartControlAction;
   lane: number;
   verifyAfterMs: number;
   untilMs: number;
+  expectedSessionId?: string;
+  expectedSessionEnd?: string;
   timedOut?: boolean;
 };
 type DartLaneOverride = {
@@ -245,7 +250,17 @@ function dartLaneMatchesConfirmedOverride(
 ): boolean {
   if (!incoming || incoming.status !== confirmed.status) return false;
   if (confirmed.status !== "occupied" || !confirmed.sessionId) return true;
-  return incoming.sessionId === confirmed.sessionId;
+  const incomingEndMs = incoming.sessionEnd
+    ? new Date(incoming.sessionEnd).getTime()
+    : Number.NaN;
+  const confirmedEndMs = confirmed.sessionEnd
+    ? new Date(confirmed.sessionEnd).getTime()
+    : Number.NaN;
+  return (
+    incoming.sessionId === confirmed.sessionId &&
+    (!confirmed.sessionEnd ||
+      (Number.isFinite(incomingEndMs) && incomingEndMs >= confirmedEndMs))
+  );
 }
 
 export default function StaffPage() {
@@ -265,9 +280,8 @@ export default function StaffPage() {
     EntertainmentReservation[]
   >([]);
   const [resourceBusyKey, setResourceBusyKey] = useState<string | null>(null);
-  const [dartControlBusyLane, setDartControlBusyLane] = useState<number | null>(
-    null,
-  );
+  const [dartActiveControl, setDartActiveControl] =
+    useState<DartActiveControl | null>(null);
   const [dartPendingControls, setDartPendingControls] = useState<
     DartPendingControl[]
   >([]);
@@ -359,10 +373,24 @@ export default function StaffPage() {
         const freshForPending =
           Number.isFinite(incomingLaneVersionMs) &&
           incomingLaneVersionMs >= pending.verifyAfterMs;
-        const expectedPendingState =
-          pending.action === "start"
-            ? pendingReading?.status === "occupied"
-            : pendingReading?.status === "open";
+        const pendingReadingEndMs = pendingReading?.sessionEnd
+          ? new Date(pendingReading.sessionEnd).getTime()
+          : Number.NaN;
+        const expectedPendingEndMs = pending.expectedSessionEnd
+          ? new Date(pending.expectedSessionEnd).getTime()
+          : Number.NaN;
+        const expectedPendingState = pending.action === "start"
+          ? pendingReading?.status === "occupied"
+          : pending.action === "end"
+            ? pendingReading?.status === "open"
+            : pending.action === "extend"
+              ? pendingReading?.status === "occupied" &&
+                Boolean(pending.expectedSessionId) &&
+                pendingReading.sessionId === pending.expectedSessionId &&
+                Number.isFinite(expectedPendingEndMs) &&
+                Number.isFinite(pendingReadingEndMs) &&
+                pendingReadingEndMs >= expectedPendingEndMs
+              : false;
         const settledOppositeState =
           incomingLaneVersionMs >= pending.untilMs &&
           (pendingReading?.status === "open" ||
@@ -939,7 +967,7 @@ export default function StaffPage() {
     durationMinutes: 30 | 60 | 120,
     reservationOverride = false,
   ): Promise<boolean> {
-    setDartControlBusyLane(lane);
+    setDartActiveControl({ action: "start", lane, durationMinutes });
     try {
       const response = await postDartControl(
         "/api/staff/dart-lanes/start",
@@ -1017,7 +1045,100 @@ export default function StaffPage() {
       window.setTimeout(() => void fetchQueues(false), 3_000);
       return false;
     } finally {
-      setDartControlBusyLane(null);
+      setDartActiveControl(null);
+    }
+  }
+
+  async function overrideDartLane(
+    lane: number,
+    durationMinutes: number,
+  ): Promise<boolean> {
+    setDartActiveControl({ action: "override", lane, durationMinutes });
+    try {
+      const response = await postDartControl(
+        "/api/staff/dart-lanes/override",
+        headers(),
+        {
+          requestId: window.crypto.randomUUID(),
+          lane,
+          durationMinutes,
+        },
+      );
+      const data = (await response.json()) as {
+        error?: string;
+        message?: string;
+        action?: "start" | "extend";
+        confirmed?: boolean;
+        checkedAt?: string;
+        expectedSessionId?: string;
+        expectedSessionEnd?: string;
+        lane?: DartseeLaneSnapshot["lanes"][number] | null;
+        snapshot?: DartseeLaneSnapshot | null;
+      };
+      if (!response.ok) {
+        alert(data.error ?? "Could not override this dart lane timer.");
+        return false;
+      }
+
+      if (!data.confirmed) {
+        const verifyAfterMs = dartControlCheckedAtMs(data.checkedAt);
+        updateDartPendingControl(lane, {
+          action: data.action === "extend" ? "extend" : "start",
+          lane,
+          verifyAfterMs,
+          untilMs: verifyAfterMs + 30_000,
+          expectedSessionId: data.expectedSessionId,
+          expectedSessionEnd: data.expectedSessionEnd,
+        });
+        alert(
+          data.message ??
+            "The override may have been sent. Do not submit it again; check the lane while its status refreshes.",
+        );
+        window.setTimeout(() => void fetchQueues(false), 3_000);
+        return true;
+      }
+
+      if (data.snapshot) {
+        applyDartseeSnapshot(data.snapshot);
+      } else if (data.lane) {
+        const confirmedAtMs = dartControlCheckedAtMs(data.checkedAt);
+        dartLaneOverridesRef.current.set(lane, {
+          reading: data.lane,
+          confirmedAtMs,
+          releaseAfterMs:
+            confirmedAtMs + DART_CONTROL_CONFIRMED_GUARD_MS,
+        });
+        updateDartPendingControl(lane, null);
+        setDartseeSnapshot((current) =>
+          current
+            ? snapshotWithConfirmedDartLane(
+                current,
+                data.lane!,
+                confirmedAtMs,
+              )
+            : current,
+        );
+      }
+      setNowMs(Date.now());
+      return true;
+    } catch {
+      const verifyAfterMs = Date.now();
+      updateDartPendingControl(lane, {
+        // The interrupted client does not know whether the server observed an
+        // open or occupied lane. Keep a generic verification lock that cannot
+        // clear merely because an old occupied snapshot arrives.
+        action: "override",
+        lane,
+        verifyAfterMs,
+        untilMs: verifyAfterMs + 30_000,
+      });
+      alert(
+        "The connection was interrupted. Do not submit the override again until the lane status refreshes.",
+      );
+      window.setTimeout(() => void fetchQueues(false), 3_000);
+      return false;
+    } finally {
+      setDartActiveControl(null);
     }
   }
 
@@ -1025,7 +1146,7 @@ export default function StaffPage() {
     if (!window.confirm(`End the active session on Dart ${lane}?`)) {
       return false;
     }
-    setDartControlBusyLane(lane);
+    setDartActiveControl({ action: "end", lane });
     try {
       const response = await postDartControl(
         "/api/staff/dart-lanes/end",
@@ -1100,7 +1221,7 @@ export default function StaffPage() {
       window.setTimeout(() => void fetchQueues(false), 3_000);
       return false;
     } finally {
-      setDartControlBusyLane(null);
+      setDartActiveControl(null);
     }
   }
 
@@ -1422,13 +1543,11 @@ export default function StaffPage() {
             snapshot={dartseeSnapshot}
             entries={allEntries}
             reservations={entertainmentReservations}
-            controllingLane={dartControlBusyLane}
+            activeControl={dartActiveControl}
             pendingControls={dartPendingControls}
             reservationProtectionReady={reservationProtectionReady}
             onStartLane={startDartLane}
-            onOverrideStartLane={(lane, durationMinutes) =>
-              startDartLane(lane, durationMinutes, true)
-            }
+            onOverrideLane={overrideDartLane}
             onEndLane={endDartLane}
           />
           <div className="mt-5">
