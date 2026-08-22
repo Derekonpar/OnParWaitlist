@@ -4,7 +4,11 @@
  */
 
 function fifoWaitMinutes(parties) {
-  return parties.reduce((sum, entry) => sum + entry.sessionMinutes, 0);
+  return parties.reduce(
+    (sum, entry) =>
+      sum + entry.sessionMinutes + (entry.activity === "bowling" ? 5 : 0),
+    0,
+  );
 }
 
 function assert(label, actual, expected) {
@@ -46,11 +50,11 @@ assert(
   120,
 );
 
-// Bowling: 2 lanes 1 hour ahead
+// Bowling: a one-hour party ahead also needs five minutes for cleaning
 assert(
-  "bowling 2 lanes 1hr ahead",
-  fifoWaitMinutes([{ sessionMinutes: 60 }]),
-  60,
+  "bowling 1hr ahead includes cleaning",
+  fifoWaitMinutes([{ activity: "bowling", sessionMinutes: 60 }]),
+  65,
 );
 
 console.log("\nALL WAIT ESTIMATE TESTS PASSED");

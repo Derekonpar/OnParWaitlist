@@ -1,4 +1,5 @@
 import { defaultSessionMinutesFor } from "./booking";
+import { BOWLING_CLEANING_BUFFER_SECONDS } from "./bowling-turnover";
 import type { Activity, WaitlistEntry } from "./types";
 
 export interface ResourceUnavailableWindow {
@@ -58,7 +59,17 @@ function activeQueue(
 }
 
 function fifoWaitMinutes(parties: WaitlistEntry[]): number {
-  return parties.reduce((sum, entry) => sum + entry.sessionMinutes, 0);
+  return parties.reduce(
+    (sum, entry) =>
+      sum +
+      entry.sessionMinutes +
+      activityTurnoverSeconds(entry.activity) / 60,
+    0,
+  );
+}
+
+export function activityTurnoverSeconds(activity: Activity): number {
+  return activity === "bowling" ? BOWLING_CLEANING_BUFFER_SECONDS : 0;
 }
 
 function makeWorkingLanes(lanes: ResourceLaneAvailability[]) {
@@ -165,12 +176,16 @@ export function planResourceQueue(
     }
 
     const durationSeconds = entry.sessionMinutes * 60;
+    const turnoverSeconds = activityTurnoverSeconds(entry.activity);
     const candidates = combinations(usable, entry.laneCount)
       // A multi-lane party must start together on physically adjacent lanes.
       // If no adjacent group is ready, keep the party waiting for one.
       .filter(adjacentResources)
       .map((lanes) => {
-        const start = earliestCommonStart(lanes, durationSeconds);
+        const start = earliestCommonStart(
+          lanes,
+          durationSeconds + turnoverSeconds,
+        );
         return {
           lanes,
           start,
@@ -220,7 +235,9 @@ export function planResourceQueue(
 
     for (const selectedLane of selected) {
       const lane = working.find((item) => item.id === selectedLane.id);
-      if (lane) lane.availableAtSeconds = endInSeconds;
+      if (lane) {
+        lane.availableAtSeconds = endInSeconds + turnoverSeconds;
+      }
     }
   }
 

@@ -3,6 +3,7 @@ import type { WaitlistEntry } from "./types";
 import type { EntertainmentReservation } from "./entertainment-schedule";
 import { addScheduleWindows } from "./entertainment-schedule";
 import { planResourceQueue } from "./resource-scheduler";
+import { bowlingLaneAvailableAtSeconds } from "./bowling-turnover";
 
 const LANE_COUNT = 12;
 const BOWLING_MAX_SNAPSHOT_AGE_MS = 120_000;
@@ -51,17 +52,6 @@ function activeBowlingQueue(entries: WaitlistEntry[]): WaitlistEntry[] {
     );
 }
 
-function laneAvailability(
-  lane: BowlingLaneReading,
-  elapsedSeconds: number,
-): number {
-  if (lane.status === "open") return 0;
-  if (lane.status === "occupied") {
-    return Math.max(0, lane.remainingSeconds - elapsedSeconds);
-  }
-  return Number.POSITIVE_INFINITY;
-}
-
 export function planBowlingAssignments(
   snapshot: BowlingLaneSnapshot | null,
   entries: WaitlistEntry[],
@@ -93,7 +83,11 @@ export function planBowlingAssignments(
         : 0,
     availableAtSeconds: snapshotUnavailable
       ? Number.POSITIVE_INFINITY
-      : laneAvailability(lane, elapsedSeconds),
+      : bowlingLaneAvailableAtSeconds(
+          lane.status,
+          lane.remainingSeconds,
+          elapsedSeconds,
+        ),
   }));
 
   const availability = addScheduleWindows("bowling", lanes.map((lane) => ({

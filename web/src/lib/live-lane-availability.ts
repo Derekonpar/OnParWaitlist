@@ -19,6 +19,7 @@ import {
   getStoredEntertainmentSchedule,
 } from "./entertainment-schedule";
 import { withDeadline } from "./async-deadline";
+import { bowlingLaneAvailableAtSeconds } from "./bowling-turnover";
 
 export type LiveLaneAvailability = Partial<
   Record<Activity, ResourceLaneAvailability[]>
@@ -68,11 +69,11 @@ export function bowlingSnapshotToAvailability(
     availableAtSeconds:
       snapshot.healthStatus !== "ok" || snapshotTooOld
         ? Number.POSITIVE_INFINITY
-        : lane.status === "open"
-        ? 0
-        : lane.status === "occupied"
-          ? Math.max(0, lane.remainingSeconds - elapsed)
-          : Number.POSITIVE_INFINITY,
+        : bowlingLaneAvailableAtSeconds(
+            lane.status,
+            lane.remainingSeconds,
+            elapsed,
+          ),
   }));
 }
 

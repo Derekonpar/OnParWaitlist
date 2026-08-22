@@ -25,6 +25,11 @@ import {
   inspectDartseeOverrideLane,
   isDefinitiveDartseeOverrideRejection,
 } from "./dartsee-override-safety";
+import {
+  DEFAULT_DARTSEE_BOARD_IDS,
+  normalizeDartseeBoardIds,
+  normalizeDartseeLaneIdentities,
+} from "./dartsee-board-map";
 
 export {
   DARTSEE_START_BUFFER_MINUTES,
@@ -181,13 +186,6 @@ const STORED_SNAPSHOT_READ_CACHE_MS = 5_000;
 const REFRESH_IN_FLIGHT_GUARD_MS = 30_000;
 const LEASE_LOSER_RETRY_MS = 3_000;
 const REFRESH_ERROR_RETRY_MS = 15_000;
-const DEFAULT_BOARD_IDS = [
-  "beavercreek01",
-  "beavercreek02",
-  "beavercreek02b",
-  "beavercreek03",
-  "beavercreek05",
-];
 const HEARTBEAT = {
   command: "ping",
   clientType: "dashboard_global_admin",
@@ -274,7 +272,9 @@ function boardIds(): string[] {
     ?.split(",")
     .map((item) => item.trim())
     .filter(Boolean);
-  return configured?.length ? configured : DEFAULT_BOARD_IDS;
+  return normalizeDartseeBoardIds(
+    configured?.length ? configured : DEFAULT_DARTSEE_BOARD_IDS,
+  );
 }
 
 export function dartseeBoardIdForLane(lane: number): string | null {
@@ -1040,7 +1040,12 @@ async function downloadSnapshotPath(
   if (!isStoredSnapshot(parsed)) {
     throw new Error("DARTSEE_STORAGE_INVALID_SNAPSHOT");
   }
-  return parsed;
+  return {
+    ...parsed,
+    // Stored snapshots from before the lane-map correction retain valid live
+    // board state, but their venue-facing lane numbers need to be rebased.
+    lanes: normalizeDartseeLaneIdentities(parsed.lanes, boardIds()),
+  };
 }
 
 async function downloadStoredSnapshotUncached(): Promise<DartseeLaneSnapshot | null> {

@@ -1,9 +1,10 @@
 import { readEnv } from "./env";
 import { getSupabaseAdmin } from "./supabase";
 import type { Activity } from "./types";
-import type {
-  ResourceLaneAvailability,
-  ResourceUnavailableWindow,
+import {
+  activityTurnoverSeconds,
+  type ResourceLaneAvailability,
+  type ResourceUnavailableWindow,
 } from "./resource-scheduler";
 import {
   RESERVATION_PROTECTION_MS,
@@ -217,6 +218,7 @@ export function addScheduleWindows(
   reservations: EntertainmentReservation[],
   nowMs = Date.now(),
 ): ResourceLaneAvailability[] {
+  const turnoverSeconds = activityTurnoverSeconds(activity);
   return lanes.map((lane) => {
     const ids = canonicalResourceIds(activity, lane.id);
     const windows: ResourceUnavailableWindow[] = reservations
@@ -237,7 +239,14 @@ export function addScheduleWindows(
               1000,
           ),
         ),
-        endAtSeconds: Math.max(0, Math.ceil((new Date(reservation.endAt).getTime() - nowMs) / 1000)),
+        // Keep the source reservation unchanged; only this derived capacity
+        // window includes the activity-specific turnover after the event.
+        endAtSeconds: Math.max(
+          0,
+          Math.ceil(
+            (new Date(reservation.endAt).getTime() - nowMs) / 1000,
+          ) + turnoverSeconds,
+        ),
         reservationId: reservation.id,
         label: reservation.eventName,
         needsReview: reservation.needsReview,
