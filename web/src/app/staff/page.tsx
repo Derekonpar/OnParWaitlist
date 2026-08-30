@@ -40,6 +40,7 @@ import {
 } from "@/lib/types";
 
 const SOUND_STORAGE_KEY = "onpar-staff-sound";
+const STAFF_CHIME_PATH = "/sounds/new-guest-alert.wav";
 const STAFF_SECRET_STORAGE_KEY = "onpar-staff-secret";
 const BOWLING_STALE_AFTER_MS = 2 * 60_000;
 const STAFF_QUEUE_TIMEOUT_MS = 5_000;
@@ -658,7 +659,8 @@ export default function StaffPage() {
     const soundTimeout = window.setTimeout(() => {
       setSoundOn(sessionStorage.getItem(SOUND_STORAGE_KEY) === "1");
     }, 0);
-    const audio = new Audio("/sounds/new-guest.wav");
+    const audio = new Audio(STAFF_CHIME_PATH);
+    audio.volume = 1;
     audio.preload = "auto";
     chimeRef.current = audio;
     return () => {
