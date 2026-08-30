@@ -307,7 +307,9 @@ export default function StaffPage() {
   const [editSessionMinutes, setEditSessionMinutes] =
     useState<SessionDuration>(60);
   const [editSaving, setEditSaving] = useState(false);
-  const [soundOn, setSoundOn] = useState(false);
+  const [soundOn, setSoundOn] = useState(true);
+  const [soundReady, setSoundReady] = useState(false);
+  const [soundError, setSoundError] = useState<string | null>(null);
   const [staffTab, setStaffTab] = useState<StaffTab>("queue");
 
   const knownIdsRef = useRef<Set<string> | null>(null);
@@ -587,6 +589,49 @@ export default function StaffPage() {
     [loadStaffData, secret],
   );
 
+  const playStaffChime = useCallback(async () => {
+    const audio = chimeRef.current;
+    if (!audio) {
+      setSoundReady(false);
+      setSoundError("The new-guest alert sound could not be loaded.");
+      return false;
+    }
+
+    try {
+      audio.pause();
+      audio.currentTime = 0;
+      await audio.play();
+      setSoundReady(true);
+      setSoundError(null);
+      return true;
+    } catch (error) {
+      setSoundReady(false);
+      setSoundError(
+        "Sound was blocked. Unmute this browser tab and this Mac, then tap Enable & test sound.",
+      );
+      console.warn("[staff] chime blocked or failed", error);
+      return false;
+    }
+  }, []);
+
+  async function enableSound() {
+    sessionStorage.setItem(SOUND_STORAGE_KEY, "1");
+    setSoundOn(true);
+    await playStaffChime();
+  }
+
+  function disableSound() {
+    const audio = chimeRef.current;
+    if (audio) {
+      audio.pause();
+      audio.currentTime = 0;
+    }
+    sessionStorage.setItem(SOUND_STORAGE_KEY, "0");
+    setSoundOn(false);
+    setSoundReady(false);
+    setSoundError(null);
+  }
+
   const loadArchive = useCallback(
     async (
       staffSecret: string,
@@ -657,7 +702,12 @@ export default function StaffPage() {
 
   useEffect(() => {
     const soundTimeout = window.setTimeout(() => {
-      setSoundOn(sessionStorage.getItem(SOUND_STORAGE_KEY) === "1");
+      const savedPreference = sessionStorage.getItem(SOUND_STORAGE_KEY);
+      const shouldEnableSound = savedPreference !== "0";
+      if (savedPreference === null) {
+        sessionStorage.setItem(SOUND_STORAGE_KEY, "1");
+      }
+      setSoundOn(shouldEnableSound);
     }, 0);
     const audio = new Audio(STAFF_CHIME_PATH);
     audio.volume = 1;
@@ -748,39 +798,17 @@ export default function StaffPage() {
       knownIdsRef.current = nextIds;
       return;
     }
+    const seenIds = knownIdsRef.current;
     let hasNew = false;
     for (const id of nextIds) {
-      if (!knownIdsRef.current.has(id)) {
+      if (!seenIds.has(id)) {
+        seenIds.add(id);
         hasNew = true;
-        break;
       }
     }
-    knownIdsRef.current = nextIds;
-    if (!hasNew || !soundOn) return;
-    const audio = chimeRef.current;
-    if (!audio) return;
-    audio.currentTime = 0;
-    void audio.play().catch((err) => {
-      console.warn("[staff] chime blocked or failed", err);
-    });
-  }, [queues, authenticated, soundOn]);
-
-  function toggleSound() {
-    setSoundOn((prev) => {
-      const next = !prev;
-      sessionStorage.setItem(SOUND_STORAGE_KEY, next ? "1" : "0");
-      if (next) {
-        const audio = chimeRef.current;
-        if (audio) {
-          audio.currentTime = 0;
-          void audio.play().catch((err) => {
-            console.warn("[staff] chime preview blocked", err);
-          });
-        }
-      }
-      return next;
-    });
-  }
+    if (!hasNew || !soundOn || !soundReady) return;
+    void playStaffChime();
+  }, [queues, authenticated, playStaffChime, soundOn, soundReady]);
 
   async function staffAction(endpoint: string, id: string) {
     setActionId(id);
@@ -1341,6 +1369,32 @@ export default function StaffPage() {
 
   return (
     <main className="mx-auto min-h-screen max-w-5xl px-4 py-6 pb-24 sm:px-5">
+      {soundOn && !soundReady && (
+        <div
+          className={`mb-5 rounded-xl border px-4 py-3 text-sm shadow-lg ${
+            soundError
+              ? "border-red-400 bg-red-700 text-white shadow-red-950/30"
+              : "border-amber-400/70 bg-amber-500/20 text-amber-50 shadow-amber-950/20"
+          }`}
+          role={soundError ? "alert" : "status"}
+        >
+          <span className="block font-semibold">
+            {soundError ??
+              "New-guest sound needs one tap after this dashboard opens."}
+          </span>
+          <span className="mt-1 block text-xs opacity-90">
+            Tap the button to play a loud test. If the test is silent, unmute
+            this browser tab and increase this Mac&apos;s output volume.
+          </span>
+          <button
+            type="button"
+            onClick={() => void enableSound()}
+            className="mt-3 rounded-lg bg-white px-4 py-2 text-xs font-bold text-neutral-950 shadow-sm"
+          >
+            Enable &amp; test sound
+          </button>
+        </div>
+      )}
       {queueFeedStale && (
         <div
           className="mb-5 rounded-xl border border-amber-400/60 bg-amber-500/20 px-4 py-3 text-sm font-semibold text-amber-50"
@@ -1450,16 +1504,30 @@ export default function StaffPage() {
         <div className="flex shrink-0 items-center gap-2">
           <button
             type="button"
-            onClick={toggleSound}
-            aria-pressed={soundOn}
-            className="rounded-full border border-white/10 px-3 py-1.5 text-xs text-neutral-300 hover:bg-white/5"
+            onClick={
+              soundOn && soundReady
+                ? disableSound
+                : () => void enableSound()
+            }
+            aria-pressed={soundOn && soundReady}
+            className={`rounded-full border px-3 py-1.5 text-xs font-semibold ${
+              soundOn && soundReady
+                ? "border-emerald-400/60 bg-emerald-500/15 text-emerald-100 hover:bg-emerald-500/25"
+                : soundOn
+                  ? "border-amber-400/60 bg-amber-500/15 text-amber-100 hover:bg-amber-500/25"
+                  : "border-red-400/60 bg-red-500/15 text-red-100 hover:bg-red-500/25"
+            }`}
             title={
-              soundOn
+              soundOn && soundReady
                 ? "Mute new-guest chime"
-                : "Enable chime when someone joins"
+                : "Enable and test the new-guest chime"
             }
           >
-            {soundOn ? "Sound on" : "Sound off"}
+            {soundOn && soundReady
+              ? "Sound ready"
+              : soundOn
+                ? "Enable sound"
+                : "Sound off"}
           </button>
           <button
             type="button"

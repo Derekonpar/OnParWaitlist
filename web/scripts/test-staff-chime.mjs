@@ -80,8 +80,38 @@ assert.match(
 );
 assert.match(
   staffPage,
-  /if \(!hasNew \|\| !soundOn\) return;/,
-  "the chime must remain limited to new entries while sound is enabled",
+  /const \[soundReady, setSoundReady\] = useState\(false\);/,
+  "saved preference must be separate from verified browser sound readiness",
+);
+assert.match(
+  staffPage,
+  /await audio\.play\(\);\s+setSoundReady\(true\);\s+setSoundError\(null\);/,
+  "sound should become ready only after browser playback starts",
+);
+assert.match(
+  staffPage,
+  /catch \(error\) \{\s+setSoundReady\(false\);\s+setSoundError\(/,
+  "blocked playback should create a visible failure state",
+);
+assert.match(
+  staffPage,
+  /Enable &amp; test sound/,
+  "staff should have an explicit user-gesture sound unlock control",
+);
+assert.match(
+  staffPage,
+  /if \(!hasNew \|\| !soundOn \|\| !soundReady\) return;/,
+  "arrival playback must require a new entry and verified sound readiness",
+);
+assert.match(
+  staffPage,
+  /const seenIds = knownIdsRef\.current;[\s\S]*?if \(!seenIds\.has\(id\)\) \{\s+seenIds\.add\(id\);\s+hasNew = true;/,
+  "seen guest IDs should remain remembered across temporary queue flicker",
+);
+assert.doesNotMatch(
+  staffPage,
+  /setSoundOn\(\(prev\) =>[\s\S]*?audio\.play\(\)/,
+  "browser playback must not run inside a React state updater",
 );
 
 console.log(
