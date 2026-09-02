@@ -29,6 +29,16 @@ func sendCtrlAltDelete() {
   postKey(control, down: false)
 }
 
+func showWindowsDesktop() {
+  let command: CGKeyCode = 55
+  let d: CGKeyCode = 2
+  postKey(command, down: true, flags: [.maskCommand])
+  postKey(d, down: true, flags: [.maskCommand])
+  usleep(120_000)
+  postKey(d, down: false, flags: [.maskCommand])
+  postKey(command, down: false)
+}
+
 func replaceText(_ value: String, submit: Bool) {
   let keyCodes: [Character: CGKeyCode] = [
     "a": 0, "s": 1, "d": 2, "f": 3, "h": 4, "g": 5, "z": 6,
@@ -93,6 +103,8 @@ case "replace":
   replaceText(value.trimmingCharacters(in: .newlines), submit: args.contains("--submit"))
 case "ctrl-alt-delete":
   sendCtrlAltDelete()
+case "show-desktop":
+  showWindowsDesktop()
 default:
   fputs("Unknown command\n", stderr)
   exit(2)

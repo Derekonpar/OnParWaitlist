@@ -8,6 +8,11 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
+import {
+  detectScreenState,
+  findObservation,
+} from "./brunswick-screen-state.mjs";
+
 const execFileAsync = promisify(execFile);
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const appDir = path.resolve(scriptDir, "..");
@@ -99,59 +104,6 @@ Options:
 The watcher selects the open Brunswick Google Remote Desktop tab, takes a
 screenshot, OCRs the visible lane timers, and posts only changes or a periodic
 heartbeat. It can recover the known Brunswick login and Remote Desktop flow.`);
-}
-
-function observationText(observations) {
-  return observations.map((obs) => String(obs.text ?? "")).join("\n");
-}
-
-function findObservation(observations, patterns) {
-  return observations.find((obs) =>
-    patterns.some((pattern) => pattern.test(String(obs.text ?? ""))),
-  );
-}
-
-function detectScreenState(observations) {
-  const text = observationText(observations);
-  const laneLabels = observations.filter((obs) => /\bLane\s*\d{1,2}\b/i.test(String(obs.text ?? "")));
-  if (/\bBowling\b/i.test(text) && laneLabels.length >= 2) return "feed";
-  if (/ctrl\s*\+?\s*alt\s*\+?\s*delete|ctrl\s*-\s*alt\s*-\s*del/i.test(text)) {
-    return "windows-lock";
-  }
-  if (/\bOwner\b/i.test(text) && /password|sign\s*in/i.test(text)) {
-    return "windows-owner-login";
-  }
-  if (/\bOwner\b/i.test(text)) return "windows-owner-select";
-  if (/welcome|please wait|preparing windows|just a moment|getting windows ready/i.test(text)) {
-    return "windows-booting";
-  }
-  if (
-    /password/i.test(text) &&
-    ((/user\s*name|username/i.test(text) && /log\s*in|sign\s*in/i.test(text)) ||
-      (/desk\s*login/i.test(text) && /^User$/im.test(text)))
-  ) {
-    return "brunswick-login";
-  }
-  if (/host is offline|computer is offline|unable to connect|can(?:not|'t) connect|not available|turned off/i.test(text)) {
-    return "remote-offline";
-  }
-  // Chrome Remote Desktop's connected-session PIN screen often contains only
-  // "Enter PIN" plus a remotedesktop.google.com URL. Do not require the
-  // spaced words "Remote Desktop" or the BrunswickHQ card beneath it wins.
-  if (/enter\s*(?:access\s*)?(?:code|pin)|remember my pin|\bpin\b/i.test(text)) {
-    return "remote-code";
-  }
-  if (findObservation(observations, [/^Desk$/i])) return "remote-desktop";
-  // The connected Chrome tab is also titled BrunswickHQ. Only text inside the
-  // Remote Access page body is a selectable host; ignore the browser chrome.
-  if (
-    observations.some(
-      (obs) => /Brunswick\s*HQ/i.test(String(obs.text ?? "")) && Number(obs.y) < 0.9,
-    )
-  ) return "remote-host-list";
-  if (Date.now() < windowsBootExpectedUntil) return "windows-booting";
-  if (Date.now() < deskLaunchExpectedUntil) return "desk-starting";
-  return "unknown";
 }
 
 function parseTimer(text) {
@@ -558,6 +510,17 @@ end tell`;
   await execFileAsync("osascript", ["-e", script]);
 }
 
+async function showWindowsDesktop() {
+  if (existsSync(inputHelper)) {
+    await execFileAsync(inputHelper, ["show-desktop"]);
+    return;
+  }
+  const script = `tell application "System Events"
+key code 2 using command down
+end tell`;
+  await execFileAsync("osascript", ["-e", script]);
+}
+
 function recoveryCooldownMs(state) {
   // Host selection is safe to retry on the next scan when a click does not
   // take. Login typing is intentionally slower to avoid duplicate submits.
@@ -565,6 +528,7 @@ function recoveryCooldownMs(state) {
   if (state === "remote-code" || state === "remote-desktop") return 12_000;
   if (state === "windows-lock" || state === "windows-owner-select") return 12_000;
   if (state === "windows-owner-login") return 30_000;
+  if (state === "brunswick-office") return 12_000;
   return DEFAULT_RECOVERY_COOLDOWN_MS;
 }
 
@@ -630,6 +594,14 @@ async function recoverScreen(state, observations, options) {
     };
   }
 
+  if (state === "brunswick-office") {
+    await showWindowsDesktop();
+    return {
+      healthStatus: "recovering",
+      healthMessage: "Brunswick Office reopened after Windows startup. Returning to the desktop so Desk can be launched.",
+    };
+  }
+
   if (state === "brunswick-login") {
     const username = findObservation(observations, [/user\s*name|username/i, /^User$/i]);
     const password = findObservation(observations, [/password/i]);
@@ -679,7 +651,13 @@ async function recoverScreen(state, observations, options) {
 
   if (state === "remote-desktop") {
     windowsBootExpectedUntil = 0;
-    const desk = findObservation(observations, [/^Desk$/i]);
+    // Vision intermittently omits the tiny `desk` label while still reading
+    // the surrounding Windows desktop icons. The fallback is the stable label
+    // position for the correct Desk shortcut (not the nearby Desk - Copy).
+    const desk = findObservation(observations, [/^Desk$/i]) ?? {
+      x: 0.52,
+      y: 0.493,
+    };
     if (desk) {
       // OCR targets the filename below the Windows shortcut. Move upward to
       // the shortcut artwork so a double-click launches it instead of renaming it.
@@ -793,7 +771,10 @@ async function captureAndPost(options) {
     ? (await stat(screenshotPath)).mtime.toISOString()
     : new Date().toISOString();
   const observations = await runOcr(screenshotPath);
-  const screenState = detectScreenState(observations);
+  const screenState = detectScreenState(observations, {
+    windowsBootExpectedUntil,
+    deskLaunchExpectedUntil,
+  });
   if (screenState === "feed") {
     windowsBootExpectedUntil = 0;
     deskLaunchExpectedUntil = 0;

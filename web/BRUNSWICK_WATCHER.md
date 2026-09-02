@@ -78,6 +78,11 @@ then restores the app, Chrome window, and tab the user was using. Failed host
 clicks retry on the next scan; a transition to a new recovery screen proceeds
 immediately instead of inheriting the previous step's cooldown.
 
+Windows may restore Brunswick Office after a reboot. The watcher distinguishes
+that screen from Desk, returns to the Windows desktop, and launches the correct
+Desk shortcut. Lock-screen and desktop detection also use compound visual
+signatures when OCR omits the small prompt or the `desk` filename.
+
 For the incident history, recovery decisions, new-computer checklist, and
 verification commands, see `docs/BRUNSWICK_RECOVERY_RUNBOOK.md`.
 

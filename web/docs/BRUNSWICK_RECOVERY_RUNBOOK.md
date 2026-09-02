@@ -30,6 +30,14 @@ not the shortcut artwork.
   Ctrl+Alt+Delete lock screen, Owner selection/password, Windows startup,
   Windows desktop, Desk startup, DESK LOGIN, and live-feed states. Each state
   has its own retry cooldown, and a transition advances immediately.
+- Treat the lock prompt as optional OCR. Vision may turn
+  `Ctrl+Alt+Delete` into unrelated letters or omit the small line entirely, so
+  the watcher also requires the combined Remote Desktop URL, large Windows
+  clock, weekday, and month signature before sending the secure-attention keys.
+- If Windows restores Brunswick Office after reboot, send Windows+D to return
+  to the desktop rather than entering Desk credentials into the similar Office
+  login. If OCR omits the tiny `desk` label, identify the desktop from its
+  surrounding icons and use the known Desk artwork position, never Desk - Copy.
 - Distinguish the clickable `BrunswickHQ` host tile from the connected Chrome
   tab title by its OCR screen position. Without this check, a connected Windows
   lock screen can be mistaken for the Remote Access computer list forever.
@@ -91,6 +99,13 @@ dedicated Remote Access window. The watcher should reopen it, select
 `BrunswickHQ`, complete the code/Desktop/login flow, return to `posted`, and
 leave the user's foreground app/tab unchanged. Do not intentionally shut down
 the venue's main server during operating hours.
+
+The side-effect-free recovery classifier can be checked without focusing or
+typing into Remote Desktop:
+
+```bash
+node scripts/test-brunswick-recovery.mjs
+```
 
 The staff dashboard must show a red Brunswick warning within two minutes if the
 watcher stops, loses the feed, cannot log in, or cannot reach the main computer.
