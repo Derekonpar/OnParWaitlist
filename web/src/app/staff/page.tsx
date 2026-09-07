@@ -1368,7 +1368,7 @@ export default function StaffPage() {
   }
 
   return (
-    <main className="mx-auto min-h-screen max-w-5xl px-4 py-6 pb-24 sm:px-5">
+    <main className="mx-auto min-h-screen w-full min-w-0 max-w-5xl px-4 py-6 pb-24 sm:px-5">
       {soundOn && !soundReady && (
         <div
           className={`mb-5 rounded-xl border px-4 py-3 text-sm shadow-lg ${
