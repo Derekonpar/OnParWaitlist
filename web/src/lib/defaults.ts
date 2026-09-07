@@ -9,6 +9,7 @@ export function emptyBoard(): ActivityBoard[] {
       waitingCount: 0,
       estimatedWaitMinutes: 0,
       availabilityStatus: "unknown",
+      reservationScheduleStatus: "stale",
     },
     queue: [],
   }));

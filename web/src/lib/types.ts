@@ -49,6 +49,7 @@ export interface ActivityStats {
   waitingCount: number;
   estimatedWaitMinutes: number;
   availabilityStatus: "live" | "unknown";
+  reservationScheduleStatus: "fresh" | "stale";
 }
 
 export const ACTIVITY_LABELS: Record<Activity, string> = {

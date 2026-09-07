@@ -252,6 +252,9 @@ export function TvWaitBoard({ initialBoard }: TvWaitBoardProps) {
   const hasUnknownWaits = board.some(
     ({ stats }) => stats.availabilityStatus === "unknown",
   );
+  const reservationScheduleStale = board.some(
+    ({ stats }) => stats.reservationScheduleStatus === "stale",
+  );
 
   const refresh = useCallback(async () => {
     if (refreshController.current) return;
@@ -369,7 +372,7 @@ export function TvWaitBoard({ initialBoard }: TvWaitBoardProps) {
           </p>
           <p
             className={`mt-1 text-[clamp(0.58rem,0.75vw,0.82rem)] font-bold uppercase tracking-[0.16em] ${
-              connected && !hasUnknownWaits
+              connected && !hasUnknownWaits && !reservationScheduleStale
                 ? "text-emerald-300"
                 : "text-amber-300"
             }`}
@@ -379,6 +382,8 @@ export function TvWaitBoard({ initialBoard }: TvWaitBoardProps) {
               ? updatedAt
                 ? hasUnknownWaits
                   ? "Updating live feeds · latest queue shown"
+                  : reservationScheduleStale
+                    ? "Live feeds · reservation schedule updating"
                   : "Live waits"
                 : "Connecting to live waits"
               : "Updating · showing last known"}
@@ -393,6 +398,8 @@ export function TvWaitBoard({ initialBoard }: TvWaitBoardProps) {
         {board.map(({ stats, queue }) => {
           const theme = ACTIVITY_THEME[stats.activity];
           const waitKnown = stats.availabilityStatus === "live";
+          const reservationScheduleStale =
+            stats.reservationScheduleStatus === "stale";
           const open = waitKnown && stats.estimatedWaitMinutes <= 0;
           return (
             <EntertainmentCard
@@ -416,7 +423,13 @@ export function TvWaitBoard({ initialBoard }: TvWaitBoardProps) {
                     ? "text-emerald-200"
                     : "text-white"
               }
-              statusLabel={waitKnown ? "Estimated wait" : "Live feed"}
+              statusLabel={
+                waitKnown
+                  ? reservationScheduleStale
+                    ? "Live feed estimate"
+                    : "Estimated wait"
+                  : "Live feed"
+              }
               waitingCount={stats.waitingCount}
               queue={queue}
             />

@@ -21,13 +21,23 @@ import {
 import { withDeadline } from "./async-deadline";
 import { bowlingLaneAvailableAtSeconds } from "./bowling-turnover";
 
+export type ReservationScheduleStatus = "fresh" | "stale";
+
 export type LiveLaneAvailability = Partial<
   Record<Activity, ResourceLaneAvailability[]>
->;
+> & {
+  reservationScheduleStatus: ReservationScheduleStatus;
+};
 
 export interface LiveLaneAvailabilityOptions {
   /** Contact Dartsee/Event Host. Public reads leave this false and refresh later. */
   refreshRemote?: boolean;
+  /**
+   * Passive public displays may show estimates from healthy live feeds while
+   * separately warning that reservation protection is stale. Placement and
+   * control paths must leave this false so they continue to fail closed.
+   */
+  allowStaleScheduleForDisplay?: boolean;
 }
 
 const STORED_SOURCE_TIMEOUT_MS = 1_800;
@@ -81,6 +91,8 @@ export async function getLiveLaneAvailability(
   options: LiveLaneAvailabilityOptions = {},
 ): Promise<LiveLaneAvailability> {
   const refreshRemote = options.refreshRemote ?? false;
+  const allowStaleScheduleForDisplay =
+    options.allowStaleScheduleForDisplay ?? false;
   const [bowlingResult, dartseeResult, timedResult, scheduleResult] = await Promise.allSettled([
     boundedStoredRead(getBowlingLaneSnapshot()),
     refreshRemote
@@ -142,7 +154,7 @@ export async function getLiveLaneAvailability(
   ) => {
     if (!lanes) return undefined;
     const scheduled = addScheduleWindows(activity, lanes, reservations);
-    if (!scheduleUnavailable) return scheduled;
+    if (!scheduleUnavailable || allowStaleScheduleForDisplay) return scheduled;
     // A missing or expired schedule cannot prove that an otherwise-open lane
     // is safe to book. Preserve known reservation windows and queue identity,
     // but mark the resulting wait unknown until the background refresh lands.
@@ -153,6 +165,7 @@ export async function getLiveLaneAvailability(
   };
 
   return {
+    reservationScheduleStatus: scheduleUnavailable ? "stale" : "fresh",
     bowling: applySchedule("bowling", bowling),
     darts: applySchedule("darts", darts),
     pool: applySchedule("pool", pool),

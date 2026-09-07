@@ -604,7 +604,12 @@ export async function getStats(): Promise<ActivityStats[]> {
     getLiveLaneAvailability({ refreshRemote: false }),
   ]);
   return ACTIVITIES.map((activity) =>
-    buildStats(activity, entries, liveLanes[activity]),
+    buildStats(
+      activity,
+      entries,
+      liveLanes[activity],
+      liveLanes.reservationScheduleStatus,
+    ),
   );
 }
 
@@ -612,6 +617,7 @@ function buildStats(
   activity: Activity,
   entries: WaitlistEntry[],
   lanes?: ResourceLaneAvailability[],
+  reservationScheduleStatus: "fresh" | "stale" = "stale",
 ): ActivityStats {
   const waiting = entries.filter(
     (e) => e.activity === activity && e.status === "waiting",
@@ -624,13 +630,17 @@ function buildStats(
     availabilityStatus: hasCompleteActivityAvailability(activity, entries, lanes)
       ? "live"
       : "unknown",
+    reservationScheduleStatus,
   };
 }
 
 export async function getBoard(): Promise<ActivityBoard[]> {
   const [entries, liveLanes] = await Promise.all([
     withLocalFileFallbackLock(readActiveEntriesUnsafe),
-    getLiveLaneAvailability({ refreshRemote: false }),
+    getLiveLaneAvailability({
+      refreshRemote: false,
+      allowStaleScheduleForDisplay: true,
+    }),
   ]);
   return ACTIVITIES.map((activity) => {
     const waiting = entries
@@ -645,7 +655,12 @@ export async function getBoard(): Promise<ActivityBoard[]> {
       );
 
     return {
-      stats: buildStats(activity, entries, liveLanes[activity]),
+      stats: buildStats(
+        activity,
+        entries,
+        liveLanes[activity],
+        liveLanes.reservationScheduleStatus,
+      ),
       queue: waiting.map((e, i) => ({
         id: e.id,
         name: e.name,

@@ -74,6 +74,55 @@ assert.match(
   "Expired reservation data must not advertise resources as safe to book",
 );
 assert.match(
+  liveAvailability,
+  /allowStaleScheduleForDisplay =\s*options\.allowStaleScheduleForDisplay \?\? false/,
+  "Stale-schedule display degradation must stay opt-in and fail closed by default",
+);
+assert.match(
+  store,
+  /getBoard\(\)[\s\S]*?allowStaleScheduleForDisplay: true/,
+  "The passive public board must retain healthy live-feed estimates during a schedule outage",
+);
+assert.equal(
+  (store.match(/allowStaleScheduleForDisplay: true/g) ?? []).length,
+  1,
+  "Only the passive public board may bypass stale schedule poisoning",
+);
+assert.match(
+  liveAvailability,
+  /reservationScheduleStatus: scheduleUnavailable \? "stale" : "fresh"/,
+  "Public clients must receive explicit reservation-schedule health metadata",
+);
+assert.match(
+  liveAvailability,
+  /const scheduled = addScheduleWindows\(activity, lanes, reservations\);[\s\S]*?allowStaleScheduleForDisplay\) return scheduled/,
+  "Passive degraded mode must retain every last-known reservation window",
+);
+assert.match(
+  liveAvailability,
+  /dartseeUnavailable[\s\S]*?availableAtSeconds: Number\.POSITIVE_INFINITY/,
+  "A stale or unhealthy Dartsee snapshot must stay unavailable in every schedule mode",
+);
+assert.match(
+  liveAvailability,
+  /snapshot\.healthStatus !== "ok" \|\| snapshotTooOld[\s\S]*?Number\.POSITIVE_INFINITY/,
+  "A stale or unhealthy Brunswick snapshot must stay unavailable in every schedule mode",
+);
+for (const strictCaller of ["getEstimatedWaitMinutes", "getWaitlistStatus"]) {
+  const callerStart = store.indexOf(`export async function ${strictCaller}`);
+  const nextExport = store.indexOf("\nexport ", callerStart + 1);
+  const implementation = store.slice(
+    callerStart,
+    nextExport === -1 ? store.length : nextExport,
+  );
+  assert.ok(callerStart >= 0, `${strictCaller} must remain present`);
+  assert.doesNotMatch(
+    implementation,
+    /allowStaleScheduleForDisplay: true/,
+    `${strictCaller} must keep strict reservation protection`,
+  );
+}
+assert.match(
   scheduler,
   /hasCompleteActivityAvailability[\s\S]*?plan\.unassigned\.length === 0/,
   "A partial lane feed must not label fallback wait math as live",

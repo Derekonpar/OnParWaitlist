@@ -88,6 +88,21 @@ assert.match(
   /availabilityStatus === "live"/,
   "The TV board must not label unknown live-feed availability as No Wait",
 );
+assert.match(
+  board,
+  /Live feeds · reservation schedule updating/,
+  "The TV board must distinguish stale reservations from failed live feeds",
+);
+assert.match(
+  board,
+  /reservationScheduleStale[\s\S]*?Live feed estimate/,
+  "Healthy live-feed estimates must remain visible while reservations refresh",
+);
+assert.match(
+  customerCard,
+  /Reservation schedule updating/,
+  "The customer board must disclose when estimates exclude a fresh reservation schedule",
+);
 assert.doesNotMatch(
   customerCard,
   /Walk on/i,

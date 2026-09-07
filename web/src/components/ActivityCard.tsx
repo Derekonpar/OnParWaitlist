@@ -18,6 +18,8 @@ export function ActivityCard({ board, onJoin }: ActivityCardProps) {
   const { stats, queue } = board;
   const theme = ACTIVITY_THEME[stats.activity];
   const waitKnown = stats.availabilityStatus === "live";
+  const reservationScheduleStale =
+    stats.reservationScheduleStatus === "stale";
   const hasWait = stats.estimatedWaitMinutes > 0;
 
   return (
@@ -52,7 +54,9 @@ export function ActivityCard({ board, onJoin }: ActivityCardProps) {
         <div className="mt-4 flex items-center justify-between rounded-2xl bg-black/25 px-4 py-3 backdrop-blur-sm">
           <div>
             <p className="text-xs font-medium uppercase tracking-wide text-white/60">
-              Estimated wait
+              {waitKnown && reservationScheduleStale
+                ? "Live feed estimate"
+                : "Estimated wait"}
             </p>
             <p className="text-xl font-semibold text-white">
               {!waitKnown ? (
@@ -71,19 +75,30 @@ export function ActivityCard({ board, onJoin }: ActivityCardProps) {
           </div>
           <span
             className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${
-              waitKnown
+              waitKnown && !reservationScheduleStale
                 ? "bg-emerald-400/20 text-emerald-100"
                 : "bg-amber-400/20 text-amber-100"
             }`}
           >
             <span
               className={`h-1.5 w-1.5 animate-pulse rounded-full ${
-                waitKnown ? "bg-emerald-300" : "bg-amber-300"
+                waitKnown && !reservationScheduleStale
+                  ? "bg-emerald-300"
+                  : "bg-amber-300"
               }`}
             />
-            {waitKnown ? "Live" : "Updating"}
+            {waitKnown
+              ? reservationScheduleStale
+                ? "Live feed"
+                : "Live"
+              : "Updating"}
           </span>
         </div>
+        {waitKnown && reservationScheduleStale && (
+          <p className="mt-2 text-xs font-semibold text-amber-100">
+            Reservation schedule updating
+          </p>
+        )}
       </div>
 
       <div className="space-y-4 px-5 py-4">
