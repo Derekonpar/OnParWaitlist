@@ -19,6 +19,7 @@ import {
   reservationProtectionActive,
 } from "@/lib/reservation-policy";
 import styles from "./BowlingPlanner.module.css";
+import { bowlingLaneDisplayStatus, bowlingSnapshotDisplayState } from "@/lib/bowling-display-continuity";
 
 const BowlingLaneScene = dynamic(() => import("./BowlingLaneScene"), {
   ssr: false,
@@ -31,11 +32,12 @@ interface BowlingPlannerProps {
   reservations?: EntertainmentReservation[];
 }
 
-const BOWLING_STALE_AFTER_MS = 2 * 60_000;
-
 function freshnessLabel(snapshot: BowlingLaneSnapshot | null, nowMs: number) {
   if (!snapshot || nowMs === 0) return "No feed";
-  if (snapshot.healthStatus !== "ok") return "Needs attention";
+  const display = bowlingSnapshotDisplayState(snapshot, nowMs);
+  if (!display.available) return "Needs attention";
+  if (display.reconnecting) return "Reconnecting · last confirmed lanes";
+  if (snapshot.lanes.some((lane) => lane.estimated)) return "Live · estimated lane timers";
   const capturedAt = new Date(snapshot.capturedAt).getTime();
   if (!Number.isFinite(capturedAt)) return "No feed";
   const ageSeconds = Math.max(0, Math.floor((nowMs - capturedAt) / 1000));
@@ -84,13 +86,8 @@ export function BowlingPlanner({ snapshot, entries, reservations = [] }: Bowling
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [selectedLaneNumber, setSelectedLaneNumber] = useState(1);
   const [sceneReady, setSceneReady] = useState(false);
-  const capturedAtMs = snapshot
-    ? new Date(snapshot.capturedAt).getTime()
-    : Number.NaN;
-  const feedStale =
-    !Number.isFinite(capturedAtMs) ||
-    nowMs - capturedAtMs > BOWLING_STALE_AFTER_MS;
-  const feedUnavailable = !snapshot || snapshot.healthStatus !== "ok" || feedStale;
+  const feedDisplay = bowlingSnapshotDisplayState(snapshot, nowMs);
+  const feedUnavailable = !feedDisplay.available;
 
   useEffect(() => {
     const interval = window.setInterval(() => setNowMs(Date.now()), 1000);
@@ -140,9 +137,7 @@ export function BowlingPlanner({ snapshot, entries, reservations = [] }: Bowling
         );
         const nextReservation =
           activeReservation ?? protectedReservation ?? laneReservations[0];
-        const displayStatus: BowlingLaneStatus = feedUnavailable
-          ? "unknown"
-          : lane.status;
+        const displayStatus = bowlingLaneDisplayStatus(snapshot, lane, nowMs);
 
         return {
           lane,
@@ -155,7 +150,7 @@ export function BowlingPlanner({ snapshot, entries, reservations = [] }: Bowling
           reservationWarning: Boolean(activeReservation || protectedReservation),
         };
       }),
-    [assignmentsByLane, feedUnavailable, nowMs, plan.lanes, reservations],
+    [assignmentsByLane, nowMs, plan.lanes, reservations, snapshot],
   );
 
   const selectedLane =
@@ -195,7 +190,7 @@ export function BowlingPlanner({ snapshot, entries, reservations = [] }: Bowling
           <p className={styles.recoveryCopy}>
             {snapshot.healthStatus !== "ok"
               ? snapshot.healthMessage ?? "Lane times may be stale."
-              : "No fresh Brunswick snapshot has arrived for over 2 minutes. Check the watcher and Remote Desktop window."}
+              : "No fresh Brunswick snapshot has arrived for over 3 minutes. Check the Brunswick computer, Luckfox connection, and watcher."}
           </p>
         </div>
       )}
@@ -398,6 +393,11 @@ export function BowlingPlanner({ snapshot, entries, reservations = [] }: Bowling
             <div className={styles.detailCell}>
               <span>Lane status</span>
               <strong className={styles.selectedCountdown}>{selectedLane.value}</strong>
+              {selectedLane.displayStatus !== "unknown" && (feedDisplay.reconnecting || selectedLane.lane.estimated) && (
+                <small>{selectedLane.lane.remainingSeconds <= 0 && selectedLane.displayStatus === "occupied"
+                  ? "In use · awaiting a fresh lane reading"
+                  : "Last confirmed · estimated countdown"}</small>
+              )}
               {!feedUnavailable && selectedLane.lane.status === "reserved" &&
                 selectedLane.lane.reservationLabel && (
                   <small>{selectedLane.lane.reservationLabel}</small>
@@ -443,7 +443,7 @@ export function BowlingPlanner({ snapshot, entries, reservations = [] }: Bowling
           <span>{plan.assignments.length}</span>
         </div>
         {plan.assignments.length === 0 ? (
-          <p className={styles.emptyState}>No bowling parties waiting</p>
+          <p className={styles.emptyState}>{activeQueueCount > 0 ? "Waiting for confirmed lane availability" : "No bowling parties waiting"}</p>
         ) : (
           <ul className={styles.placementList}>
             {plan.assignments.map((assignment) => (

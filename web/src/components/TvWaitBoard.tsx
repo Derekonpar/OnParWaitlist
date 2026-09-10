@@ -10,6 +10,7 @@ import type {
 import { SINGA_PUBLIC_STAGE_LAST_KNOWN_MAX_AGE_MS } from "@/lib/singa-public-stage-contract";
 import { karaokeInactiveDisplayStatus } from "@/lib/karaoke-display-hours";
 import { formatTvWaitDuration } from "@/lib/tv-wait-format";
+import { publicWaitDisplayStatus } from "@/lib/bowling-display-continuity";
 import { ACTIVITY_THEME } from "@/lib/types";
 import { ActivityIcon } from "./ActivityIcon";
 
@@ -250,8 +251,9 @@ export function TvWaitBoard({ initialBoard }: TvWaitBoardProps) {
   const refreshController = useRef<AbortController | null>(null);
   const karaokeRefreshController = useRef<AbortController | null>(null);
   const hasUnknownWaits = board.some(
-    ({ stats }) => stats.availabilityStatus === "unknown",
+    ({ stats }) => publicWaitDisplayStatus(stats, nowMs) === "unknown",
   );
+  const hasEstimatedWaits = board.some(({ stats }) => publicWaitDisplayStatus(stats, nowMs) === "estimated");
   const reservationScheduleStale = board.some(
     ({ stats }) => stats.reservationScheduleStatus === "stale",
   );
@@ -372,7 +374,7 @@ export function TvWaitBoard({ initialBoard }: TvWaitBoardProps) {
           </p>
           <p
             className={`mt-1 text-[clamp(0.58rem,0.75vw,0.82rem)] font-bold uppercase tracking-[0.16em] ${
-              connected && !hasUnknownWaits && !reservationScheduleStale
+              connected && !hasUnknownWaits && !hasEstimatedWaits && !reservationScheduleStale
                 ? "text-emerald-300"
                 : "text-amber-300"
             }`}
@@ -382,9 +384,11 @@ export function TvWaitBoard({ initialBoard }: TvWaitBoardProps) {
               ? updatedAt
                 ? hasUnknownWaits
                   ? "Updating live feeds · latest queue shown"
-                  : reservationScheduleStale
-                    ? "Live feeds · reservation schedule updating"
-                  : "Live waits"
+                  : hasEstimatedWaits
+                    ? "Bowling reconnecting · last confirmed estimate"
+                    : reservationScheduleStale
+                      ? "Live feeds · reservation schedule updating"
+                      : "Live waits"
                 : "Connecting to live waits"
               : "Updating · showing last known"}
           </p>
@@ -397,7 +401,9 @@ export function TvWaitBoard({ initialBoard }: TvWaitBoardProps) {
       >
         {board.map(({ stats, queue }) => {
           const theme = ACTIVITY_THEME[stats.activity];
-          const waitKnown = stats.availabilityStatus === "live";
+          const displayStatus = publicWaitDisplayStatus(stats, nowMs);
+          const waitKnown = displayStatus !== "unknown";
+          const estimated = displayStatus === "estimated";
           const reservationScheduleStale =
             stats.reservationScheduleStatus === "stale";
           const open = waitKnown && stats.estimatedWaitMinutes <= 0;
@@ -425,9 +431,11 @@ export function TvWaitBoard({ initialBoard }: TvWaitBoardProps) {
               }
               statusLabel={
                 waitKnown
-                  ? reservationScheduleStale
-                    ? "Live feed estimate"
-                    : "Estimated wait"
+                  ? estimated
+                    ? "Last confirmed estimate"
+                    : reservationScheduleStale
+                      ? "Live feed estimate"
+                      : "Estimated wait"
                   : "Live feed"
               }
               waitingCount={stats.waitingCount}

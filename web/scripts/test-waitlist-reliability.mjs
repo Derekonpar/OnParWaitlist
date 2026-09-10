@@ -105,9 +105,11 @@ assert.match(
 );
 assert.match(
   liveAvailability,
-  /snapshot\.healthStatus !== "ok" \|\| snapshotTooOld[\s\S]*?Number\.POSITIVE_INFINITY/,
-  "A stale or unhealthy Brunswick snapshot must stay unavailable in every schedule mode",
+  /strictUnavailable = snapshot\.healthStatus !== "ok" \|\| snapshotTooOld[\s\S]*?lane\.estimated === true[\s\S]*?!allowDisplayContinuity && strictUnavailable[\s\S]*?Number\.POSITIVE_INFINITY/,
+  "A stale, estimated or unhealthy Brunswick snapshot must stay unavailable to strict placement",
 );
+assert.match(liveAvailability, /allowDisplayContinuity = false/, "Bowling display continuity must be opt-in");
+assert.equal((store.match(/allowBowlingDisplayContinuity: true/g) ?? []).length, 1, "Only the passive public Board opts into bowling display continuity");
 for (const strictCaller of ["getEstimatedWaitMinutes", "getWaitlistStatus"]) {
   const callerStart = store.indexOf(`export async function ${strictCaller}`);
   const nextExport = store.indexOf("\nexport ", callerStart + 1);
@@ -118,7 +120,7 @@ for (const strictCaller of ["getEstimatedWaitMinutes", "getWaitlistStatus"]) {
   assert.ok(callerStart >= 0, `${strictCaller} must remain present`);
   assert.doesNotMatch(
     implementation,
-    /allowStaleScheduleForDisplay: true/,
+    /allowStaleScheduleForDisplay: true|allowBowlingDisplayContinuity: true/,
     `${strictCaller} must keep strict reservation protection`,
   );
 }

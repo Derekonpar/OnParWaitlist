@@ -640,6 +640,7 @@ export async function getBoard(): Promise<ActivityBoard[]> {
     getLiveLaneAvailability({
       refreshRemote: false,
       allowStaleScheduleForDisplay: true,
+      allowBowlingDisplayContinuity: true,
     }),
   ]);
   return ACTIVITIES.map((activity) => {
@@ -654,13 +655,26 @@ export async function getBoard(): Promise<ActivityBoard[]> {
           new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
       );
 
+    const stats = buildStats(
+      activity,
+      entries,
+      liveLanes[activity],
+      liveLanes.reservationScheduleStatus,
+    );
+    if (activity === "bowling") {
+      if (!liveLanes.bowlingDisplay) {
+        // A passive estimate without source-anchored evidence cannot be
+        // promoted to Live, even if a future availability path returns lanes.
+        stats.availabilityStatus = "unknown";
+      } else {
+        stats.availabilityExpiresAt = liveLanes.bowlingDisplay.expiresAt;
+        if (stats.availabilityStatus === "live" && liveLanes.bowlingDisplay.estimated) {
+          stats.availabilityStatus = "estimated";
+        }
+      }
+    }
     return {
-      stats: buildStats(
-        activity,
-        entries,
-        liveLanes[activity],
-        liveLanes.reservationScheduleStatus,
-      ),
+      stats,
       queue: waiting.map((e, i) => ({
         id: e.id,
         name: e.name,

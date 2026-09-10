@@ -15,6 +15,9 @@ export interface BowlingLaneReading {
   rawText?: string;
   confidence?: number;
   reservationLabel?: string;
+  /** Last positively observed source frame; never renewed by retained OCR. */
+  observedAt?: string;
+  estimated?: boolean;
 }
 
 export interface BowlingLaneSnapshot {
@@ -51,6 +54,8 @@ function normalizeLane(reading: BowlingLaneReading): BowlingLaneReading {
     rawText: reading.rawText,
     confidence: reading.confidence,
     reservationLabel: reading.reservationLabel,
+    observedAt: reading.observedAt,
+    estimated: reading.estimated,
   };
 }
 

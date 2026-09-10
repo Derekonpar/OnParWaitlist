@@ -21,6 +21,7 @@ export function WaitlistDashboard({ initialBoard }: WaitlistDashboardProps) {
   const [error, setError] = useState<string | null>(null);
   const [joinActivity, setJoinActivity] = useState<Activity | null>(null);
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
+  const [nowMs, setNowMs] = useState(() => Date.now());
   const refreshSequenceRef = useRef(0);
   const refreshControllerRef = useRef<AbortController | null>(null);
 
@@ -68,9 +69,11 @@ export function WaitlistDashboard({ initialBoard }: WaitlistDashboardProps) {
     // Live integrations are shared-cached for 15 seconds. Polling faster adds
     // load during busy periods without producing fresher lane information.
     const interval = setInterval(() => void fetchBoard(), 15000);
+    const displayClock = window.setInterval(() => setNowMs(Date.now()), 1000);
     return () => {
       window.clearTimeout(initial);
       clearInterval(interval);
+      window.clearInterval(displayClock);
       refreshSequenceRef.current += 1;
       refreshControllerRef.current?.abort();
       refreshControllerRef.current = null;
@@ -110,6 +113,7 @@ export function WaitlistDashboard({ initialBoard }: WaitlistDashboardProps) {
             <ActivityCard
               key={item.stats.activity}
               board={item}
+              nowMs={nowMs}
               onJoin={setJoinActivity}
             />
           ))}

@@ -4,6 +4,7 @@ import type { EntertainmentReservation } from "./entertainment-schedule";
 import { addScheduleWindows } from "./entertainment-schedule";
 import { planResourceQueue } from "./resource-scheduler";
 import { bowlingLaneAvailableAtSeconds } from "./bowling-turnover";
+import { bowlingLaneEvidenceFresh } from "./bowling-display-continuity";
 
 const LANE_COUNT = 12;
 const BOWLING_MAX_SNAPSHOT_AGE_MS = 120_000;
@@ -66,6 +67,7 @@ export function planBowlingAssignments(
     !snapshot ||
     snapshot.healthStatus !== "ok" ||
     !Number.isFinite(capturedAtMs) ||
+    capturedAtMs > nowMs ||
     nowMs - capturedAtMs > BOWLING_MAX_SNAPSHOT_AGE_MS;
   const queue = activeBowlingQueue(entries);
   const baseLanes =
@@ -81,7 +83,8 @@ export function planBowlingAssignments(
       lane.status === "occupied"
         ? Math.max(0, lane.remainingSeconds - elapsedSeconds)
         : 0,
-    availableAtSeconds: snapshotUnavailable
+    availableAtSeconds: snapshotUnavailable || lane.estimated === true ||
+      !bowlingLaneEvidenceFresh(snapshot!, lane, nowMs)
       ? Number.POSITIVE_INFINITY
       : bowlingLaneAvailableAtSeconds(
           lane.status,

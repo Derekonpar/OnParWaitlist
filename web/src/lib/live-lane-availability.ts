@@ -20,6 +20,11 @@ import {
 } from "./entertainment-schedule";
 import { withDeadline } from "./async-deadline";
 import { bowlingLaneAvailableAtSeconds } from "./bowling-turnover";
+import {
+  bowlingDisplayMetadata,
+  bowlingLaneDisplayStatus,
+  bowlingLaneEvidenceFresh,
+} from "./bowling-display-continuity";
 
 export type ReservationScheduleStatus = "fresh" | "stale";
 
@@ -27,6 +32,7 @@ export type LiveLaneAvailability = Partial<
   Record<Activity, ResourceLaneAvailability[]>
 > & {
   reservationScheduleStatus: ReservationScheduleStatus;
+  bowlingDisplay?: { estimated: boolean; expiresAt: string };
 };
 
 export interface LiveLaneAvailabilityOptions {
@@ -38,6 +44,8 @@ export interface LiveLaneAvailabilityOptions {
    * control paths must leave this false so they continue to fail closed.
    */
   allowStaleScheduleForDisplay?: boolean;
+  /** Passive guest/TV board only; never use this to place guests or start lanes. */
+  allowBowlingDisplayContinuity?: boolean;
 }
 
 const STORED_SOURCE_TIMEOUT_MS = 1_800;
@@ -66,25 +74,31 @@ function elapsedSeconds(iso?: string, nowMs = Date.now()): number {
 export function bowlingSnapshotToAvailability(
   snapshot: BowlingLaneSnapshot | null,
   nowMs = Date.now(),
+  allowDisplayContinuity = false,
 ): ResourceLaneAvailability[] | undefined {
   if (!snapshot) return undefined;
   const elapsed = elapsedSeconds(snapshot.capturedAt, nowMs);
   const capturedAt = new Date(snapshot.capturedAt).getTime();
   const snapshotTooOld =
     !Number.isFinite(capturedAt) ||
+    capturedAt > nowMs ||
     nowMs - capturedAt > BOWLING_MAX_STORED_AGE_MS;
-  return snapshot.lanes.map((lane) => ({
-    id: String(lane.lane),
-    label: `Lane ${lane.lane}`,
-    availableAtSeconds:
-      snapshot.healthStatus !== "ok" || snapshotTooOld
+  return snapshot.lanes.map((lane) => {
+    const strictUnavailable = snapshot.healthStatus !== "ok" || snapshotTooOld ||
+      lane.estimated === true || !bowlingLaneEvidenceFresh(snapshot, lane, nowMs);
+    const displayStatus = allowDisplayContinuity
+      ? bowlingLaneDisplayStatus(snapshot, lane, nowMs)
+      : lane.status;
+    // A retained zero timer stays occupied with the cleaning buffer, never
+    // "No Wait". The source-anchored display grace bounds this estimate.
+    return {
+      id: String(lane.lane),
+      label: `Lane ${lane.lane}`,
+      availableAtSeconds: !allowDisplayContinuity && strictUnavailable
         ? Number.POSITIVE_INFINITY
-        : bowlingLaneAvailableAtSeconds(
-            lane.status,
-            lane.remainingSeconds,
-            elapsed,
-          ),
-  }));
+        : bowlingLaneAvailableAtSeconds(displayStatus, lane.remainingSeconds, elapsed),
+    };
+  });
 }
 
 export async function getLiveLaneAvailability(
@@ -93,6 +107,7 @@ export async function getLiveLaneAvailability(
   const refreshRemote = options.refreshRemote ?? false;
   const allowStaleScheduleForDisplay =
     options.allowStaleScheduleForDisplay ?? false;
+  const allowBowlingDisplayContinuity = options.allowBowlingDisplayContinuity ?? false;
   const [bowlingResult, dartseeResult, timedResult, scheduleResult] = await Promise.allSettled([
     boundedStoredRead(getBowlingLaneSnapshot()),
     refreshRemote
@@ -103,6 +118,10 @@ export async function getLiveLaneAvailability(
       ? getEntertainmentSchedule()
       : boundedStoredRead(getStoredEntertainmentSchedule()),
   ]);
+  // Derive availability and its display expiry from one instant. Crossing the
+  // grace boundary between those calculations must never drop the expiry from
+  // an otherwise finite estimate and accidentally make it look live forever.
+  const nowMs = Date.now();
 
   const schedule = scheduleResult.status === "fulfilled"
     ? scheduleResult.value
@@ -113,10 +132,11 @@ export async function getLiveLaneAvailability(
     : Number.NaN;
   const scheduleUnavailable =
     !Number.isFinite(scheduleFetchedAt) ||
-    Date.now() - scheduleFetchedAt >
+    nowMs - scheduleFetchedAt >
       ENTERTAINMENT_SCHEDULE_MAX_STORED_AGE_MS;
-  const bowling = bowlingResult.status === "fulfilled"
-    ? bowlingSnapshotToAvailability(bowlingResult.value)
+  const bowlingSnapshot = bowlingResult.status === "fulfilled" ? bowlingResult.value : null;
+  const bowling = bowlingSnapshot
+    ? bowlingSnapshotToAvailability(bowlingSnapshot, nowMs, allowBowlingDisplayContinuity)
     : undefined;
   const dartseeSnapshot = dartseeResult.status === "fulfilled"
     ? dartseeResult.value
@@ -127,7 +147,7 @@ export async function getLiveLaneAvailability(
     : Number.NaN;
   const dartseeTooOld =
     !Number.isFinite(dartseeCapturedAt) ||
-    Date.now() - dartseeCapturedAt > DARTSEE_MAX_STORED_AGE_MS;
+    nowMs - dartseeCapturedAt > DARTSEE_MAX_STORED_AGE_MS;
   const dartseeUnavailable =
     dartseeTooOld ||
     (dartseeSnapshot !== null &&
@@ -166,6 +186,7 @@ export async function getLiveLaneAvailability(
 
   return {
     reservationScheduleStatus: scheduleUnavailable ? "stale" : "fresh",
+    ...(allowBowlingDisplayContinuity ? { bowlingDisplay: bowlingDisplayMetadata(bowlingSnapshot, nowMs) } : {}),
     bowling: applySchedule("bowling", bowling),
     darts: applySchedule("darts", darts),
     pool: applySchedule("pool", pool),

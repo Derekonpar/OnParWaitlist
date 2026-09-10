@@ -18,6 +18,8 @@ const laneSchema = z.object({
   rawText: z.string().max(100).optional(),
   confidence: z.number().min(0).max(1).optional(),
   reservationLabel: z.string().max(100).optional(),
+  observedAt: z.string().datetime().optional(),
+  estimated: z.boolean().optional(),
 });
 
 const postSchema = z.object({

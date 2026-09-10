@@ -19,6 +19,7 @@ import {
   sessionOptionsFor,
 } from "@/lib/booking";
 import type { BowlingLaneSnapshot } from "@/lib/bowling-lanes";
+import { bowlingSnapshotDisplayState } from "@/lib/bowling-display-continuity";
 import type { DartseeLaneSnapshot } from "@/lib/dartsee-lanes";
 import {
   DARTSEE_EMPLOYEE_ALERT_AFTER_MS,
@@ -42,7 +43,6 @@ import {
 const SOUND_STORAGE_KEY = "onpar-staff-sound";
 const STAFF_CHIME_PATH = "/sounds/new-guest-alert.wav";
 const STAFF_SECRET_STORAGE_KEY = "onpar-staff-secret";
-const BOWLING_STALE_AFTER_MS = 2 * 60_000;
 const STAFF_QUEUE_TIMEOUT_MS = 5_000;
 const STAFF_INTEGRATION_TIMEOUT_MS = 5_000;
 const STAFF_QUEUE_STALE_AFTER_MS = 45_000;
@@ -1273,17 +1273,8 @@ export default function StaffPage() {
   const resourceAlerts = resourceSessions.filter(
     (session) => new Date(session.endsAt).getTime() - nowMs <= 5 * 60_000,
   );
-  const bowlingSnapshotAgeMs = bowlingSnapshot
-    ? nowMs - new Date(bowlingSnapshot.capturedAt).getTime()
-    : Number.POSITIVE_INFINITY;
-  const bowlingFeedStale =
-    !Number.isFinite(bowlingSnapshotAgeMs) ||
-    bowlingSnapshotAgeMs > BOWLING_STALE_AFTER_MS;
   const bowlingFeedNeedsAttention =
-    !loading &&
-    (!bowlingSnapshot ||
-      bowlingSnapshot.healthStatus !== "ok" ||
-      bowlingFeedStale);
+    !loading && !bowlingSnapshotDisplayState(bowlingSnapshot, nowMs).available;
   const dartseeSnapshotAgeMs = dartseeSnapshot
     ? nowMs - new Date(dartseeSnapshot.capturedAt).getTime()
     : Number.POSITIVE_INFINITY;
@@ -1447,11 +1438,11 @@ export default function StaffPage() {
           <span className="block">Brunswick feed needs attention</span>
           <span className="mt-1 block text-xs font-normal text-red-100">
             {!bowlingSnapshot
-              ? "No Brunswick snapshot is available. Confirm the watcher is running and check the Brunswick Remote Desktop window."
+              ? "No Brunswick snapshot is available. Confirm the watcher is running and check the Brunswick computer and Luckfox connection."
               : bowlingSnapshot.healthStatus !== "ok"
                 ? (bowlingSnapshot.healthMessage ??
-                  "Lane times may be stale. Check the Brunswick computer and Remote Desktop window.")
-              : "No Brunswick snapshot has arrived for over 2 minutes. Confirm the watcher is running and check the Brunswick Remote Desktop window."}
+                  "Lane times may be stale. Check the Brunswick computer and Luckfox connection.")
+              : "No Brunswick snapshot has arrived for over 3 minutes. Confirm the watcher is running and check the Brunswick computer and Luckfox connection."}
           </span>
         </button>
       )}

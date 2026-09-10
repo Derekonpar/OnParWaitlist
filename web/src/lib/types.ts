@@ -48,7 +48,9 @@ export interface ActivityStats {
   label: string;
   waitingCount: number;
   estimatedWaitMinutes: number;
-  availabilityStatus: "live" | "unknown";
+  availabilityStatus: "live" | "estimated" | "unknown";
+  /** Bounded, source-anchored expiry for passive bowling display estimates. */
+  availabilityExpiresAt?: string;
   reservationScheduleStatus: "fresh" | "stale";
 }
 
