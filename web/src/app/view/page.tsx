@@ -1,6 +1,7 @@
 import { TvWaitBoard } from "@/components/TvWaitBoard";
 import { emptyBoard } from "@/lib/defaults";
 import { getBoard } from "@/lib/store";
+import { isPublicBowlingNoWaitOverrideEnabled } from "@/lib/public-display-override.server";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -33,5 +34,5 @@ export default async function ViewPage() {
   } catch (error) {
     console.error("[view] board load failed", error);
   }
-  return <TvWaitBoard initialBoard={initialBoard} />;
+  return <TvWaitBoard initialBoard={initialBoard} initialBowlingNoWaitOverride={isPublicBowlingNoWaitOverrideEnabled()} />;
 }

@@ -11,9 +11,11 @@ import type { Activity } from "@/lib/types";
 
 interface WaitlistDashboardProps {
   initialBoard: ActivityBoard[];
+  initialBowlingNoWaitOverride?: boolean;
 }
 
-export function WaitlistDashboard({ initialBoard }: WaitlistDashboardProps) {
+export function WaitlistDashboard({ initialBoard, initialBowlingNoWaitOverride = false }: WaitlistDashboardProps) {
+  const [bowlingNoWaitOverride, setBowlingNoWaitOverride] = useState(initialBowlingNoWaitOverride);
   const [board, setBoard] = useState<ActivityBoard[]>(
     initialBoard.length ? initialBoard : emptyBoard(),
   );
@@ -38,9 +40,12 @@ export function WaitlistDashboard({ initialBoard }: WaitlistDashboardProps) {
         cache: "no-store",
         signal: controller.signal,
       });
-      if (!res.ok) throw new Error("fetch failed");
       const data = await res.json();
       if (sequence !== refreshSequenceRef.current) return;
+      // Read the switch even on an upstream failure; never replace the queue
+      // with a failed response just to activate or remove a display override.
+      setBowlingNoWaitOverride(data.bowlingNoWaitOverride === true);
+      if (!res.ok) throw new Error("fetch failed");
       if (data.stale) {
         setError("Live waits are updating — showing the last known waitlist.");
         return;
@@ -114,6 +119,7 @@ export function WaitlistDashboard({ initialBoard }: WaitlistDashboardProps) {
               key={item.stats.activity}
               board={item}
               nowMs={nowMs}
+              bowlingNoWaitOverride={bowlingNoWaitOverride}
               onJoin={setJoinActivity}
             />
           ))}

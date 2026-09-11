@@ -14,17 +14,19 @@ interface ActivityCardProps {
   board: ActivityBoard;
   onJoin: (activity: Activity) => void;
   nowMs: number;
+  bowlingNoWaitOverride?: boolean;
 }
 
-export function ActivityCard({ board, onJoin, nowMs }: ActivityCardProps) {
+export function ActivityCard({ board, onJoin, nowMs, bowlingNoWaitOverride = false }: ActivityCardProps) {
   const { stats, queue } = board;
   const theme = ACTIVITY_THEME[stats.activity];
   const displayStatus = publicWaitDisplayStatus(stats, nowMs);
-  const waitKnown = displayStatus !== "unknown";
-  const estimated = displayStatus === "estimated";
+  const noWaitOverride = stats.activity === "bowling" && bowlingNoWaitOverride;
+  const waitKnown = noWaitOverride || displayStatus !== "unknown";
+  const estimated = !noWaitOverride && displayStatus === "estimated";
   const reservationScheduleStale =
-    stats.reservationScheduleStatus === "stale";
-  const hasWait = stats.estimatedWaitMinutes > 0;
+    !noWaitOverride && stats.reservationScheduleStatus === "stale";
+  const hasWait = !noWaitOverride && stats.estimatedWaitMinutes > 0;
 
   return (
     <article className="overflow-hidden rounded-3xl border border-white/10 bg-[#141414] shadow-xl shadow-black/20">
@@ -58,7 +60,7 @@ export function ActivityCard({ board, onJoin, nowMs }: ActivityCardProps) {
         <div className="mt-4 flex items-center justify-between rounded-2xl bg-black/25 px-4 py-3 backdrop-blur-sm">
           <div>
             <p className="text-xs font-medium uppercase tracking-wide text-white/60">
-              {estimated ? "Last confirmed estimate" : waitKnown && reservationScheduleStale
+              {noWaitOverride ? "Current status" : estimated ? "Last confirmed estimate" : waitKnown && reservationScheduleStale
                 ? "Live feed estimate"
                 : "Estimated wait"}
             </p>
@@ -91,7 +93,7 @@ export function ActivityCard({ board, onJoin, nowMs }: ActivityCardProps) {
                   : "bg-amber-300"
               }`}
             />
-            {waitKnown
+            {noWaitOverride ? "Available" : waitKnown
               ? estimated
                 ? "Reconnecting"
                 : reservationScheduleStale
@@ -114,7 +116,7 @@ export function ActivityCard({ board, onJoin, nowMs }: ActivityCardProps) {
           </p>
           {queue.length === 0 ? (
             <p className="rounded-xl border border-dashed border-neutral-700 bg-neutral-900/50 px-4 py-3 text-sm text-neutral-400">
-              {waitKnown
+              {displayStatus !== "unknown"
                 ? "No waitlist parties ahead."
                 : "Loading the current waitlist…"}
             </p>

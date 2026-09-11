@@ -16,6 +16,7 @@ import { ActivityIcon } from "./ActivityIcon";
 
 interface TvWaitBoardProps {
   initialBoard: ActivityBoard[];
+  initialBowlingNoWaitOverride?: boolean;
 }
 
 interface EntertainmentCardProps {
@@ -240,7 +241,8 @@ function EntertainmentCard({
   );
 }
 
-export function TvWaitBoard({ initialBoard }: TvWaitBoardProps) {
+export function TvWaitBoard({ initialBoard, initialBowlingNoWaitOverride = false }: TvWaitBoardProps) {
+  const [bowlingNoWaitOverride, setBowlingNoWaitOverride] = useState(initialBowlingNoWaitOverride);
   const [board, setBoard] = useState(initialBoard);
   const [karaokeWait, setKaraokeWait] =
     useState<SingaPublicStageWait | null>(null);
@@ -251,11 +253,11 @@ export function TvWaitBoard({ initialBoard }: TvWaitBoardProps) {
   const refreshController = useRef<AbortController | null>(null);
   const karaokeRefreshController = useRef<AbortController | null>(null);
   const hasUnknownWaits = board.some(
-    ({ stats }) => publicWaitDisplayStatus(stats, nowMs) === "unknown",
+    ({ stats }) => !(stats.activity === "bowling" && bowlingNoWaitOverride) && publicWaitDisplayStatus(stats, nowMs) === "unknown",
   );
-  const hasEstimatedWaits = board.some(({ stats }) => publicWaitDisplayStatus(stats, nowMs) === "estimated");
+  const hasEstimatedWaits = board.some(({ stats }) => !(stats.activity === "bowling" && bowlingNoWaitOverride) && publicWaitDisplayStatus(stats, nowMs) === "estimated");
   const reservationScheduleStale = board.some(
-    ({ stats }) => stats.reservationScheduleStatus === "stale",
+    ({ stats }) => !(stats.activity === "bowling" && bowlingNoWaitOverride) && stats.reservationScheduleStatus === "stale",
   );
 
   const refresh = useCallback(async () => {
@@ -270,9 +272,10 @@ export function TvWaitBoard({ initialBoard }: TvWaitBoardProps) {
         cache: "no-store",
         signal: controller.signal,
       });
-      if (!response.ok) throw new Error("refresh failed");
       const data = await response.json();
       if (sequence !== refreshSequence.current) return;
+      setBowlingNoWaitOverride(data.bowlingNoWaitOverride === true);
+      if (!response.ok) throw new Error("refresh failed");
       if (Array.isArray(data.board) && data.board.length === 4) {
         if (data.stale) {
           setConnected(false);
@@ -402,11 +405,12 @@ export function TvWaitBoard({ initialBoard }: TvWaitBoardProps) {
         {board.map(({ stats, queue }) => {
           const theme = ACTIVITY_THEME[stats.activity];
           const displayStatus = publicWaitDisplayStatus(stats, nowMs);
-          const waitKnown = displayStatus !== "unknown";
-          const estimated = displayStatus === "estimated";
+          const noWaitOverride = stats.activity === "bowling" && bowlingNoWaitOverride;
+          const waitKnown = noWaitOverride || displayStatus !== "unknown";
+          const estimated = !noWaitOverride && displayStatus === "estimated";
           const reservationScheduleStale =
-            stats.reservationScheduleStatus === "stale";
-          const open = waitKnown && stats.estimatedWaitMinutes <= 0;
+            !noWaitOverride && stats.reservationScheduleStatus === "stale";
+          const open = noWaitOverride || (waitKnown && stats.estimatedWaitMinutes <= 0);
           return (
             <EntertainmentCard
               key={stats.activity}
@@ -430,7 +434,7 @@ export function TvWaitBoard({ initialBoard }: TvWaitBoardProps) {
                     : "text-white"
               }
               statusLabel={
-                waitKnown
+                noWaitOverride ? "Current status" : waitKnown
                   ? estimated
                     ? "Last confirmed estimate"
                     : reservationScheduleStale

@@ -272,6 +272,7 @@ export default function StaffPage() {
   >([]);
   const [bowlingSnapshot, setBowlingSnapshot] =
     useState<BowlingLaneSnapshot | null>(null);
+  const [bowlingNoWaitOverride, setBowlingNoWaitOverride] = useState(false);
   const [dartseeSnapshot, setDartseeSnapshot] =
     useState<DartseeLaneSnapshot | null>(null);
   const [resourceSessions, setResourceSessions] = useState<
@@ -475,9 +476,11 @@ export default function StaffPage() {
 
         const queueData = queueResult.data as {
           queues?: { activity: Activity; queue: WaitlistEntry[] }[];
+          bowlingNoWaitOverride?: boolean;
         };
         if (sequence !== refreshSequenceRef.current) return;
         setQueues(queueData.queues ?? []);
+        setBowlingNoWaitOverride(queueData.bowlingNoWaitOverride === true);
         setQueueUpdatedAtMs(Date.now());
         setQueueRefreshError(false);
         setAuthenticated(true);
@@ -1360,6 +1363,12 @@ export default function StaffPage() {
 
   return (
     <main className="mx-auto min-h-screen w-full min-w-0 max-w-5xl px-4 py-6 pb-24 sm:px-5">
+      {bowlingNoWaitOverride && (
+        <div className="mb-5 rounded-xl border border-amber-400/70 bg-amber-500/15 px-4 py-3 text-sm text-amber-100" role="status">
+          <span className="block font-semibold">Public bowling display override active</span>
+          <span className="mt-1 block text-xs">Guests see “No Wait” on the home and TV pages. Actual lane status, reservations, queue and controls are unchanged. Use the live staff lane information below.</span>
+        </div>
+      )}
       {soundOn && !soundReady && (
         <div
           className={`mb-5 rounded-xl border px-4 py-3 text-sm shadow-lg ${

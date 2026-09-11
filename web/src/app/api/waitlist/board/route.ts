@@ -2,6 +2,7 @@ import { after, NextResponse } from "next/server";
 import { getBoard } from "@/lib/store";
 import { emptyBoard } from "@/lib/defaults";
 import { refreshLiveLaneSources } from "@/lib/live-lane-availability";
+import { isPublicBowlingNoWaitOverrideEnabled } from "@/lib/public-display-override.server";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -43,6 +44,7 @@ export async function GET() {
     return NextResponse.json(
       {
         board: result.board,
+        bowlingNoWaitOverride: isPublicBowlingNoWaitOverrideEnabled(),
         stale: result.stale,
         checkedAt,
         ...(result.dataUpdatedAt
@@ -57,13 +59,13 @@ export async function GET() {
       // Existing open pages already preserve their last-known board on a
       // non-success response. Returning 503 keeps those pre-release clients
       // from replacing real guests with the synthetic timeout fallback.
-      { status: result.stale ? 503 : 200 },
+      { status: result.stale ? 503 : 200, headers: { "cache-control": "no-store" } },
     );
   } catch (err) {
     console.error("[board]", err);
     return NextResponse.json(
-      { error: "Could not load waitlist" },
-      { status: 500 },
+      { error: "Could not load waitlist", bowlingNoWaitOverride: isPublicBowlingNoWaitOverrideEnabled() },
+      { status: 500, headers: { "cache-control": "no-store" } },
     );
   }
 }

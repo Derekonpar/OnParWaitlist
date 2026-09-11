@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { verifyStaffSecret } from "@/lib/auth";
 import { getStaffQueues } from "@/lib/store";
+import { isPublicBowlingNoWaitOverrideEnabled } from "@/lib/public-display-override.server";
 
 export const dynamic = "force-dynamic";
 
@@ -10,5 +11,8 @@ export async function GET(request: Request) {
   }
 
   const queues = await getStaffQueues();
-  return NextResponse.json({ queues });
+  return NextResponse.json(
+    { queues, bowlingNoWaitOverride: isPublicBowlingNoWaitOverrideEnabled() },
+    { headers: { "cache-control": "no-store" } },
+  );
 }

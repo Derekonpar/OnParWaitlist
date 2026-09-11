@@ -1,6 +1,7 @@
 import { WaitlistDashboard } from "@/components/WaitlistDashboard";
 import { getBoard } from "@/lib/store";
 import { emptyBoard } from "@/lib/defaults";
+import { isPublicBowlingNoWaitOverrideEnabled } from "@/lib/public-display-override.server";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -29,5 +30,5 @@ export default async function HomePage() {
     console.error("[page] board load failed:", err);
   }
 
-  return <WaitlistDashboard initialBoard={initialBoard} />;
+  return <WaitlistDashboard initialBoard={initialBoard} initialBowlingNoWaitOverride={isPublicBowlingNoWaitOverrideEnabled()} />;
 }
