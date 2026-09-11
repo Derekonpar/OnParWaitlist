@@ -100,7 +100,8 @@ const { getBoard, getWaitlistStatus } = await import(url(`
 const wiredBoard = (await getBoard())[0];
 assert.equal(wiredBoard.stats.estimatedWaitMinutes, 95);
 assert.equal(wiredBoard.stats.availabilityStatus, "estimated");
-assert.equal(wiredBoard.stats.availabilityExpiresAt, undefined, "New countdown does not inherit old 180-second expiry");
+assert.equal(wiredBoard.stats.availabilityExpiresAt, iso(23), "Already-open legacy TVs receive a compatible envelope");
+assert.equal(publicWaitDisplayStatus(wiredBoard.stats, t + 25 * 60000), "estimated", "New clients use the source-bounded countdown, not legacy envelope expiry");
 assert.equal(wiredBoard.queue.length, 2);
 assert.equal((await getWaitlistStatus("b")).estimatedWaitMinutes, 60);
 assert.equal((await getWaitlistStatus("b")).waitReadyAt, iso(80));

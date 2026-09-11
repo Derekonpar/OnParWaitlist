@@ -677,7 +677,12 @@ export async function getBoard(): Promise<ActivityBoard[]> {
       const projection = input && projectBowlingWait(input.snapshot, input.reservations, entries, input.nowMs);
       if (projection) {
         Object.assign(stats, projection);
-        delete stats.availabilityExpiresAt;
+        // Already-open pre-release TVs only understand the legacy 180-second
+        // envelope. Keep it valid while serving the new source-bounded estimate;
+        // new clients use waitEstimateExpiresAt and their absolute countdown.
+        stats.availabilityExpiresAt = new Date(Math.min(
+          input.nowMs + 180_000, Date.parse(projection.waitEstimateExpiresAt),
+        )).toISOString();
       }
     }
     return {
