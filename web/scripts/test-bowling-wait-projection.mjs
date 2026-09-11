@@ -39,6 +39,25 @@ const open = retain(snapshot(0, 0, "open"), null, t);
 const openAgain = retain(snapshot(0, 30, "open"), open, t + 30 * 60000);
 assert.equal(openAgain.lanes[0].displayReading.availableAt, iso(), "Unchanged open state keeps original availability anchor");
 assert.equal(project(open, [], [], t + 60 * 60000).estimatedWaitMinutes, 0, "Mostly empty snapshot does not become Updating during outage");
+// A fresh response arrives between the browser's one-second clock ticks.
+// Its ready-at is server-now, not a new positive wait for an available lane.
+for (let poll = 0; poll < 8; poll++) {
+  const serverNow = t + 60_000 + poll * 15_000;
+  const noWait = project(open, [], [], serverNow);
+  assert.equal(noWait.estimatedWaitMinutes, 0);
+  for (const offset of [-60_000, -999, -600, -1, 0, 400, 1_000]) {
+    assert.equal(publicWaitMinutes(noWait, serverNow + offset), 0,
+      "Repeated No Wait responses stay zero across timer ticks and a slow client clock");
+  }
+}
+const lastSecond = project(full, [], [], t + 15 * 60_000 - 1_000);
+assert.equal(lastSecond.estimatedWaitMinutes, 1);
+assert.equal(publicWaitMinutes(lastSecond, t + 15 * 60_000 - 1_000), 1,
+  "A real one-second wait still rounds up to one minute, not No Wait");
+assert.equal(publicWaitMinutes(lastSecond, t + 15 * 60_000), 0,
+  "A genuine positive countdown clears when its deadline is reached");
+assert.equal(publicWaitMinutes({ estimatedWaitMinutes: 1 }, t), 1,
+  "Legacy estimates without an absolute deadline remain unchanged");
 const oneLane = retain(snapshot(10, 0, "occupied", 1), null, t);
 const queued = [entry("a")];
 assert.equal(project(oneLane, [], queued, t).estimatedWaitMinutes, 80, "Queue duration and turnover are added");

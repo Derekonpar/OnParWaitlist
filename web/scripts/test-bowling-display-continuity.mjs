@@ -231,4 +231,23 @@ const bowlingCard = tvHtml.slice(tvHtml.indexOf("<article"), tvHtml.indexOf("</a
 assert.match(bowlingCard, /Last confirmed estimate/);
 assert.match(bowlingCard, /Synthetic test guest/);
 assert.doesNotMatch(bowlingCard, /Updating/);
+// Render the real TV and guest cards with a fresh server response 600ms ahead
+// of the browser clock. Only the server's exact zero may bypass rounding.
+const originalDateNow = Date.now;
+try {
+  Date.now = () => now;
+  for (const [estimate, expected] of [[0, /No Wait/], [1, />1<span/]]) {
+    const current = { ...publicStats, estimatedWaitMinutes: estimate,
+      waitReadyAt: iso(600), waitSourceAt: iso(-10_000), waitEstimateExpiresAt: iso(60_000) };
+    const currentBoard = { stats: current, queue: [] };
+    const renderedTv = renderToStaticMarkup(React.createElement(TvWaitBoard, { initialBoard: [currentBoard] }));
+    const currentBowling = renderedTv.slice(renderedTv.indexOf("<article"), renderedTv.indexOf("</article>") + 10);
+    assert.match(currentBowling, expected, "TV preserves zero without suppressing a genuine one-minute estimate");
+    const renderedGuest = renderToStaticMarkup(React.createElement(ActivityCard, { board: currentBoard, onJoin: () => {}, nowMs: now }));
+    assert.match(renderedGuest, estimate === 0 ? /No Wait/i : /~1/,
+      "Guest card uses the same stable estimate policy");
+  }
+} finally {
+  Date.now = originalDateNow;
+}
 console.log("Bowling display continuity passed: 180s source-anchored grace, strict placement, expiry, real-open confirmation, countdown/cleaning/queue math, and client wiring.");

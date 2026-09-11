@@ -80,6 +80,11 @@ export function publicWaitDisplayStatus(stats: ActivityStats, nowMs: number): Ac
 }
 
 export function publicWaitMinutes(stats: Pick<ActivityStats, "waitReadyAt" | "estimatedWaitMinutes">, nowMs: number): number {
+  // An available lane gets ready-at = server-now on every refresh. The TV's
+  // last clock tick (or its system clock) may lag that timestamp; it must not
+  // round an authoritative zero wait up to a phantom minute. Positive waits
+  // still count down normally, including a genuine sub-minute wait.
+  if (stats.estimatedWaitMinutes === 0) return 0;
   const ready = timestamp(stats.waitReadyAt);
   return Number.isFinite(ready) ? Math.max(0, Math.ceil((ready - nowMs) / 60_000)) : stats.estimatedWaitMinutes;
 }
