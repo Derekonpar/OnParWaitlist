@@ -145,7 +145,7 @@ export async function getStoredEntertainmentSchedule(): Promise<EntertainmentSch
   if (memoryCache && Date.now() < memoryCache.readExpiresAt) {
     return currentOperatingDayOnly(memoryCache.value);
   }
-  const stored = await readStored();
+  const stored = await readStored() ?? memoryCache?.value ?? null;
   rememberStored(stored);
   return currentOperatingDayOnly(stored);
 }
@@ -154,7 +154,7 @@ export async function getEntertainmentSchedule(): Promise<EntertainmentScheduleR
   const cachedRead = Boolean(
     memoryCache && Date.now() < memoryCache.readExpiresAt,
   );
-  const stored = cachedRead ? memoryCache?.value ?? null : await readStored();
+  const stored = cachedRead ? memoryCache?.value ?? null : await readStored() ?? memoryCache?.value ?? null;
   if (!cachedRead) rememberStored(stored);
   const storedAt = stored ? new Date(stored.fetchedAt).getTime() : Number.NaN;
   if (stored && Number.isFinite(storedAt) && Date.now() - storedAt < CACHE_MS) {
@@ -244,8 +244,8 @@ export function addScheduleWindows(
         endAtSeconds: Math.max(
           0,
           Math.ceil(
-            (new Date(reservation.endAt).getTime() - nowMs) / 1000,
-          ) + turnoverSeconds,
+            (new Date(reservation.endAt).getTime() + turnoverSeconds * 1000 - nowMs) / 1000,
+          ),
         ),
         reservationId: reservation.id,
         label: reservation.eventName,

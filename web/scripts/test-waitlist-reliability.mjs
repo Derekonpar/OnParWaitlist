@@ -22,7 +22,7 @@ const store = source("../src/lib/store.ts");
 const normalizedJoinModal = joinModal.replace(/\s+/g, " ");
 
 const staleGuard = dashboard.indexOf("if (data.stale)");
-const boardReplacement = dashboard.indexOf("setBoard(data.board)");
+const boardReplacement = dashboard.indexOf("setBoard((previous) => retainPublicBowlingEstimate");
 assert.ok(staleGuard >= 0, "Guest board must detect stale API payloads");
 assert.ok(
   staleGuard < boardReplacement,

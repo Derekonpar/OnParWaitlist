@@ -1,4 +1,5 @@
 import { getSupabaseAdmin } from "./supabase";
+import { retainBowlingDisplayReadings, type BowlingDisplayReading } from "./bowling-wait-projection";
 
 export type BowlingLaneStatus = "open" | "occupied" | "reserved" | "unknown";
 export type BowlingFeedHealth =
@@ -18,6 +19,8 @@ export interface BowlingLaneReading {
   /** Last positively observed source frame; never renewed by retained OCR. */
   observedAt?: string;
   estimated?: boolean;
+  /** Public countdown evidence, independent of current hardware/assignment truth. */
+  displayReading?: BowlingDisplayReading;
 }
 
 export interface BowlingLaneSnapshot {
@@ -56,6 +59,7 @@ function normalizeLane(reading: BowlingLaneReading): BowlingLaneReading {
     reservationLabel: reading.reservationLabel,
     observedAt: reading.observedAt,
     estimated: reading.estimated,
+    displayReading: reading.displayReading,
   };
 }
 
@@ -119,6 +123,7 @@ function rowToSnapshot(row: Record<string, unknown>): BowlingLaneSnapshot {
 
 async function getStorageSnapshot(
   supabase: NonNullable<ReturnType<typeof getSupabaseAdmin>>,
+  failOnReadError = false,
 ): Promise<BowlingLaneSnapshot | null> {
   const { data, error } = await supabase.storage
     .from(STORAGE_BUCKET)
@@ -129,6 +134,7 @@ async function getStorageSnapshot(
       return null;
     }
     console.error("[bowling lanes:storage-read]", error.message);
+    if (failOnReadError) throw new Error("BOWLING_SNAPSHOT_READ_FAILED");
     return null;
   }
 
@@ -138,6 +144,7 @@ async function getStorageSnapshot(
     return normalizeBowlingLaneSnapshot(parsed);
   } catch (err) {
     console.error("[bowling lanes:storage-parse]", err);
+    if (failOnReadError) throw new Error("BOWLING_SNAPSHOT_READ_FAILED");
     return null;
   }
 }
@@ -184,7 +191,7 @@ async function saveStorageSnapshot(
   return snapshot;
 }
 
-export async function getBowlingLaneSnapshot(): Promise<BowlingLaneSnapshot | null> {
+export async function getBowlingLaneSnapshot(options: { failOnReadError?: boolean } = {}): Promise<BowlingLaneSnapshot | null> {
   const supabase = getSupabaseAdmin();
   if (!supabase) return null;
 
@@ -197,8 +204,9 @@ export async function getBowlingLaneSnapshot(): Promise<BowlingLaneSnapshot | nu
   if (error) {
     console.error("[bowling lanes:read]", error.message, error.code);
     if (isMissingTableError(error)) {
-      return getStorageSnapshot(supabase);
+      return getStorageSnapshot(supabase, options.failOnReadError);
     }
+    if (options.failOnReadError) throw new Error("BOWLING_SNAPSHOT_READ_FAILED");
     return null;
   }
   return data ? rowToSnapshot(data as Record<string, unknown>) : null;
@@ -210,7 +218,10 @@ export async function saveBowlingLaneSnapshot(
   const supabase = getSupabaseAdmin();
   if (!supabase) throw new Error("STORAGE_NOT_CONFIGURED");
 
-  const snapshot = normalizeBowlingLaneSnapshot(input);
+  // Do not overwrite saved evidence with a partial frame if its read failed.
+  const previous = await getBowlingLaneSnapshot({ failOnReadError: true });
+  if (previous && Date.parse(input.capturedAt) < Date.parse(previous.capturedAt)) return previous;
+  const snapshot = retainBowlingDisplayReadings(normalizeBowlingLaneSnapshot(input), previous);
   const { data, error } = await supabase
     .from("bowling_lane_state")
     .upsert({

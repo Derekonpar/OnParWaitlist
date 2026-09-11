@@ -152,6 +152,7 @@ function newGuestFor(activity: Activity): WaitlistEntry {
 export function planResourceQueue(
   entries: WaitlistEntry[],
   lanes: ResourceLaneAvailability[],
+  earliestStarts: Record<string, number> = {},
 ): ResourcePlan {
   const working = makeWorkingLanes(lanes);
   const assignments: ResourceAssignment[] = [];
@@ -183,7 +184,7 @@ export function planResourceQueue(
       .filter(adjacentResources)
       .map((lanes) => {
         const start = earliestCommonStart(
-          lanes,
+          lanes.map((lane) => ({ ...lane, availableAtSeconds: Math.max(lane.availableAtSeconds, earliestStarts[entry.id] ?? 0) })),
           durationSeconds + turnoverSeconds,
         );
         return {

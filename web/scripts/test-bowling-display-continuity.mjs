@@ -35,6 +35,7 @@ const plannerSource = source("../src/lib/bowling-planner.ts")
   .replace('from "./bowling-display-continuity"', `from "${continuityUrl}"`);
 const { planBowlingAssignments } = await import(moduleUrl(plannerSource));
 const { normalizeBowlingLaneSnapshot } = await import(moduleUrl(source("../src/lib/bowling-lanes.ts")
+  .replace('import { retainBowlingDisplayReadings, type BowlingDisplayReading } from "./bowling-wait-projection";', 'const retainBowlingDisplayReadings = (next) => next;')
   .replace('import { getSupabaseAdmin } from "./supabase";', 'const getSupabaseAdmin = () => null;')));
 
 const now = Date.parse("2026-09-10T20:00:00.000Z");
@@ -221,7 +222,7 @@ assert.match(retainedHtml, /~15/);
 assert.match(retainedHtml, /Synthetic test guest/);
 assert.doesNotMatch(retainedHtml, /Updating/);
 const expiredHtml = card(now + 180_000);
-assert.match(expiredHtml, /Updating/);
+assert.match(expiredHtml, /Check with staff/);
 assert.match(expiredHtml, /Synthetic test guest/, "Availability expiry must not erase the queue");
 const { TvWaitBoard } = await import(componentUrl(new URL("../src/components/TvWaitBoard.tsx", import.meta.url)));
 const tvStats = { ...publicStats, availabilityExpiresAt: new Date(Date.now() + 60_000).toISOString() };

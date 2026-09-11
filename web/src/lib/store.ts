@@ -9,6 +9,7 @@ import {
 import { getSupabaseAdmin, hasSupabaseConfigured } from "./supabase";
 import { defaultSessionMinutesFor } from "./booking";
 import { getLiveLaneAvailability } from "./live-lane-availability";
+import { projectBowlingWait } from "./bowling-wait-projection";
 import {
   activityQueueWait,
   hasCompleteActivityAvailability,
@@ -672,6 +673,12 @@ export async function getBoard(): Promise<ActivityBoard[]> {
           stats.availabilityStatus = "estimated";
         }
       }
+      const input = liveLanes.bowlingEstimateInput;
+      const projection = input && projectBowlingWait(input.snapshot, input.reservations, entries, input.nowMs);
+      if (projection) {
+        Object.assign(stats, projection);
+        delete stats.availabilityExpiresAt;
+      }
     }
     return {
       stats,
@@ -706,7 +713,12 @@ export async function getEstimatedWaitMinutes(id: string): Promise<number> {
   const entries = await withLocalFileFallbackLock(readActiveEntriesUnsafe);
   const entry = entries.find((e) => e.id === id);
   if (!entry || entry.status !== "waiting") return 0;
-  const liveLanes = await getLiveLaneAvailability({ refreshRemote: false });
+  const liveLanes = await getLiveLaneAvailability({ refreshRemote: false, includeBowlingEstimate: true });
+  const input = liveLanes.bowlingEstimateInput;
+  if (entry.activity === "bowling" && input) {
+    const projection = projectBowlingWait(input.snapshot, input.reservations, entries, input.nowMs, entry);
+    if (projection) return projection.estimatedWaitMinutes;
+  }
   return waitMinutesAhead(entries, entry, liveLanes[entry.activity]);
 }
 
@@ -748,7 +760,10 @@ export interface WaitlistStatusSnapshot {
   entry: WaitlistEntry;
   position: number;
   estimatedWaitMinutes: number;
-  availabilityStatus: "live" | "unknown";
+  availabilityStatus: "live" | "estimated" | "unknown";
+  waitReadyAt?: string;
+  waitSourceAt?: string;
+  waitEstimateExpiresAt?: string;
 }
 
 /**
@@ -762,7 +777,7 @@ export async function getWaitlistStatus(
 ): Promise<WaitlistStatusSnapshot | null> {
   const [entries, liveLanes] = await Promise.all([
     withLocalFileFallbackLock(readActiveEntriesUnsafe),
-    getLiveLaneAvailability({ refreshRemote: false }),
+    getLiveLaneAvailability({ refreshRemote: false, includeBowlingEstimate: true }),
   ]);
   const result = getPositionFromEntries(entries, id);
   if (!result) return null;
@@ -780,7 +795,10 @@ export async function getWaitlistStatus(
   )
     ? "live"
     : "unknown";
-  return { ...result, estimatedWaitMinutes, availabilityStatus };
+  const input = liveLanes.bowlingEstimateInput;
+  const projection = result.entry.activity === "bowling" && result.entry.status === "waiting" && input
+    ? projectBowlingWait(input.snapshot, input.reservations, entries, input.nowMs, result.entry) : undefined;
+  return { ...result, estimatedWaitMinutes, availabilityStatus, ...projection };
 }
 
 export async function joinWaitlist(input: {

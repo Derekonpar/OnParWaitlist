@@ -10,7 +10,7 @@ import type {
 import { SINGA_PUBLIC_STAGE_LAST_KNOWN_MAX_AGE_MS } from "@/lib/singa-public-stage-contract";
 import { karaokeInactiveDisplayStatus } from "@/lib/karaoke-display-hours";
 import { formatTvWaitDuration } from "@/lib/tv-wait-format";
-import { publicWaitDisplayStatus } from "@/lib/bowling-display-continuity";
+import { publicWaitDisplayStatus, publicWaitMinutes, retainPublicBowlingEstimate } from "@/lib/bowling-display-continuity";
 import { ACTIVITY_THEME } from "@/lib/types";
 import { ActivityIcon } from "./ActivityIcon";
 
@@ -255,9 +255,9 @@ export function TvWaitBoard({ initialBoard, initialBowlingNoWaitOverride = false
   const hasUnknownWaits = board.some(
     ({ stats }) => !(stats.activity === "bowling" && bowlingNoWaitOverride) && publicWaitDisplayStatus(stats, nowMs) === "unknown",
   );
-  const hasEstimatedWaits = board.some(({ stats }) => !(stats.activity === "bowling" && bowlingNoWaitOverride) && publicWaitDisplayStatus(stats, nowMs) === "estimated");
+  const hasEstimatedWaits = board.some(({ stats }) => !(stats.activity === "bowling" && (bowlingNoWaitOverride || stats.waitReadyAt)) && publicWaitDisplayStatus(stats, nowMs) === "estimated");
   const reservationScheduleStale = board.some(
-    ({ stats }) => !(stats.activity === "bowling" && bowlingNoWaitOverride) && stats.reservationScheduleStatus === "stale",
+    ({ stats }) => !(stats.activity === "bowling" && (bowlingNoWaitOverride || stats.waitReadyAt)) && stats.reservationScheduleStatus === "stale",
   );
 
   const refresh = useCallback(async () => {
@@ -281,7 +281,7 @@ export function TvWaitBoard({ initialBoard, initialBowlingNoWaitOverride = false
           setConnected(false);
           return;
         }
-        setBoard(data.board);
+        setBoard((previous) => retainPublicBowlingEstimate(previous, data.board, Date.now()));
         setConnected(true);
         setUpdatedAt(data.updatedAt ?? null);
       }
@@ -408,9 +408,10 @@ export function TvWaitBoard({ initialBoard, initialBowlingNoWaitOverride = false
           const noWaitOverride = stats.activity === "bowling" && bowlingNoWaitOverride;
           const waitKnown = noWaitOverride || displayStatus !== "unknown";
           const estimated = !noWaitOverride && displayStatus === "estimated";
+          const minutes = publicWaitMinutes(stats, nowMs);
           const reservationScheduleStale =
             !noWaitOverride && stats.reservationScheduleStatus === "stale";
-          const open = noWaitOverride || (waitKnown && stats.estimatedWaitMinutes <= 0);
+          const open = noWaitOverride || (waitKnown && minutes <= 0);
           return (
             <EntertainmentCard
               key={stats.activity}
@@ -419,11 +420,11 @@ export function TvWaitBoard({ initialBoard, initialBowlingNoWaitOverride = false
               gradient={theme.gradient}
               status={
                 !waitKnown ? (
-                  "Updating"
+                  stats.activity === "bowling" ? "Check with staff" : "Updating"
                 ) : open ? (
                   "No Wait"
                 ) : (
-                  <TvWaitDuration minutes={stats.estimatedWaitMinutes} />
+                  <TvWaitDuration minutes={minutes} />
                 )
               }
               statusTone={
@@ -434,7 +435,7 @@ export function TvWaitBoard({ initialBoard, initialBowlingNoWaitOverride = false
                     : "text-white"
               }
               statusLabel={
-                noWaitOverride ? "Current status" : waitKnown
+                noWaitOverride ? "Current status" : stats.waitReadyAt ? "Estimated wait" : waitKnown
                   ? estimated
                     ? "Last confirmed estimate"
                     : reservationScheduleStale

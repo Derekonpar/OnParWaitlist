@@ -17,6 +17,7 @@ import {
   addScheduleWindows,
   getEntertainmentSchedule,
   getStoredEntertainmentSchedule,
+  type EntertainmentReservation,
 } from "./entertainment-schedule";
 import { withDeadline } from "./async-deadline";
 import { bowlingLaneAvailableAtSeconds } from "./bowling-turnover";
@@ -33,6 +34,7 @@ export type LiveLaneAvailability = Partial<
 > & {
   reservationScheduleStatus: ReservationScheduleStatus;
   bowlingDisplay?: { estimated: boolean; expiresAt: string };
+  bowlingEstimateInput?: { snapshot: BowlingLaneSnapshot | null; reservations: EntertainmentReservation[]; nowMs: number };
 };
 
 export interface LiveLaneAvailabilityOptions {
@@ -46,6 +48,8 @@ export interface LiveLaneAvailabilityOptions {
   allowStaleScheduleForDisplay?: boolean;
   /** Passive guest/TV board only; never use this to place guests or start lanes. */
   allowBowlingDisplayContinuity?: boolean;
+  /** Return inputs for a separate personal/public estimate, without relaxing strict lanes. */
+  includeBowlingEstimate?: boolean;
 }
 
 const STORED_SOURCE_TIMEOUT_MS = 1_800;
@@ -187,6 +191,7 @@ export async function getLiveLaneAvailability(
   return {
     reservationScheduleStatus: scheduleUnavailable ? "stale" : "fresh",
     ...(allowBowlingDisplayContinuity ? { bowlingDisplay: bowlingDisplayMetadata(bowlingSnapshot, nowMs) } : {}),
+    ...(allowBowlingDisplayContinuity || options.includeBowlingEstimate ? { bowlingEstimateInput: { snapshot: bowlingSnapshot, reservations, nowMs } } : {}),
     bowling: applySchedule("bowling", bowling),
     darts: applySchedule("darts", darts),
     pool: applySchedule("pool", pool),

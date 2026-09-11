@@ -51,6 +51,10 @@ export interface ActivityStats {
   availabilityStatus: "live" | "estimated" | "unknown";
   /** Bounded, source-anchored expiry for passive bowling display estimates. */
   availabilityExpiresAt?: string;
+  /** Absolute public countdown; never a lane-start permission. */
+  waitReadyAt?: string;
+  waitSourceAt?: string;
+  waitEstimateExpiresAt?: string;
   reservationScheduleStatus: "fresh" | "stale";
 }
 

@@ -81,8 +81,8 @@ for (const availabilityStatus of ["live", "estimated", "unknown"]) {
 const renderCard = (activity, override) => renderToStaticMarkup(React.createElement(ActivityCard, {
   board: boardItem(activity), onJoin: () => {}, nowMs, bowlingNoWaitOverride: override,
 }));
-assert.match(renderCard("bowling", false), /Updating/);
-assert.match(renderCard("bowling", undefined), /Updating/, "Default is off");
+assert.match(renderCard("bowling", false), /Check with staff/);
+assert.match(renderCard("bowling", undefined), /Check with staff/, "Default is off");
 assert.match(renderCard("darts", true), /Updating/, "Other activities remain truthful");
 assert.doesNotMatch(renderCard("darts", true), /No Wait/);
 
@@ -99,7 +99,7 @@ assert.match(onArticles[0], /Synthetic Queue Guest/);
 assert.match(onArticles[0], /<ol[\s\S]*?>1<\/span>/, "Numbered queue remains above summary");
 assert.ok(onArticles[0].indexOf("data-tv-queue-preview") < onArticles[0].indexOf("data-tv-wait-summary"));
 assert.match(onArticles[1], /Updating/, "Darts is not overridden");
-assert.match(articles(tvHtml(false))[0], /Updating/, "Rollback restores source-anchored expiry");
+assert.match(articles(tvHtml(false))[0], /Check with staff/, "Rollback restores source-anchored expiry");
 assert.deepEqual(tvBoard, tvBefore);
 
 // Exercise the actual board GET body with read-only stubs: success, timeout and

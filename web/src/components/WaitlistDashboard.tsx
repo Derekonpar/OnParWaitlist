@@ -8,6 +8,7 @@ import { Header } from "./Header";
 import type { ActivityBoard } from "@/lib/store";
 import { emptyBoard } from "@/lib/defaults";
 import type { Activity } from "@/lib/types";
+import { retainPublicBowlingEstimate } from "@/lib/bowling-display-continuity";
 
 interface WaitlistDashboardProps {
   initialBoard: ActivityBoard[];
@@ -51,7 +52,7 @@ export function WaitlistDashboard({ initialBoard, initialBowlingNoWaitOverride =
         return;
       }
       if (Array.isArray(data.board) && data.board.length > 0) {
-        setBoard(data.board);
+        setBoard((previous) => retainPublicBowlingEstimate(previous, data.board, Date.now()));
         setLastUpdated(data.updatedAt ?? null);
         setError(null);
       }

@@ -8,7 +8,7 @@ import {
   type Activity,
 } from "@/lib/types";
 import { ActivityIcon } from "./ActivityIcon";
-import { publicWaitDisplayStatus } from "@/lib/bowling-display-continuity";
+import { publicWaitDisplayStatus, publicWaitMinutes } from "@/lib/bowling-display-continuity";
 
 interface ActivityCardProps {
   board: ActivityBoard;
@@ -24,9 +24,11 @@ export function ActivityCard({ board, onJoin, nowMs, bowlingNoWaitOverride = fal
   const noWaitOverride = stats.activity === "bowling" && bowlingNoWaitOverride;
   const waitKnown = noWaitOverride || displayStatus !== "unknown";
   const estimated = !noWaitOverride && displayStatus === "estimated";
+  const countdown = Boolean(stats.waitReadyAt);
+  const minutes = publicWaitMinutes(stats, nowMs);
   const reservationScheduleStale =
-    !noWaitOverride && stats.reservationScheduleStatus === "stale";
-  const hasWait = !noWaitOverride && stats.estimatedWaitMinutes > 0;
+    !noWaitOverride && !countdown && stats.reservationScheduleStatus === "stale";
+  const hasWait = !noWaitOverride && minutes > 0;
 
   return (
     <article className="overflow-hidden rounded-3xl border border-white/10 bg-[#141414] shadow-xl shadow-black/20">
@@ -60,16 +62,16 @@ export function ActivityCard({ board, onJoin, nowMs, bowlingNoWaitOverride = fal
         <div className="mt-4 flex items-center justify-between rounded-2xl bg-black/25 px-4 py-3 backdrop-blur-sm">
           <div>
             <p className="text-xs font-medium uppercase tracking-wide text-white/60">
-              {noWaitOverride ? "Current status" : estimated ? "Last confirmed estimate" : waitKnown && reservationScheduleStale
+              {noWaitOverride ? "Current status" : countdown ? "Estimated wait" : estimated ? "Last confirmed estimate" : waitKnown && reservationScheduleStale
                 ? "Live feed estimate"
                 : "Estimated wait"}
             </p>
             <p className="text-xl font-semibold text-white">
               {!waitKnown ? (
-                <span className="text-amber-100">Updating…</span>
+                <span className="text-amber-100">{stats.activity === "bowling" ? "Check with staff" : "Updating…"}</span>
               ) : hasWait ? (
                 <>
-                  ~{stats.estimatedWaitMinutes}
+                  ~{minutes}
                   <span className="ml-1 text-sm font-normal text-white/70">
                     min
                   </span>
@@ -94,12 +96,12 @@ export function ActivityCard({ board, onJoin, nowMs, bowlingNoWaitOverride = fal
               }`}
             />
             {noWaitOverride ? "Available" : waitKnown
-              ? estimated
+              ? countdown ? "Estimated" : estimated
                 ? "Reconnecting"
                 : reservationScheduleStale
                 ? "Live feed"
                 : "Live"
-              : "Updating"}
+              : stats.activity === "bowling" ? "Check with staff" : "Updating"}
           </span>
         </div>
         {waitKnown && reservationScheduleStale && (

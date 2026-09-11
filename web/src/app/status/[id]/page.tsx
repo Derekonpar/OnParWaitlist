@@ -6,6 +6,7 @@ import { useParams, useSearchParams } from "next/navigation";
 import { formatBookingSummary } from "@/lib/booking";
 import { Header } from "@/components/Header";
 import type { Activity } from "@/lib/types";
+import { publicWaitMinutes } from "@/lib/bowling-display-continuity";
 
 interface StatusData {
   entry: {
@@ -19,7 +20,10 @@ interface StatusData {
   };
   position: number;
   estimatedWaitMinutes: number;
-  availabilityStatus: "live" | "unknown";
+  availabilityStatus: "live" | "estimated" | "unknown";
+  waitReadyAt?: string;
+  waitSourceAt?: string;
+  waitEstimateExpiresAt?: string;
 }
 
 export default function StatusPage() {
@@ -30,6 +34,7 @@ export default function StatusPage() {
   const [data, setData] = useState<StatusData | null>(null);
   const [notFound, setNotFound] = useState(false);
   const [refreshError, setRefreshError] = useState(false);
+  const [nowMs, setNowMs] = useState(() => Date.now());
   const refreshSequenceRef = useRef(0);
   const refreshControllerRef = useRef<AbortController | null>(null);
 
@@ -74,9 +79,11 @@ export default function StatusPage() {
   useEffect(() => {
     const initial = window.setTimeout(() => void load(), 0);
     const interval = window.setInterval(() => void load(), 15_000);
+    const clock = window.setInterval(() => setNowMs(Date.now()), 1000);
     return () => {
       window.clearTimeout(initial);
       window.clearInterval(interval);
+      window.clearInterval(clock);
       refreshSequenceRef.current += 1;
       refreshControllerRef.current?.abort();
       refreshControllerRef.current = null;
@@ -158,9 +165,9 @@ export default function StatusPage() {
                   #{data.position}
                 </p>
                 <p className="mt-4 text-neutral-400">
-                  {data.availabilityStatus === "live"
-                    ? `Estimated wait ~${data.estimatedWaitMinutes} min`
-                    : "Live lane timing is updating. Your position is current."}
+                  {data.availabilityStatus !== "unknown" && (!data.waitEstimateExpiresAt || Date.parse(data.waitEstimateExpiresAt) > nowMs)
+                    ? `Estimated wait ~${publicWaitMinutes(data, nowMs)} min`
+                    : "Check with staff for timing. Your position is current."}
                 </p>
               </div>
             ) : data.entry.status === "notified" ? (

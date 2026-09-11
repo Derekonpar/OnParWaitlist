@@ -85,7 +85,7 @@ assert.match(
 );
 assert.match(
   board,
-  /availabilityStatus === "live"/,
+  /waitKnown = noWaitOverride \|\| displayStatus !== "unknown"/,
   "The TV board must not label unknown live-feed availability as No Wait",
 );
 assert.match(

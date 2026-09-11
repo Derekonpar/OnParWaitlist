@@ -41,7 +41,7 @@ export async function GET(
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  const { entry, position, estimatedWaitMinutes, availabilityStatus } = result;
+  const { entry, position, estimatedWaitMinutes, availabilityStatus, waitReadyAt, waitSourceAt, waitEstimateExpiresAt } = result;
 
   return NextResponse.json({
     entry: {
@@ -56,6 +56,9 @@ export async function GET(
     position,
     estimatedWaitMinutes,
     availabilityStatus,
+    waitReadyAt,
+    waitSourceAt,
+    waitEstimateExpiresAt,
     checkedAt: new Date().toISOString(),
   });
 }
