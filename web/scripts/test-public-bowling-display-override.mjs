@@ -98,7 +98,8 @@ assert.doesNotMatch(onArticles[0], /Updating/);
 assert.match(onArticles[0], /Synthetic Queue Guest/);
 assert.match(onArticles[0], /<ol[\s\S]*?>1<\/span>/, "Numbered queue remains above summary");
 assert.ok(onArticles[0].indexOf("data-tv-queue-preview") < onArticles[0].indexOf("data-tv-wait-summary"));
-assert.match(onArticles[1], /Updating/, "Darts is not overridden");
+assert.match(onArticles[1], /Check with staff/, "Unknown darts is not overridden to No Wait");
+assert.doesNotMatch(tvHtml(false), /updating|connecting|reconnecting/i, "The rendered TV page has no refresh/error wording");
 assert.match(articles(tvHtml(false))[0], /Check with staff/, "Rollback restores source-anchored expiry");
 assert.deepEqual(tvBoard, tvBefore);
 

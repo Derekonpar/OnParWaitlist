@@ -383,17 +383,9 @@ export function TvWaitBoard({ initialBoard, initialBowlingNoWaitOverride = false
             }`}
             aria-live="polite"
           >
-            {connected
-              ? updatedAt
-                ? hasUnknownWaits
-                  ? "Updating live feeds · latest queue shown"
-                  : hasEstimatedWaits
-                    ? "Bowling reconnecting · last confirmed estimate"
-                    : reservationScheduleStale
-                      ? "Live feeds · reservation schedule updating"
-                      : "Live waits"
-                : "Connecting to live waits"
-              : "Updating · showing last known"}
+            {connected && updatedAt && !hasUnknownWaits && !hasEstimatedWaits && !reservationScheduleStale
+              ? "Live waits"
+              : "Estimated wait times"}
           </p>
         </div>
       </header>
@@ -420,7 +412,7 @@ export function TvWaitBoard({ initialBoard, initialBowlingNoWaitOverride = false
               gradient={theme.gradient}
               status={
                 !waitKnown ? (
-                  stats.activity === "bowling" ? "Check with staff" : "Updating"
+                  "Check with staff"
                 ) : open ? (
                   "No Wait"
                 ) : (
@@ -474,10 +466,8 @@ export function TvWaitBoard({ initialBoard, initialBowlingNoWaitOverride = false
               "No Wait"
             ) : karaokeNotOpen ? (
               "Not Open"
-            ) : karaokeWait ? (
-              "Updating"
             ) : (
-              "Connecting"
+              "Check with staff"
             )
           }
           statusTone={

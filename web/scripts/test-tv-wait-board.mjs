@@ -60,8 +60,8 @@ assert.match(
 );
 assert.match(
   board,
-  /: karaokeWait \? \(\s*"Updating"\s*\) : \(\s*"Connecting"/,
-  "An unavailable Singa response must keep showing Updating rather than No Wait",
+  /karaokeNotOpen \? \(\s*"Not Open"\s*\) : \(\s*"Check with staff"/,
+  "Unavailable karaoke must offer staff help, not invent a zero wait",
 );
 assert.match(
   board,
@@ -80,19 +80,16 @@ assert.equal(
 );
 assert.match(
   board,
-  /Updating · showing last known/,
-  "The TV clock must identify last-known data during a live refresh failure",
+  /Estimated wait times/,
+  "The TV clock uses a calm estimate label during loading or refresh failure",
 );
 assert.match(
   board,
   /waitKnown = noWaitOverride \|\| displayStatus !== "unknown"/,
   "The TV board must not label unknown live-feed availability as No Wait",
 );
-assert.match(
-  board,
-  /Live feeds · reservation schedule updating/,
-  "The TV board must distinguish stale reservations from failed live feeds",
-);
+assert.doesNotMatch(board, /updating|reconnecting|connecting to live waits/i,
+  "No TV loading, source-error, schedule-error or reconnect branch may show technical refresh wording");
 assert.match(
   board,
   /reservationScheduleStale[\s\S]*?Live feed estimate/,
