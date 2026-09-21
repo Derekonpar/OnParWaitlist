@@ -19,6 +19,11 @@ interface TvWaitBoardProps {
   initialBowlingNoWaitOverride?: boolean;
 }
 
+// Temporary public-TV fallback while the Dartsee source is unreliable. This is
+// presentation-only: staff health, lane controls, reservations, queues, and
+// scheduling continue to use the real Dartsee state.
+const TEMPORARY_DARTS_NO_WAIT_FALLBACK = true;
+
 interface EntertainmentCardProps {
   label: string;
   icon: ReactNode;
@@ -253,7 +258,12 @@ export function TvWaitBoard({ initialBoard, initialBowlingNoWaitOverride = false
   const refreshController = useRef<AbortController | null>(null);
   const karaokeRefreshController = useRef<AbortController | null>(null);
   const hasUnknownWaits = board.some(
-    ({ stats }) => !(stats.activity === "bowling" && bowlingNoWaitOverride) && publicWaitDisplayStatus(stats, nowMs) === "unknown",
+    ({ stats }) => {
+      const displayStatus = publicWaitDisplayStatus(stats, nowMs);
+      return !(stats.activity === "bowling" && bowlingNoWaitOverride) &&
+        !(TEMPORARY_DARTS_NO_WAIT_FALLBACK && stats.activity === "darts" && displayStatus === "unknown") &&
+        displayStatus === "unknown";
+    },
   );
   const hasEstimatedWaits = board.some(({ stats }) => !(stats.activity === "bowling" && (bowlingNoWaitOverride || stats.waitReadyAt)) && publicWaitDisplayStatus(stats, nowMs) === "estimated");
   const reservationScheduleStale = board.some(
@@ -398,12 +408,16 @@ export function TvWaitBoard({ initialBoard, initialBowlingNoWaitOverride = false
           const theme = ACTIVITY_THEME[stats.activity];
           const displayStatus = publicWaitDisplayStatus(stats, nowMs);
           const noWaitOverride = stats.activity === "bowling" && bowlingNoWaitOverride;
-          const waitKnown = noWaitOverride || displayStatus !== "unknown";
+          const dartsNoWaitFallback =
+            TEMPORARY_DARTS_NO_WAIT_FALLBACK &&
+            stats.activity === "darts" &&
+            displayStatus === "unknown";
+          const waitKnown = noWaitOverride || dartsNoWaitFallback || displayStatus !== "unknown";
           const estimated = !noWaitOverride && displayStatus === "estimated";
           const minutes = publicWaitMinutes(stats, nowMs);
           const reservationScheduleStale =
             !noWaitOverride && stats.reservationScheduleStatus === "stale";
-          const open = noWaitOverride || (waitKnown && minutes <= 0);
+          const open = noWaitOverride || dartsNoWaitFallback || (waitKnown && minutes <= 0);
           return (
             <EntertainmentCard
               key={stats.activity}
@@ -427,7 +441,7 @@ export function TvWaitBoard({ initialBoard, initialBowlingNoWaitOverride = false
                     : "text-white"
               }
               statusLabel={
-                noWaitOverride ? "Current status" : stats.waitReadyAt ? "Estimated wait" : waitKnown
+                noWaitOverride || dartsNoWaitFallback ? "Current status" : stats.waitReadyAt ? "Estimated wait" : waitKnown
                   ? estimated
                     ? "Last confirmed estimate"
                     : reservationScheduleStale

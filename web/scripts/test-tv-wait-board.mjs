@@ -85,8 +85,8 @@ assert.match(
 );
 assert.match(
   board,
-  /waitKnown = noWaitOverride \|\| displayStatus !== "unknown"/,
-  "The TV board must not label unknown live-feed availability as No Wait",
+  /TEMPORARY_DARTS_NO_WAIT_FALLBACK[\s\S]*?stats\.activity === "darts"[\s\S]*?displayStatus === "unknown"/,
+  "The TV board must apply the temporary fallback only to unknown Darts availability",
 );
 assert.doesNotMatch(board, /updating|reconnecting|connecting to live waits/i,
   "No TV loading, source-error, schedule-error or reconnect branch may show technical refresh wording");
