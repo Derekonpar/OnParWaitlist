@@ -48,6 +48,26 @@ function sortedHub(state: HubState): HubState {
   };
 }
 
+function RefreshGlyph() {
+  return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7.5V3.8m0 0h-3.7M20 3.8A9 9 0 1 0 21 14" /></svg>;
+}
+
+function SparklesGlyph() {
+  return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.7c.5 3.6 2.2 5.3 5.8 5.8-3.6.5-5.3 2.2-5.8 5.8-.5-3.6-2.2-5.3-5.8-5.8 3.6-.5 5.3-2.2 5.8-5.8ZM18.7 14.2c.25 1.8 1.1 2.65 2.9 2.9-1.8.25-2.65 1.1-2.9 2.9-.25-1.8-1.1-2.65-2.9-2.9 1.8-.25 2.65-1.1 2.9-2.9ZM5.1 15.3c.2 1.35.85 2 2.2 2.2-1.35.2-2 .85-2.2 2.2-.2-1.35-.85-2-2.2-2.2 1.35-.2 2-.85 2.2-2.2Z" /></svg>;
+}
+
+function TvGlyph() {
+  return <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.8" y="4.8" width="18.4" height="12.8" rx="2.4" /><path d="M9 21h6m-3-3.4V21" /></svg>;
+}
+
+function GlobeGlyph() {
+  return <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M3.4 12h17.2M12 3c2.25 2.45 3.35 5.45 3.35 9S14.25 18.55 12 21c-2.25-2.45-3.35-5.45-3.35-9S9.75 5.45 12 3Z" /></svg>;
+}
+
+function LinkGlyph() {
+  return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8.2 15.8 15.8 8.2M10 7h7v7M16.5 13.5V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-9.5a2 2 0 0 1 2-2h5.5" /></svg>;
+}
+
 export default function TvHubPage() {
   const [secret, setSecret] = useState("");
   const [pin, setPin] = useState("");
@@ -243,11 +263,11 @@ export default function TvHubPage() {
           <h1>TV Hub</h1>
           <p>{configuredTvs.filter((tv) => tv.online).length} of {configuredTvs.length} TVs online</p>
         </div>
-        <button className={styles.refreshButton} onClick={() => void load(secret)} disabled={busy} aria-label="Refresh TV status">↻</button>
+        <button className={styles.refreshButton} onClick={() => void load(secret)} disabled={busy} aria-label="Refresh TV status"><RefreshGlyph /></button>
       </header>
 
       <section className={`${styles.triviaCard} ${hub.triviaMode.active ? styles.triviaActive : ""}`}>
-        <span className={`${styles.settingIcon} ${styles.triviaIcon}`} aria-hidden="true">?</span>
+        <span className={`${styles.settingIcon} ${styles.triviaIcon}`} aria-hidden="true"><SparklesGlyph /></span>
         <div>
           <h2>Trivia Mode</h2>
           <p>
@@ -263,7 +283,7 @@ export default function TvHubPage() {
 
       <form className={styles.controlCard} onSubmit={send}>
         <div className={styles.settingsRow}>
-          <span className={`${styles.settingIcon} ${styles.tvIcon}`} aria-hidden="true" />
+          <span className={`${styles.settingIcon} ${styles.tvIcon}`} aria-hidden="true"><TvGlyph /></span>
           <div className={styles.rowControl}>
             <label>TV screens</label>
             <details className={styles.tvDropdown}>
@@ -298,7 +318,7 @@ export default function TvHubPage() {
         </div>
 
         <div className={styles.settingsRow}>
-          <span className={`${styles.settingIcon} ${styles.webIcon}`} aria-hidden="true">◎</span>
+          <span className={`${styles.settingIcon} ${styles.webIcon}`} aria-hidden="true"><GlobeGlyph /></span>
           <div className={styles.rowControl}>
             <label htmlFor="site">Website</label>
             <select id="site" value={selectedSite} onChange={(event) => setSelectedSite(event.target.value)}>
@@ -311,7 +331,7 @@ export default function TvHubPage() {
 
         {selectedSite === "custom" && (
           <div className={styles.settingsRow}>
-            <span className={`${styles.settingIcon} ${styles.linkIcon}`} aria-hidden="true">↗</span>
+            <span className={`${styles.settingIcon} ${styles.linkIcon}`} aria-hidden="true"><LinkGlyph /></span>
             <label className={styles.rowControl} htmlFor="custom">
               Custom website
               <input id="custom" type="url" inputMode="url" value={customUrl} onChange={(event) => setCustomUrl(event.target.value)} placeholder="https://example.com" />

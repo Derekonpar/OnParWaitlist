@@ -80,6 +80,15 @@
 }
 
 .refreshButton:active { background: rgba(118, 118, 128, 0.2); }
+.refreshButton svg {
+  width: 19px;
+  height: 19px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
 
 .triviaCard,
 .controlCard,
@@ -129,29 +138,20 @@
   box-shadow: inset 0 0.5px rgba(255, 255, 255, 0.35);
 }
 
+.settingIcon svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 .triviaIcon { background: var(--purple); }
-.webIcon { background: #0a84ff; font-size: 23px; font-weight: 400; }
+.webIcon { background: #0a84ff; }
 .linkIcon { background: #5ac8fa; }
-.tvIcon {
-  position: relative;
-  background: #5856d6;
-}
-.tvIcon::before {
-  content: "";
-  width: 17px;
-  height: 11px;
-  border: 1.7px solid white;
-  border-radius: 2px;
-}
-.tvIcon::after {
-  content: "";
-  position: absolute;
-  bottom: 5px;
-  width: 8px;
-  height: 1.7px;
-  border-radius: 2px;
-  background: white;
-}
+.tvIcon { background: #5856d6; }
 
 .triviaStart,
 .triviaStop {
