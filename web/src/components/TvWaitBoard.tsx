@@ -329,14 +329,14 @@ export function TvWaitBoard({ initialBoard }: TvWaitBoardProps) {
           <h2 className="text-[clamp(1.1rem,1.65vw,1.9rem)] font-black leading-tight tracking-tight">
             Put yourself on the waitlist
           </h2>
-          <div className="mt-[clamp(0.45rem,0.8vh,0.75rem)] rounded-[clamp(0.75rem,1vw,1rem)] bg-white p-[clamp(0.35rem,0.5vw,0.55rem)] shadow-xl shadow-violet-950/40">
+          <div className="mt-[clamp(0.4rem,0.7vh,0.65rem)] rounded-[clamp(0.75rem,1vw,1rem)] bg-white p-[clamp(0.3rem,0.4vw,0.45rem)] shadow-xl shadow-violet-950/40">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src="/waitlist-qr.png"
               alt="QR code for onparwaitlist.com"
               width={240}
               height={240}
-              className="h-[clamp(7.2rem,9vw,9.5rem)] w-[clamp(7.2rem,9vw,9.5rem)]"
+              className="h-[clamp(10.25rem,14vw,12.5rem)] w-[clamp(10.25rem,14vw,12.5rem)]"
             />
           </div>
           <p className="mt-[clamp(0.4rem,0.65vh,0.65rem)] text-[clamp(0.65rem,0.82vw,0.92rem)] font-bold text-violet-100">
