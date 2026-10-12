@@ -15,7 +15,12 @@ type Tv = {
 };
 
 type Source = { id: string; name: string; url: string };
-type HubState = { checkedAt: string; tvs: Tv[]; sources: Source[] };
+type HubState = {
+  checkedAt: string;
+  tvs: Tv[];
+  sources: Source[];
+  triviaMode: { active: boolean; participantIds: string[] };
+};
 
 const secretKey = "onpar-staff-secret";
 
@@ -44,11 +49,18 @@ function currentSiteName(url: string) {
   }
 }
 
+function sortedHub(state: HubState): HubState {
+  return {
+    ...state,
+    tvs: [...state.tvs].sort((a, b) => tvNumber(a.name) - tvNumber(b.name)),
+  };
+}
+
 export default function TvHubPage() {
   const [secret, setSecret] = useState("");
   const [pin, setPin] = useState("");
   const [hub, setHub] = useState<HubState | null>(null);
-  const [selectedTv, setSelectedTv] = useState("");
+  const [selectedTvIds, setSelectedTvIds] = useState<string[]>([]);
   const [selectedSite, setSelectedSite] = useState("");
   const [customUrl, setCustomUrl] = useState("");
   const [busy, setBusy] = useState(false);
@@ -72,9 +84,15 @@ export default function TvHubPage() {
       }
       const body = await response.json();
       if (!response.ok) throw new Error(body.error || "TV Hub is unavailable.");
-      const sorted = { ...body, tvs: [...body.tvs].sort((a: Tv, b: Tv) => tvNumber(a.name) - tvNumber(b.name)) } as HubState;
+      const sorted = sortedHub(body as HubState);
       setHub(sorted);
-      setSelectedTv((current) => current || sorted.tvs[0]?.id || "");
+      setSelectedTvIds((current) => {
+        const available = new Set(sorted.tvs.filter((tv) => tv.configured).map((tv) => tv.id));
+        const retained = current.filter((id) => available.has(id));
+        if (retained.length) return retained;
+        const first = sorted.tvs.find((tv) => tv.configured);
+        return first ? [first.id] : [];
+      });
       if (!quiet) setError("");
       return true;
     } catch (loadError) {
@@ -133,8 +151,11 @@ export default function TvHubPage() {
     event.preventDefault();
     setMessage("");
     setError("");
-    if (!selectedTv || !selectedSite) return setError("Choose a TV and a website.");
-    const payload: { tvId: string; sourceId?: string; url?: string } = { tvId: selectedTv };
+    if (!selectedTvIds.length || !selectedSite) return setError("Choose one or more TVs and a website.");
+    const payload: { action: "show"; tvIds: string[]; sourceId?: string; url?: string } = {
+      action: "show",
+      tvIds: selectedTvIds,
+    };
     if (selectedSite === "custom") {
       const entered = customUrl.trim();
       if (!entered) return setError("Enter the custom website address.");
@@ -153,10 +174,45 @@ export default function TvHubPage() {
       });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error || "The website was not sent.");
-      setHub({ ...body.state, tvs: [...body.state.tvs].sort((a: Tv, b: Tv) => tvNumber(a.name) - tvNumber(b.name)) });
+      setHub(sortedHub(body.state as HubState));
       setMessage(body.message);
     } catch (sendError) {
       setError(sendError instanceof Error ? sendError.message : "The website was not sent.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const toggleTv = (tvId: string) => {
+    setSelectedTvIds((current) =>
+      current.includes(tvId)
+        ? current.filter((id) => id !== tvId)
+        : [...current, tvId],
+    );
+  };
+
+  const changeTriviaMode = async () => {
+    if (!hub) return;
+    setBusy(true);
+    setMessage("");
+    setError("");
+    const active = !hub.triviaMode.active;
+    try {
+      const response = await fetch("/api/staff/tvhub", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-staff-secret": secret },
+        body: JSON.stringify({ action: "trivia", active }),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || "Trivia Mode could not be changed.");
+      const next = sortedHub(body.state as HubState);
+      setHub(next);
+      if (active && next.triviaMode.participantIds.length) {
+        setSelectedTvIds(next.triviaMode.participantIds);
+      }
+      setMessage(body.message);
+    } catch (triviaError) {
+      setError(triviaError instanceof Error ? triviaError.message : "Trivia Mode could not be changed.");
     } finally {
       setBusy(false);
     }
@@ -180,7 +236,13 @@ export default function TvHubPage() {
     );
   }
 
-  const chosenTv = hub.tvs.find((tv) => tv.id === selectedTv);
+  const configuredTvs = hub.tvs.filter((tv) => tv.configured);
+  const selectedTvs = hub.tvs.filter((tv) => selectedTvIds.includes(tv.id));
+  const selectionLabel = selectedTvs.length === 0
+    ? "Choose TVs"
+    : selectedTvs.length === 1
+      ? selectedTvs[0].name
+      : `${selectedTvs.length} TVs selected`;
 
   return (
     <main className={styles.shell}>
@@ -188,14 +250,36 @@ export default function TvHubPage() {
         <div>
           <div className={styles.eyebrow}>On Par staff controls</div>
           <h1>TV Hub</h1>
-          <p>Choose a screen, choose a website, then send it.</p>
+          <p>Choose one or more screens, choose a website, then send it.</p>
         </div>
         <button className={styles.secondary} onClick={() => void load(secret)} disabled={busy}>Refresh</button>
       </header>
 
+      <section className={`${styles.triviaCard} ${hub.triviaMode.active ? styles.triviaActive : ""}`}>
+        <div>
+          <div className={styles.eyebrow}>Venue-wide shortcut</div>
+          <h2>Trivia Mode</h2>
+          <p>
+            {hub.triviaMode.active
+              ? `Live on ${hub.triviaMode.participantIds.length} TVs. Turning it off restores their previous websites.`
+              : "Uses the same currently online TVs and restoration behavior as the local TV dashboard."}
+          </p>
+        </div>
+        <button type="button" className={hub.triviaMode.active ? styles.triviaStop : styles.triviaStart} onClick={() => void changeTriviaMode()} disabled={busy}>
+          {busy ? "Working…" : hub.triviaMode.active ? "Turn Trivia Mode Off" : "Start Trivia Mode"}
+        </button>
+      </section>
+
       <section className={styles.desktopGrid} aria-label="TV screens">
         {hub.tvs.map((tv) => (
-          <button key={tv.id} type="button" className={`${styles.tvCard} ${selectedTv === tv.id ? styles.selected : ""}`} onClick={() => setSelectedTv(tv.id)}>
+          <button
+            key={tv.id}
+            type="button"
+            aria-pressed={selectedTvIds.includes(tv.id)}
+            disabled={!tv.configured}
+            className={`${styles.tvCard} ${selectedTvIds.includes(tv.id) ? styles.selected : ""}`}
+            onClick={() => toggleTv(tv.id)}
+          >
             <span className={`${styles.statusDot} ${tv.online ? styles.online : styles.offline}`} />
             <strong>{tv.name}</strong>
             <span>{siteName(tv, hub.sources)}</span>
@@ -205,17 +289,42 @@ export default function TvHubPage() {
       </section>
 
       <form className={styles.controlCard} onSubmit={send}>
-        <div className={styles.mobileTvField}>
-          <label htmlFor="tv">TV number</label>
-          <select id="tv" value={selectedTv} onChange={(event) => setSelectedTv(event.target.value)}>
-            {hub.tvs.map((tv) => <option key={tv.id} value={tv.id}>{tv.name}{tv.online ? "" : " — offline"}</option>)}
-          </select>
+        <div className={styles.tvPicker}>
+          <label>TV screens</label>
+          <details className={styles.tvDropdown}>
+            <summary>{selectionLabel}</summary>
+            <div className={styles.tvDropdownPanel}>
+              <div className={styles.selectionActions}>
+                <button type="button" onClick={() => setSelectedTvIds(configuredTvs.map((tv) => tv.id))}>
+                  Select all TVs
+                </button>
+                <button type="button" onClick={() => setSelectedTvIds(hub.tvs.filter((tv) => tv.online).map((tv) => tv.id))}>
+                  Online only
+                </button>
+                <button type="button" onClick={() => setSelectedTvIds([])}>Clear</button>
+              </div>
+              <div className={styles.tvOptions}>
+                {hub.tvs.map((tv) => (
+                  <label key={tv.id} className={`${styles.tvOption} ${!tv.configured ? styles.tvOptionDisabled : ""}`}>
+                    <input
+                      type="checkbox"
+                      checked={selectedTvIds.includes(tv.id)}
+                      disabled={!tv.configured}
+                      onChange={() => toggleTv(tv.id)}
+                    />
+                    <strong>{tv.name}</strong>
+                    <span>{tv.online ? "Online" : tv.configured ? "Offline" : "Not configured"}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          </details>
         </div>
 
         <div className={styles.desktopSelection}>
-          <span>Selected screen</span>
-          <strong>{chosenTv?.name || "Choose a TV"}</strong>
-          <small>{chosenTv ? siteName(chosenTv, hub.sources) : ""}</small>
+          <span>Selected screens</span>
+          <strong>{selectionLabel}</strong>
+          <small>{selectedTvs.map((tv) => tv.name).join(", ")}</small>
         </div>
 
         <label htmlFor="site">Website</label>
@@ -234,7 +343,9 @@ export default function TvHubPage() {
 
         {error && <div className={styles.error}>{error}</div>}
         {message && <div className={styles.success}>{message}</div>}
-        <button className={styles.primary} disabled={busy || !selectedTv || !selectedSite}>{busy ? "Sending…" : `Confirm and send to ${chosenTv?.name || "TV"}`}</button>
+        <button className={styles.primary} disabled={busy || !selectedTvIds.length || !selectedSite}>
+          {busy ? "Sending…" : `Confirm and send to ${selectedTvs.length === 1 ? selectedTvs[0].name : `${selectedTvs.length} TVs`}`}
+        </button>
       </form>
     </main>
   );

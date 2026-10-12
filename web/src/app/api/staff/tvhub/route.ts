@@ -27,15 +27,24 @@ const stateSchema = z.object({
   checkedAt: z.string().datetime(),
   tvs: z.array(tvSchema).max(40),
   sources: z.array(sourceSchema).max(40),
+  triviaMode: z.object({
+    active: z.boolean(),
+    participantIds: z.array(z.string().regex(/^[a-z\d-]+$/i)).max(40),
+  }),
 });
 
-const commandSchema = z
+const showCommandSchema = z
   .object({
-    tvId: z.string().regex(/^[a-z\d-]+$/i),
+    action: z.literal("show").optional(),
+    tvId: z.string().regex(/^[a-z\d-]+$/i).optional(),
+    tvIds: z.array(z.string().regex(/^[a-z\d-]+$/i)).min(1).max(30).optional(),
     sourceId: z.string().regex(/^[a-z\d-]+$/i).optional(),
     url: z.string().trim().max(2048).optional(),
   })
   .superRefine((value, context) => {
+    if (Boolean(value.tvId) === Boolean(value.tvIds)) {
+      context.addIssue({ code: "custom", message: "Choose one or more TVs." });
+    }
     if (Boolean(value.sourceId) === Boolean(value.url)) {
       context.addIssue({ code: "custom", message: "Choose one website." });
       return;
@@ -49,6 +58,11 @@ const commandSchema = z
       }
     }
   });
+
+const commandSchema = z.union([
+  showCommandSchema,
+  z.object({ action: z.literal("trivia"), active: z.boolean() }),
+]);
 
 function config() {
   const origin = readEnv("TV_HUB_ORIGIN_URL")?.replace(/\/$/, "");
@@ -68,7 +82,7 @@ async function relay(path: string, init?: RequestInit) {
       Authorization: `Bearer ${token}`,
       ...(init?.body ? { "Content-Type": "application/json" } : {}),
     },
-    signal: AbortSignal.timeout(35_000),
+    signal: AbortSignal.timeout(60_000),
   });
 }
 
@@ -104,11 +118,23 @@ export async function POST(request: Request) {
   try {
     const command = commandSchema.safeParse(await request.json());
     if (!command.success) {
-      return NextResponse.json({ error: "Choose one TV and one valid website." }, { status: 400 });
+      return NextResponse.json({ error: "Choose one or more TVs and one valid website." }, { status: 400 });
     }
-    const response = await relay("/api/relay/show", {
+    let relayPath: string;
+    let relayBody: object;
+    if (command.data.action === "trivia") {
+      relayPath = "/api/relay/trivia-mode";
+      relayBody = { active: command.data.active };
+    } else {
+      relayPath = "/api/relay/show";
+      relayBody = {
+        tvIds: command.data.tvIds ?? [command.data.tvId!],
+        ...(command.data.sourceId ? { sourceId: command.data.sourceId } : { url: command.data.url }),
+      };
+    }
+    const response = await relay(relayPath, {
       method: "POST",
-      body: JSON.stringify(command.data),
+      body: JSON.stringify(relayBody),
     });
     const body = (await response.json().catch(() => null)) as { error?: unknown; message?: unknown; state?: unknown } | null;
     if (!response.ok) {
