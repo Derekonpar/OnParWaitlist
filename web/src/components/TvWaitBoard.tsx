@@ -353,7 +353,10 @@ export function TvWaitBoard({ initialBoard }: TvWaitBoardProps) {
     karaokeWithinDisplayHours && karaokeInactive;
   const karaokeNotOpen = !karaokeWithinDisplayHours;
   const karaokeNoWait =
-    (karaokeActive && karaokeWait.waitMinutes === 0) || karaokeInactiveNoWait;
+    (karaokeActive && karaokeWait.waitMinutes === 0) ||
+    karaokeInactiveNoWait ||
+    (karaokeWithinDisplayHours &&
+      (karaokeWait?.status === "unavailable" || !karaokeWait));
 
   return (
     <main className="flex h-screen max-h-screen flex-col overflow-hidden bg-[#090909] p-[clamp(0.75rem,1.6vw,2rem)] text-white">
@@ -461,10 +464,8 @@ export function TvWaitBoard({ initialBoard }: TvWaitBoardProps) {
               "No Wait"
             ) : karaokeNotOpen ? (
               "Not Open"
-            ) : karaokeWait ? (
-              "Updating"
             ) : (
-              "Connecting"
+              "No Wait"
             )
           }
           statusTone={
