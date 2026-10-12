@@ -28,14 +28,6 @@ function tvNumber(name: string) {
   return Number(name.match(/\d+/)?.[0] || 999);
 }
 
-function siteName(tv: Tv, sources: Source[]) {
-  const saved = sources.find((source) => source.id === tv.sourceId || source.url === tv.url);
-  if (saved) return saved.name;
-  if (!tv.url) return "No website assigned";
-  try { return new URL(tv.url).hostname.replace(/^www\./, ""); }
-  catch { return "Custom website"; }
-}
-
 function currentSiteName(url: string) {
   try {
     const parsed = new URL(url);
@@ -222,7 +214,7 @@ export default function TvHubPage() {
     return (
       <main className={styles.loginShell}>
         <form className={styles.loginCard} onSubmit={login}>
-          <div className={styles.eyebrow}>On Par staff</div>
+          <div className={styles.eyebrow}>OnPar TV Settings</div>
           <h1>TV Hub</h1>
           <p>Enter the same PIN used for the staff dashboard.</p>
           <label>
@@ -248,21 +240,20 @@ export default function TvHubPage() {
     <main className={styles.shell}>
       <header className={styles.header}>
         <div>
-          <div className={styles.eyebrow}>On Par staff controls</div>
           <h1>TV Hub</h1>
-          <p>Choose one or more screens, choose a website, then send it.</p>
+          <p>{configuredTvs.filter((tv) => tv.online).length} of {configuredTvs.length} TVs online</p>
         </div>
-        <button className={styles.secondary} onClick={() => void load(secret)} disabled={busy}>Refresh</button>
+        <button className={styles.refreshButton} onClick={() => void load(secret)} disabled={busy} aria-label="Refresh TV status">↻</button>
       </header>
 
       <section className={`${styles.triviaCard} ${hub.triviaMode.active ? styles.triviaActive : ""}`}>
+        <span className={`${styles.settingIcon} ${styles.triviaIcon}`} aria-hidden="true">?</span>
         <div>
-          <div className={styles.eyebrow}>Venue-wide shortcut</div>
           <h2>Trivia Mode</h2>
           <p>
             {hub.triviaMode.active
               ? `Live on ${hub.triviaMode.participantIds.length} TVs. Turning it off restores their previous websites.`
-              : "Uses the same currently online TVs and restoration behavior as the local TV dashboard."}
+              : "Send trivia to the venue TVs."}
           </p>
         </div>
         <button type="button" className={hub.triviaMode.active ? styles.triviaStop : styles.triviaStart} onClick={() => void changeTriviaMode()} disabled={busy}>
@@ -270,75 +261,62 @@ export default function TvHubPage() {
         </button>
       </section>
 
-      <section className={styles.desktopGrid} aria-label="TV screens">
-        {hub.tvs.map((tv) => (
-          <button
-            key={tv.id}
-            type="button"
-            aria-pressed={selectedTvIds.includes(tv.id)}
-            disabled={!tv.configured}
-            className={`${styles.tvCard} ${selectedTvIds.includes(tv.id) ? styles.selected : ""}`}
-            onClick={() => toggleTv(tv.id)}
-          >
-            <span className={`${styles.statusDot} ${tv.online ? styles.online : styles.offline}`} />
-            <strong>{tv.name}</strong>
-            <span>{siteName(tv, hub.sources)}</span>
-            <small>{tv.online ? "Online" : tv.configured ? "Offline" : "Not configured"}</small>
-          </button>
-        ))}
-      </section>
-
       <form className={styles.controlCard} onSubmit={send}>
-        <div className={styles.tvPicker}>
-          <label>TV screens</label>
-          <details className={styles.tvDropdown}>
-            <summary>{selectionLabel}</summary>
-            <div className={styles.tvDropdownPanel}>
-              <div className={styles.selectionActions}>
-                <button type="button" onClick={() => setSelectedTvIds(configuredTvs.map((tv) => tv.id))}>
-                  Select all TVs
-                </button>
-                <button type="button" onClick={() => setSelectedTvIds(hub.tvs.filter((tv) => tv.online).map((tv) => tv.id))}>
-                  Online only
-                </button>
-                <button type="button" onClick={() => setSelectedTvIds([])}>Clear</button>
+        <div className={styles.settingsRow}>
+          <span className={`${styles.settingIcon} ${styles.tvIcon}`} aria-hidden="true" />
+          <div className={styles.rowControl}>
+            <label>TV screens</label>
+            <details className={styles.tvDropdown}>
+              <summary>{selectionLabel}</summary>
+              <div className={styles.tvDropdownPanel}>
+                <div className={styles.selectionActions}>
+                  <button type="button" onClick={() => setSelectedTvIds(configuredTvs.map((tv) => tv.id))}>
+                    Select all
+                  </button>
+                  <button type="button" onClick={() => setSelectedTvIds(hub.tvs.filter((tv) => tv.online).map((tv) => tv.id))}>
+                    Online only
+                  </button>
+                  <button type="button" onClick={() => setSelectedTvIds([])}>Clear</button>
+                </div>
+                <div className={styles.tvOptions}>
+                  {hub.tvs.map((tv) => (
+                    <label key={tv.id} className={`${styles.tvOption} ${!tv.configured ? styles.tvOptionDisabled : ""}`}>
+                      <input
+                        type="checkbox"
+                        checked={selectedTvIds.includes(tv.id)}
+                        disabled={!tv.configured}
+                        onChange={() => toggleTv(tv.id)}
+                      />
+                      <strong>{tv.name}</strong>
+                      <span>{tv.online ? "Online" : tv.configured ? "Offline" : "Not configured"}</span>
+                    </label>
+                  ))}
+                </div>
               </div>
-              <div className={styles.tvOptions}>
-                {hub.tvs.map((tv) => (
-                  <label key={tv.id} className={`${styles.tvOption} ${!tv.configured ? styles.tvOptionDisabled : ""}`}>
-                    <input
-                      type="checkbox"
-                      checked={selectedTvIds.includes(tv.id)}
-                      disabled={!tv.configured}
-                      onChange={() => toggleTv(tv.id)}
-                    />
-                    <strong>{tv.name}</strong>
-                    <span>{tv.online ? "Online" : tv.configured ? "Offline" : "Not configured"}</span>
-                  </label>
-                ))}
-              </div>
-            </div>
-          </details>
+            </details>
+          </div>
         </div>
 
-        <div className={styles.desktopSelection}>
-          <span>Selected screens</span>
-          <strong>{selectionLabel}</strong>
-          <small>{selectedTvs.map((tv) => tv.name).join(", ")}</small>
+        <div className={styles.settingsRow}>
+          <span className={`${styles.settingIcon} ${styles.webIcon}`} aria-hidden="true">◎</span>
+          <div className={styles.rowControl}>
+            <label htmlFor="site">Website</label>
+            <select id="site" value={selectedSite} onChange={(event) => setSelectedSite(event.target.value)}>
+              <option value="">Choose a website</option>
+              {siteOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+              <option value="custom">Custom website…</option>
+            </select>
+          </div>
         </div>
-
-        <label htmlFor="site">Website</label>
-        <select id="site" value={selectedSite} onChange={(event) => setSelectedSite(event.target.value)}>
-          <option value="">Choose a website</option>
-          {siteOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-          <option value="custom">Custom website…</option>
-        </select>
 
         {selectedSite === "custom" && (
-          <label htmlFor="custom">
-            Custom website
-            <input id="custom" type="url" inputMode="url" value={customUrl} onChange={(event) => setCustomUrl(event.target.value)} placeholder="https://example.com" />
-          </label>
+          <div className={styles.settingsRow}>
+            <span className={`${styles.settingIcon} ${styles.linkIcon}`} aria-hidden="true">↗</span>
+            <label className={styles.rowControl} htmlFor="custom">
+              Custom website
+              <input id="custom" type="url" inputMode="url" value={customUrl} onChange={(event) => setCustomUrl(event.target.value)} placeholder="https://example.com" />
+            </label>
+          </div>
         )}
 
         {error && <div className={styles.error}>{error}</div>}
