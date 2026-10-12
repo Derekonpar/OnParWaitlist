@@ -80,6 +80,10 @@ function EntertainmentCard({
       : visibleQueue.length === 2
         ? "h-[clamp(2.2rem,2.8vw,3rem)] w-[clamp(2.2rem,2.8vw,3rem)] text-[clamp(1rem,1.3vw,1.4rem)]"
         : "h-[clamp(1.6rem,2vw,2rem)] w-[clamp(1.6rem,2vw,2rem)] text-[clamp(0.78rem,0.95vw,1rem)]";
+  const queueRowPadding =
+    visibleQueue.length <= 1
+      ? "px-[clamp(0.85rem,1vw,1.1rem)] py-[clamp(0.6rem,0.9vh,0.85rem)]"
+      : "px-[clamp(0.55rem,0.75vw,0.8rem)] py-[clamp(0.35rem,0.55vh,0.5rem)]";
 
   return (
     <article
@@ -114,7 +118,7 @@ function EntertainmentCard({
       {queue ? (
         <div
           data-tv-queue-preview
-          className="mt-[clamp(0.35rem,0.55vh,0.6rem)] min-h-0 flex-1 overflow-hidden"
+          className="my-[clamp(0.35rem,0.65vh,0.65rem)] min-h-0 flex-1 overflow-hidden"
         >
           {visibleQueue.length ? (
             <ol
@@ -126,7 +130,7 @@ function EntertainmentCard({
               {visibleQueue.map((person) => (
                 <li
                   key={person.id}
-                  className="flex min-h-0 min-w-0 items-center gap-[clamp(0.5rem,0.7vw,0.75rem)] rounded-xl bg-black/30 px-[clamp(0.55rem,0.75vw,0.8rem)] py-[clamp(0.35rem,0.55vh,0.5rem)]"
+                  className={`flex min-h-0 min-w-0 items-center gap-[clamp(0.5rem,0.7vw,0.75rem)] rounded-xl bg-black/30 ${queueRowPadding}`}
                 >
                   <span className={`flex shrink-0 items-center justify-center rounded-full bg-white/25 font-black tabular-nums ${positionDensity}`}>
                     {person.position}
