@@ -34,3 +34,22 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Event Host interval evidence
+
+The schedule cache preserves a separate `sourceSnapshot` containing Event Host's
+original dates, allocation projection and evidence envelope. Capture happens
+before the existing operating-day display filter, so spanning allocations and
+buyouts without allocation rows remain in the source evidence. Stored and memory
+cache reads do not replace upstream timestamps with the mirror's `fetchedAt`.
+Missing or malformed envelopes yield no source snapshot.
+
+Leave `ENTERTAINMENT_INTERVAL_EVIDENCE=false` until Event Host's version 2
+interval migration and authenticated responses are verified. `true` requests
+`coverage=interval`; this is evidence transport only. Existing operational
+booking checks are unchanged, and no shared claim authority is enabled. A future
+availability consumer must check the original coverage, issues and timestamps,
+not infer complete coverage from today's filtered display reservations.
+
+Run the evidence tests with Node 24:
+`node --experimental-strip-types --test scripts/test-source-evidence.mjs`.
+Also run `npm run lint`, `npx tsc --noEmit`, and `npm run build`.

@@ -1,3 +1,4 @@
+import { captureScheduleEvidence, type ScheduleSourceSnapshot } from "./schedule-evidence";
 import { readEnv } from "./env";
 import { getSupabaseAdmin } from "./supabase";
 import type { Activity } from "./types";
@@ -34,6 +35,7 @@ export interface EntertainmentScheduleResponse {
   reservationCount: number;
   reservations: EntertainmentReservation[];
   fetchedAt: string;
+  sourceSnapshot?: ScheduleSourceSnapshot | null;
 }
 
 const DEFAULT_URL = "https://eventhost-opal.vercel.app/api/entertainment-schedule";
@@ -171,6 +173,7 @@ export async function getEntertainmentSchedule(): Promise<EntertainmentScheduleR
   // Staff operations and wait calculations only need the current operating
   // day. Reservations crossing midnight remain included by operatingDate.
   url.searchParams.set("to", venueDate());
+  if (readEnv("ENTERTAINMENT_INTERVAL_EVIDENCE") === "true") url.searchParams.set("coverage", "interval");
   try {
     const response = await fetch(url, {
       headers: { authorization: `Bearer ${token}` },
@@ -181,6 +184,7 @@ export async function getEntertainmentSchedule(): Promise<EntertainmentScheduleR
     const payload = (await response.json()) as Omit<EntertainmentScheduleResponse, "fetchedAt">;
     const value = currentOperatingDayOnly({
       ...payload,
+      sourceSnapshot: captureScheduleEvidence(payload),
       fetchedAt: new Date().toISOString(),
     });
     if (!value) return currentOperatingDayOnly(stored);
