@@ -56,7 +56,7 @@ export function TimedResourcePlanner({
     startsAt: string;
     durationMinutes: 30 | 60 | 120;
   }) => Promise<boolean>;
-  onClear: (resourceType: TimedResourceType, resourceId: string) => Promise<void>;
+  onClear: (resourceType: TimedResourceType, resourceId: string, sessionId: string) => Promise<void>;
 }) {
   const resources = TIMED_RESOURCES[resourceType];
   const [resourceId, setResourceId] = useState(resources[0].id);
@@ -88,6 +88,9 @@ export function TimedResourcePlanner({
         reservationConflictsWithSession(reservation, startMs, endMs),
     );
   }, [durationMinutes, reservations, resourceId, resourceType, startsAt]);
+  const selectedSession = sessions.find(
+    (session) => session.resourceType === resourceType && session.resourceId === resourceId,
+  );
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -180,9 +183,14 @@ export function TimedResourcePlanner({
               Cannot book: protect this table starting one hour before {formatTime(selectedConflict.startAt)} for {selectedConflict.eventName}.
             </div>
           )}
+          {selectedSession && (
+            <p className="text-sm text-amber-300" role="status">
+              This shuffleboard still has a session. Collect the equipment and clear that session before starting another.
+            </p>
+          )}
           <button
             type="submit"
-            disabled={busyKey !== null || Boolean(selectedConflict)}
+            disabled={busyKey !== null || Boolean(selectedConflict) || Boolean(selectedSession)}
             className="rounded-xl bg-white px-4 py-3 text-sm font-semibold text-neutral-950 disabled:opacity-60"
           >
             Add session
@@ -330,7 +338,7 @@ export function TimedResourcePlanner({
                     <button
                       type="button"
                       disabled={busyKey === `${resourceType}:${resource.id}`}
-                      onClick={() => void onClear(resourceType, resource.id)}
+                      onClick={() => void onClear(resourceType, resource.id, session.sessionId)}
                       className="mt-4 w-full rounded-xl border border-red-500/40 px-3 py-2 text-sm font-semibold text-red-200 hover:bg-red-500/10 disabled:opacity-60"
                     >
                       {new Date(session.endsAt).getTime() <= nowMs

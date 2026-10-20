@@ -6,6 +6,7 @@ import {
   getTimedResourceSessions,
   saveTimedResourceSession,
   TIMED_RESOURCES,
+  ResourceSessionConflict,
 } from "@/lib/resource-sessions";
 import { getStoredEntertainmentSchedule } from "@/lib/entertainment-schedule";
 import {
@@ -38,6 +39,15 @@ const saveSchema = resourceSchema.and(
     durationMinutes: z.union([z.literal(30), z.literal(60), z.literal(120)]),
   }),
 );
+
+const clearSchema = resourceSchema.and(z.object({ sessionId: z.uuid() }));
+
+function sessionConflictResponse() {
+  return NextResponse.json(
+    { error: "This resource session changed. Refresh the list and check the current session before trying again." },
+    { status: 409 },
+  );
+}
 
 export async function GET(request: Request) {
   if (!verifyStaffSecret(request)) {
@@ -76,6 +86,7 @@ export async function POST(request: Request) {
     if (
       !schedule ||
       !Number.isFinite(scheduleAgeMs) ||
+      scheduleAgeMs < 0 ||
       scheduleAgeMs > SCHEDULE_PROTECTION_MAX_AGE_MS
     ) {
       return NextResponse.json(
@@ -103,6 +114,7 @@ export async function POST(request: Request) {
       session: await saveTimedResourceSession(parsed.data),
     });
   } catch (error) {
+    if (error instanceof ResourceSessionConflict) return sessionConflictResponse();
     console.error("[resource sessions:save]", error);
     return NextResponse.json(
       { error: "Could not save session" },
@@ -116,16 +128,18 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   try {
-    const parsed = resourceSchema.safeParse(await request.json());
+    const parsed = clearSchema.safeParse(await request.json());
     if (!parsed.success) {
       return NextResponse.json({ error: "Invalid resource" }, { status: 400 });
     }
     await clearTimedResourceSession(
       parsed.data.resourceType,
       parsed.data.resourceId,
+      parsed.data.sessionId,
     );
     return NextResponse.json({ ok: true });
   } catch (error) {
+    if (error instanceof ResourceSessionConflict) return sessionConflictResponse();
     console.error("[resource sessions:clear]", error);
     return NextResponse.json(
       { error: "Could not clear session" },

@@ -677,11 +677,16 @@ export default function StaffPage() {
       if (!res.ok) {
         const data = await res.json();
         alert(data.error ?? "Could not add session");
+        if (res.status === 409) await fetchQueues(false);
         return false;
       }
       await fetchQueues(false);
       setNowMs(Date.now());
       return true;
+    } catch {
+      alert("The save could not be confirmed. Refresh the session list before trying again.");
+      await fetchQueues(false);
+      return false;
     } finally {
       setResourceBusyKey(null);
     }
@@ -690,6 +695,7 @@ export default function StaffPage() {
   async function clearResourceSession(
     resourceType: TimedResourceType,
     resourceId: string,
+    sessionId: string,
   ) {
     const key = `${resourceType}:${resourceId}`;
     setResourceBusyKey(key);
@@ -697,15 +703,19 @@ export default function StaffPage() {
       const res = await fetch("/api/staff/resource-sessions", {
         method: "DELETE",
         headers: headers(),
-        body: JSON.stringify({ resourceType, resourceId }),
+        body: JSON.stringify({ resourceType, resourceId, sessionId }),
       });
       if (!res.ok) {
         const data = await res.json();
         alert(data.error ?? "Could not clear session");
+        if (res.status === 409) await fetchQueues(false);
         return;
       }
       await fetchQueues(false);
       setNowMs(Date.now());
+    } catch {
+      alert("The clear could not be confirmed. Refresh the session list before trying again.");
+      await fetchQueues(false);
     } finally {
       setResourceBusyKey(null);
     }

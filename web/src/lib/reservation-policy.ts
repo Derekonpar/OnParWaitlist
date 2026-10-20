@@ -42,8 +42,9 @@ export function reservationConflictsWithSession(
   if (!reservationBlocksAvailability(reservation)) return false;
   const reservationStartMs = new Date(reservation.startAt).getTime();
   const reservationEndMs = new Date(reservation.endAt).getTime();
-  if (!Number.isFinite(reservationStartMs) || !Number.isFinite(reservationEndMs)) {
-    return false;
+  if (!Number.isFinite(reservationStartMs) || !Number.isFinite(reservationEndMs) || reservationEndMs <= reservationStartMs) {
+    // A known reservation with unverified timing cannot prove this resource free.
+    return true;
   }
   return (
     sessionStartMs < reservationEndMs &&

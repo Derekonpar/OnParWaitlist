@@ -1,5 +1,6 @@
 -- Current timed checkouts for pool tables and shuffleboards.
 create table if not exists activity_resource_sessions (
+  session_id uuid not null default gen_random_uuid() unique,
   resource_type text not null
     check (resource_type in ('pool', 'shuffleboard')),
   resource_id text not null,

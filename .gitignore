@@ -23,6 +23,7 @@ web/data/
 **/DerivedData/
 
 # Logs
+supabase/.temp/
 *.log
 npm-debug.log*
 
