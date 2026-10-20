@@ -73,8 +73,11 @@ Mini Golf remains uncapped and is not added to these timed resource controls.
 
 `../supabase/migrations/20261020205626_timed_resource_session_identity.sql` adds a
 non-null UUID identity and uniqueness constraint to existing Waitlist sessions.
-It preserves guests, occupancy and existing clocks. It is **unapplied** and is
-separate from Event Host PR #3's source-only database handoff.
+It preserves guests, occupancy and existing clocks. **Production application
+requires owner approval** and is separate from Event Host PR #3's source-only
+database handoff. The repository's existing Supabase Git integration may run it
+automatically on a disposable PR branch. Inspect that branch's exact migration
+result; creation of a preview branch alone is not successful schema acceptance.
 
 Before deployment, the owner must identify the actual Waitlist database, compare
 its session-table schema/history, approve only this additive migration and
@@ -88,8 +91,9 @@ Deploy the matching server and staff UI together after database verification,
 retire older server versions, and refresh open staff screens. Old clear requests
 without a session ID are rejected. A missing migration fails closed; there is no
 legacy upsert/delete fallback. Restoring old application code also restores its
-unsafe write behavior. No hosted migration or production release is included in
-this draft.
+unsafe write behavior. No manual hosted migration or production release is
+included in this draft; automated PR-branch migration results must be checked
+separately.
 
 This closes Waitlist's local checkout overwrite/stale-clear race. It does not
 atomically reserve against Event Host or REX, establish complete upstream
