@@ -10,10 +10,7 @@ import {
 import { formatBookingSummary } from "@/lib/booking";
 import type { WaitlistEntry } from "@/lib/types";
 import type { EntertainmentReservation } from "@/lib/entertainment-schedule";
-import {
-  reservationBlocksAvailability,
-  reservationProtectionActive,
-} from "@/lib/reservation-policy";
+import { reservationBlocksAvailability } from "@/lib/reservation-policy";
 
 interface BowlingPlannerProps {
   snapshot: BowlingLaneSnapshot | null;
@@ -139,14 +136,9 @@ export function BowlingPlanner({ snapshot, entries, reservations = [] }: Bowling
           const activeReservation = laneReservations.find(
             (reservation) => new Date(reservation.startAt).getTime() <= nowMs,
           );
-          const protectedReservation = laneReservations.find((reservation) =>
-            reservationProtectionActive(reservation, nowMs),
-          );
           const nextReservation =
-            activeReservation ?? protectedReservation ?? laneReservations[0];
-          const reservationWarning = Boolean(
-            activeReservation || protectedReservation,
-          );
+            activeReservation ?? laneReservations[0];
+          const reservationWarning = Boolean(activeReservation);
           return (
             <div
               key={lane.lane}
@@ -185,8 +177,6 @@ export function BowlingPlanner({ snapshot, entries, reservations = [] }: Bowling
                   <p className={`text-[9px] font-medium ${reservationWarning ? "text-white" : "text-violet-100"}`}>
                     {activeReservation
                       ? `DO NOT USE · Reserved until ${reservationTime(nextReservation.endAt)}`
-                      : protectedReservation
-                        ? `DO NOT USE · Reserved at ${reservationTime(nextReservation.startAt)}`
                       : `Upcoming ${reservationTime(nextReservation.startAt)}`}
                   </p>
                 </div>

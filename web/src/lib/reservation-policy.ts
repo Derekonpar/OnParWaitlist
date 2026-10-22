@@ -1,7 +1,5 @@
 import type { EntertainmentReservation } from "./entertainment-schedule";
 
-export const RESERVATION_PROTECTION_MS = 60 * 60 * 1000;
-
 export function reservationBlocksAvailability(
   _reservation: EntertainmentReservation,
 ): boolean {
@@ -10,19 +8,6 @@ export function reservationBlocksAvailability(
   // present in structured Tripleseat selections, so they protect capacity too.
   // needsReview remains a visible staff warning; it does not discard the lane.
   return true;
-}
-
-export function reservationProtectionActive(
-  reservation: EntertainmentReservation,
-  nowMs: number,
-): boolean {
-  if (!reservationBlocksAvailability(reservation)) return false;
-  const startMs = new Date(reservation.startAt).getTime();
-  return (
-    Number.isFinite(startMs) &&
-    nowMs >= startMs - RESERVATION_PROTECTION_MS &&
-    nowMs < startMs
-  );
 }
 
 export function timedResourceReservationIds(
@@ -42,11 +27,12 @@ export function reservationConflictsWithSession(
   if (!reservationBlocksAvailability(reservation)) return false;
   const reservationStartMs = new Date(reservation.startAt).getTime();
   const reservationEndMs = new Date(reservation.endAt).getTime();
-  if (!Number.isFinite(reservationStartMs) || !Number.isFinite(reservationEndMs)) {
-    return false;
+  if (!Number.isFinite(reservationStartMs) || !Number.isFinite(reservationEndMs) || reservationEndMs <= reservationStartMs) {
+    // A known reservation with unverified timing cannot prove this resource free.
+    return true;
   }
   return (
     sessionStartMs < reservationEndMs &&
-    sessionEndMs > reservationStartMs - RESERVATION_PROTECTION_MS
+    sessionEndMs > reservationStartMs
   );
 }

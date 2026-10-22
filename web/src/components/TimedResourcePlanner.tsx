@@ -10,7 +10,6 @@ import type { EntertainmentReservation } from "@/lib/entertainment-schedule";
 import {
   reservationBlocksAvailability,
   reservationConflictsWithSession,
-  reservationProtectionActive,
   timedResourceReservationIds,
 } from "@/lib/reservation-policy";
 
@@ -56,7 +55,7 @@ export function TimedResourcePlanner({
     startsAt: string;
     durationMinutes: 30 | 60 | 120;
   }) => Promise<boolean>;
-  onClear: (resourceType: TimedResourceType, resourceId: string) => Promise<void>;
+  onClear: (resourceType: TimedResourceType, resourceId: string, sessionId: string) => Promise<void>;
 }) {
   const resources = TIMED_RESOURCES[resourceType];
   const [resourceId, setResourceId] = useState(resources[0].id);
@@ -88,6 +87,9 @@ export function TimedResourcePlanner({
         reservationConflictsWithSession(reservation, startMs, endMs),
     );
   }, [durationMinutes, reservations, resourceId, resourceType, startsAt]);
+  const selectedSession = sessions.find(
+    (session) => session.resourceType === resourceType && session.resourceId === resourceId,
+  );
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -177,12 +179,17 @@ export function TimedResourcePlanner({
           </div>
           {selectedConflict && (
             <div className="rounded-xl border border-red-400 bg-red-700 px-4 py-3 text-sm font-semibold text-white" role="alert">
-              Cannot book: protect this table starting one hour before {formatTime(selectedConflict.startAt)} for {selectedConflict.eventName}.
+              Cannot book: this session overlaps {selectedConflict.eventName}, reserved from {formatTime(selectedConflict.startAt)} to {formatTime(selectedConflict.endAt)}.
             </div>
+          )}
+          {selectedSession && (
+            <p className="text-sm text-amber-300" role="status">
+              This shuffleboard still has a session. Collect the equipment and clear that session before starting another.
+            </p>
           )}
           <button
             type="submit"
-            disabled={busyKey !== null || Boolean(selectedConflict)}
+            disabled={busyKey !== null || Boolean(selectedConflict) || Boolean(selectedSession)}
             className="rounded-xl bg-white px-4 py-3 text-sm font-semibold text-neutral-950 disabled:opacity-60"
           >
             Add session
@@ -217,14 +224,9 @@ export function TimedResourcePlanner({
             const activeReservation = upcomingReservations.find(
               (reservation) => new Date(reservation.startAt).getTime() <= nowMs,
             );
-            const protectedReservation = upcomingReservations.find((reservation) =>
-              reservationProtectionActive(reservation, nowMs),
-            );
             const nextReservation =
-              activeReservation ?? protectedReservation ?? upcomingReservations[0];
-            const reservationWarning = Boolean(
-              activeReservation || protectedReservation,
-            );
+              activeReservation ?? upcomingReservations[0];
+            const reservationWarning = Boolean(activeReservation);
             const poolDuration = poolDurations[resource.id] ?? 60;
             const poolStartMs = nowMs + WALK_TO_RESOURCE_BUFFER_MS;
             const poolEndMs = poolStartMs + poolDuration * 60_000;
@@ -260,8 +262,6 @@ export function TimedResourcePlanner({
                     <p className={`mt-0.5 text-[11px] font-medium ${reservationWarning ? "text-white" : "text-violet-100"}`}>
                       {activeReservation
                         ? `DO NOT USE · Reserved until ${formatTime(nextReservation.endAt)}`
-                        : protectedReservation
-                          ? `DO NOT USE · Reserved at ${formatTime(nextReservation.startAt)}`
                         : `Upcoming ${formatTime(nextReservation.startAt)}–${formatTime(nextReservation.endAt)}`}
                     </p>
                     {nextReservation.needsReview && (
@@ -330,7 +330,7 @@ export function TimedResourcePlanner({
                     <button
                       type="button"
                       disabled={busyKey === `${resourceType}:${resource.id}`}
-                      onClick={() => void onClear(resourceType, resource.id)}
+                      onClick={() => void onClear(resourceType, resource.id, session.sessionId)}
                       className="mt-4 w-full rounded-xl border border-red-500/40 px-3 py-2 text-sm font-semibold text-red-200 hover:bg-red-500/10 disabled:opacity-60"
                     >
                       {new Date(session.endsAt).getTime() <= nowMs
