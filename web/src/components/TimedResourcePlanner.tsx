@@ -10,7 +10,6 @@ import type { EntertainmentReservation } from "@/lib/entertainment-schedule";
 import {
   reservationBlocksAvailability,
   reservationConflictsWithSession,
-  reservationProtectionActive,
   timedResourceReservationIds,
 } from "@/lib/reservation-policy";
 
@@ -180,7 +179,7 @@ export function TimedResourcePlanner({
           </div>
           {selectedConflict && (
             <div className="rounded-xl border border-red-400 bg-red-700 px-4 py-3 text-sm font-semibold text-white" role="alert">
-              Cannot book: protect this table starting one hour before {formatTime(selectedConflict.startAt)} for {selectedConflict.eventName}.
+              Cannot book: this session overlaps {selectedConflict.eventName}, reserved from {formatTime(selectedConflict.startAt)} to {formatTime(selectedConflict.endAt)}.
             </div>
           )}
           {selectedSession && (
@@ -225,14 +224,9 @@ export function TimedResourcePlanner({
             const activeReservation = upcomingReservations.find(
               (reservation) => new Date(reservation.startAt).getTime() <= nowMs,
             );
-            const protectedReservation = upcomingReservations.find((reservation) =>
-              reservationProtectionActive(reservation, nowMs),
-            );
             const nextReservation =
-              activeReservation ?? protectedReservation ?? upcomingReservations[0];
-            const reservationWarning = Boolean(
-              activeReservation || protectedReservation,
-            );
+              activeReservation ?? upcomingReservations[0];
+            const reservationWarning = Boolean(activeReservation);
             const poolDuration = poolDurations[resource.id] ?? 60;
             const poolStartMs = nowMs + WALK_TO_RESOURCE_BUFFER_MS;
             const poolEndMs = poolStartMs + poolDuration * 60_000;
@@ -268,8 +262,6 @@ export function TimedResourcePlanner({
                     <p className={`mt-0.5 text-[11px] font-medium ${reservationWarning ? "text-white" : "text-violet-100"}`}>
                       {activeReservation
                         ? `DO NOT USE · Reserved until ${formatTime(nextReservation.endAt)}`
-                        : protectedReservation
-                          ? `DO NOT USE · Reserved at ${formatTime(nextReservation.startAt)}`
                         : `Upcoming ${formatTime(nextReservation.startAt)}–${formatTime(nextReservation.endAt)}`}
                     </p>
                     {nextReservation.needsReview && (

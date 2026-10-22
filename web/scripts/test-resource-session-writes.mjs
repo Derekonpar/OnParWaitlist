@@ -139,9 +139,9 @@ test("missing, stale, invalid and future schedule evidence cannot start a sessio
   }
 });
 
-test("existing event protection and invalid reservation clocks prevent a conflicting start", async () => {
+test("actual event overlaps and invalid reservation clocks prevent a conflicting start", async () => {
   for (const [startAt, endAt] of [
-    ["2026-10-20T21:30:00Z", "2026-10-20T22:00:00Z"], // one-hour protection overlaps
+    ["2026-10-20T20:59:00Z", "2026-10-20T22:00:00Z"], // actual overlap
     ["invalid", "2026-10-20T22:00:00Z"],
     ["2026-10-20T22:00:00Z", "2026-10-20T21:30:00Z"],
   ]) {
@@ -150,5 +150,36 @@ test("existing event protection and invalid reservation clocks prevent a conflic
     });
     assert.equal((await route.POST(request("POST", input))).status, 409);
     assert.equal(requests.length, 0);
+  }
+});
+
+
+test("back-to-back timed sessions are allowed at either event boundary", async () => {
+  for (const [startAt, endAt] of [
+    ["2026-10-20T21:00:00Z", "2026-10-20T22:00:00Z"],
+    ["2026-10-20T19:00:00Z", "2026-10-20T20:00:00Z"],
+  ]) {
+    const { route, requests } = setup(() => Response.json(row), {
+      schedule: { fetchedAt: new Date().toISOString(), reservations: [{ resourceId: "pool-1", eventName: "Fictional event", startAt, endAt }] },
+    });
+    assert.equal((await route.POST(request("POST", input))).status, 200);
+    assert.equal(requests.length, 1);
+  }
+});
+
+test("bowling and darts planner windows begin at the actual reservation time", () => {
+  const { addScheduleWindows } = load("../src/lib/entertainment-schedule.ts", {
+    "./reservation-policy": load("../src/lib/reservation-policy.ts"),
+    "./schedule-evidence": { captureScheduleEvidence: () => null },
+    "./env": { readEnv: () => undefined }, "./supabase": { getSupabaseAdmin: () => null },
+  });
+  for (const activity of ["bowling", "darts"]) {
+    const now = Date.parse("2026-10-20T20:00:00Z");
+    const scheduled = { id: "event-1", resourceId: `${activity}-1`, eventName: "Fictional event", startAt: "2026-10-20T21:00:00Z", endAt: "2026-10-20T22:00:00Z" };
+    const [lane] = addScheduleWindows(activity, [{ id: "1", availableAtSeconds: 0 }], [scheduled], now);
+    assert.equal(lane.availableAtSeconds, 0);
+    assert.equal(lane.unavailableWindows[0].startAtSeconds, 3600);
+    const [active] = addScheduleWindows(activity, [{ id: "1", availableAtSeconds: 0 }], [scheduled], now + 3600000);
+    assert.equal(active.availableAtSeconds, 3600);
   }
 });

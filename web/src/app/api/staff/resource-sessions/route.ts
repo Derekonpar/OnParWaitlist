@@ -105,7 +105,7 @@ export async function POST(request: Request) {
     if (conflict) {
       return NextResponse.json(
         {
-          error: `This resource is protected starting one hour before the ${conflict.eventName} reservation.`,
+          error: `This session overlaps the ${conflict.eventName} reservation.`,
         },
         { status: 409 },
       );

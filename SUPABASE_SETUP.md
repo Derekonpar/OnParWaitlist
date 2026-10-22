@@ -58,3 +58,19 @@ In Supabase you can:
 - Export `customers` as CSV
 - Run SQL, e.g. `select * from customers where rewards_opt_in = true`
 - Connect a BI tool or spreadsheet to Supabase later
+
+
+## October 22 entertainment policy alignment (draft)
+
+Carlos approved seating-only buffers: entertainment uses actual booking intervals,
+so an adjacent walk-in may end at an event’s start or begin at its end. Bowling
+and darts planner windows and pool/shuffleboard API checks now use that rule.
+Upcoming events remain visible; only active reservations display the current-use
+warning. Seating buffers remain in Event Host, and Mini Golf remains uncapped.
+
+This app change adds no database migration. It remains coupled to the existing
+unapplied session-identity migration in this draft branch. Its plain-insert and
+exact-session-clear safeguards, invalid-time rejection and stale-source gates
+remain in place. The existing Supabase Preview missing-table baseline failure
+still requires owner review of schema/history before hosted rollout. Local tests
+and a successful build do not establish shared cross-application protection.

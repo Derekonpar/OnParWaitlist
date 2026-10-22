@@ -6,10 +6,7 @@ import type {
   ResourceLaneAvailability,
   ResourceUnavailableWindow,
 } from "./resource-scheduler";
-import {
-  RESERVATION_PROTECTION_MS,
-  reservationBlocksAvailability,
-} from "./reservation-policy";
+import { reservationBlocksAvailability } from "./reservation-policy";
 
 export interface EntertainmentReservation {
   id: string;
@@ -224,21 +221,15 @@ export function addScheduleWindows(
   return lanes.map((lane) => {
     const ids = canonicalResourceIds(activity, lane.id);
     const windows: ResourceUnavailableWindow[] = reservations
-      // A manually entered Event Host row that still needs review is
-      // informational, not confirmed capacity. Keep it visible in staff UI,
-      // but do not create a false customer wait until it is reviewed.
+      // Keep known assignments occupied even while their details need review.
       .filter(reservationBlocksAvailability)
       .filter((reservation) => ids.includes(reservation.resourceId.toLowerCase()))
       .map((reservation) => ({
-        // Protect the resource for a full hour before the reservation so a
-        // walk-in session cannot be placed where it would run into setup time.
+        // Carlos approved seating-only buffers; entertainment uses actual intervals.
         startAtSeconds: Math.max(
           0,
           Math.floor(
-            (new Date(reservation.startAt).getTime() -
-              RESERVATION_PROTECTION_MS -
-              nowMs) /
-              1000,
+            (new Date(reservation.startAt).getTime() - nowMs) / 1000,
           ),
         ),
         endAtSeconds: Math.max(0, Math.ceil((new Date(reservation.endAt).getTime() - nowMs) / 1000)),
