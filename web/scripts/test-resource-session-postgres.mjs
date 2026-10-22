@@ -41,17 +41,78 @@ try {
   const [admin, first, second, blocker] = clients;
   assert.equal(new Set(clients.map((c) => c.pid)).size, 4);
   console.log(`Isolated PostgreSQL ${(await admin.query("show server_version")).rows[0].server_version}; four connections`);
+  const inspectionSql = await readFile(new URL("../../supabase/inspect_resource_session_baseline.sql", import.meta.url), "utf8");
+  const inspect = async () => {
+    const results = await admin.query(inspectionSql);
+    const report = results.find((result) => result.rows[0]?.report)?.rows[0].report;
+    assert.ok(report);
+    assert.equal(report.transactionReadOnly, "on");
+    assert.equal(report.mayApply, false);
+    assert.equal(report.requiresOwnerReview, true);
+    assert.equal((await admin.query("show transaction_read_only")).rows[0].transaction_read_only, "off");
+    return report;
+  };
+  await admin.query("create schema decoy; create table decoy.activity_resource_sessions(secret text); set search_path=decoy,public");
+  const absent = await inspect();
+  assert.equal(absent.exists, false, "a search-path shadow is not the public session table");
+  assert.deepEqual(absent.columns, []);
+  assert.deepEqual(absent.constraints, []);
+  assert.deepEqual(absent.apiRolePrivileges, []);
+  assert.equal(absent.migrationHistoryRelationExists, false);
+  await admin.query("set search_path=public; drop schema decoy cascade");
+  console.log("PASS baseline inspection handles absent tables/history and ignores search-path shadows"); passed++;
+
   const schema = await readFile(new URL("../../supabase/add_activity_resource_sessions.sql", import.meta.url), "utf8");
   const legacySchema = schema.replace(/^  session_id uuid[^\n]*\n/m, "");
   assert.notEqual(legacySchema, schema);
   await admin.query(legacySchema);
   await create(admin, "Existing guest");
   const before = (await admin.query("select * from activity_resource_sessions")).rows[0];
+  const legacy = await inspect();
+  assert.equal(legacy.exists, true);
+  assert.equal(legacy.relationKind, "r");
+  assert.equal(legacy.rowSecurityEnabled, false);
+  assert.ok(!legacy.columns.some((column) => column.name === "session_id"));
+  assert.ok(legacy.constraints.some((constraint) => constraint.type === "p" && constraint.definition === "PRIMARY KEY (resource_type, resource_id)"));
+  assert.deepEqual((await admin.query("select * from activity_resource_sessions")).rows[0], before);
+  assert.ok(!JSON.stringify(legacy).includes("Existing guest"));
+  console.log("PASS baseline inspection reports the legacy schema without reading or changing occupancy"); passed++;
+
   await admin.query(await readFile(new URL("../../supabase/migrations/20261020205626_timed_resource_session_identity.sql", import.meta.url), "utf8"));
   const { session_id: migratedId, ...after } = (await admin.query("select * from activity_resource_sessions")).rows[0];
   assert.match(migratedId, /^[0-9a-f-]{36}$/);
   assert.deepEqual(after, before, "migration must preserve existing occupancy and clocks");
   console.log("PASS migration assigns identity without changing existing occupancy"); passed++;
+
+  await admin.query("create schema supabase_migrations; create table supabase_migrations.schema_migrations(version text primary key, statements text[]); insert into supabase_migrations.schema_migrations values ('fixture', array['PRIVATE_HISTORY_SENTINEL'])");
+  const current = await inspect();
+  assert.equal(current.migrationHistoryRelationExists, true);
+  assert.ok(current.columns.some((column) => column.name === "session_id" && column.type === "uuid" && column.notNull && column.default === "gen_random_uuid()"));
+  assert.ok(current.constraints.some((constraint) => constraint.definition === "UNIQUE (session_id)" && constraint.validated));
+  assert.ok(current.indexes.some((index) => index.unique && index.valid && index.ready && index.definition.includes("(session_id)")));
+  assert.ok(!JSON.stringify(current).includes("PRIVATE_HISTORY_SENTINEL"));
+  console.log("PASS baseline inspection reports identity constraints/indexes without exporting history SQL"); passed++;
+
+  await admin.query("create role anon; grant usage on schema public to anon; grant update (ends_at) on activity_resource_sessions to anon; alter table activity_resource_sessions enable row level security; create policy fixture_read on activity_resource_sessions for select to anon using (true)");
+  const privileges = await inspect();
+  assert.equal(privileges.rowSecurityEnabled, true);
+  assert.equal(privileges.apiRolePrivileges[0].role, "anon");
+  assert.equal(privileges.apiRolePrivileges[0].updateAnyColumn, true);
+  assert.equal(privileges.apiRolePrivileges[0].insertAnyColumn, false);
+  assert.equal(privileges.apiRolePrivileges[0].delete, false);
+  assert.equal(privileges.policies[0].name, "fixture_read");
+  assert.deepEqual(privileges.policies[0].roles, ["anon"]);
+  await admin.query("drop policy fixture_read on activity_resource_sessions; alter table activity_resource_sessions disable row level security; revoke all on activity_resource_sessions from anon; revoke update (ends_at) on activity_resource_sessions from anon; revoke usage on schema public from anon; drop role anon");
+  console.log("PASS baseline inspection exposes column grants and RLS policies separately"); passed++;
+
+  const attemptWrite = inspectionSql.replace(/rollback;\s*$/i,
+    "delete from public.activity_resource_sessions; rollback;");
+  assert.notEqual(attemptWrite, inspectionSql);
+  await assert.rejects(admin.query(attemptWrite), (error) => error.code === "25006");
+  await admin.query("rollback");
+  assert.equal((await admin.query("select session_id from activity_resource_sessions")).rows[0].session_id, migratedId);
+  assert.equal((await admin.query("select count(*) from supabase_migrations.schema_migrations")).rows[0].count, "1");
+  console.log("PASS diagnostic transaction rejects writes and preserves sessions/history"); passed++;
 
   const waitForLock = async (...waiting) => {
     const deadline = Date.now() + 5000;
@@ -131,7 +192,7 @@ try {
     await assert.rejects(create(second, "Retry guest"), (error) => error.code === "23505");
     assert.equal((await admin.query("select session_id from activity_resource_sessions")).rows[0].session_id, original.session_id);
   });
-  console.log(`${passed} PostgreSQL migration/concurrency scenarios passed`);
+  console.log(`${passed} PostgreSQL inspection/migration/concurrency scenarios passed`);
 } finally {
   for (const client of clients) { try { await client.query("rollback"); await client.end(); } catch {} }
   try { await database.stop(); } finally { await rm(directory, { recursive: true, force: true }); }

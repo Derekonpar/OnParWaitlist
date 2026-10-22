@@ -1,5 +1,10 @@
 # Supabase setup (customer + waitlist database)
 
+For the existing project's failed Supabase Preview, start with the
+[read-only session baseline review](supabase/RESOURCE_SESSION_BASELINE_REVIEW.md).
+The setup instructions below are not a migration-history repair procedure; do
+not rerun the full schema to bypass the missing-table failure.
+
 Your waitlist saves **every guest** to Supabase — name, phone, visit count, SMS opt-in, and rewards opt-in — so you can analyze customers and run a rewards program later.
 
 ## 1. Create tables (one time)
